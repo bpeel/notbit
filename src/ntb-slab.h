@@ -21,12 +21,6 @@
 
 #include <stddef.h>
 
-#ifdef __GNUC__
-#define NTB_SLAB_ALIGNOF(x) __alignof__ (x)
-#else
-#error "FIXME: add an implementation of the alignof macro for this compiler"
-#endif
-
 struct ntb_slab;
 
 struct ntb_slab_allocator {

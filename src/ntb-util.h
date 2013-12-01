@@ -31,6 +31,8 @@
 #define NTB_PRINTF_FORMAT(string_index, first_to_check)
 #endif
 
+#define NTB_ALIGNOF(x) ALIGNOF_NAME(x)
+
 #define NTB_STRUCT_OFFSET(container, member) \
   ((size_t) &((container *) 0)->member)
 

@@ -10,6 +10,24 @@ AC_C_BIGENDIAN([AC_DEFINE([HAVE_BIG_ENDIAN], [1], [System is big-endian])],
                [AC_DEFINE([HAVE_LITTLE_ENDIAN], [1],
                           [System is little-endian])])
 
+alignof_name=""
+AC_MSG_CHECKING([for alignof])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([const int thing = alignof (int);],
+                                   [(void) 0])],
+                  [alignof_name="alignof"
+                   AC_MSG_RESULT([yes])],
+                  [AC_MSG_RESULT([no])])
+AC_MSG_CHECKING([for __alignof__])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([const int thing = __alignof__ (int);],
+                                   [(void) 0])],
+                  [alignof_name="__alignof__"
+                   AC_MSG_RESULT([yes])],
+                  [AC_MSG_RESULT([no])])
+AS_IF([test "x$alignof_name" = "x"],
+      [AC_MSG_ERROR([No operator for alignof found])])
+AC_DEFINE_UNQUOTED([ALIGNOF_NAME], [$alignof_name],
+                   [The name of the alignof operator])
+
 AM_INIT_AUTOMAKE([1.9 foreign no-dist-gzip dist-xz tar-ustar])
 
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
