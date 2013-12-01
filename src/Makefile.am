@@ -10,6 +10,8 @@ notbit_SOURCES = \
 	ntb-error.h \
 	ntb-list.c \
 	ntb-list.h \
+	ntb-main-context.c \
+	ntb-main-context.h \
 	ntb-proto.c \
 	ntb-proto.h \
 	ntb-slab.c \

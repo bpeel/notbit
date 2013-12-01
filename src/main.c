@@ -19,9 +19,24 @@
 #include "config.h"
 
 #include <stdlib.h>
+#include <stdio.h>
+
+#include "ntb-main-context.h"
 
 int
 main(int argc, char **argv)
 {
-  return EXIT_SUCCESS;
+        struct ntb_main_context *mc;
+        struct ntb_error *error = NULL;
+
+        mc = ntb_main_context_get_default(&error);
+
+        if (mc == NULL) {
+                fprintf(stderr, "%s\n", error->message);
+                return EXIT_FAILURE;
+        }
+
+        ntb_main_context_free(mc);
+
+        return EXIT_SUCCESS;
 }
