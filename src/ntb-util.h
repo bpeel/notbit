@@ -85,6 +85,9 @@
 #define NTB_UINT64_TO_LE(x) NTB_UINT64_FROM_LE(x)
 #define NTB_UINT64_TO_BE(x) NTB_UINT64_FROM_BE(x)
 
+#define NTB_STMT_START do
+#define NTB_STMT_END while (0)
+
 void *
 ntb_alloc(size_t size);
 
@@ -96,5 +99,30 @@ ntb_fatal(const char *format, ...);
 
 NTB_PRINTF_FORMAT(1, 2) void
 ntb_warning(const char *format, ...);
+
+#define ntb_return_if_fail(condition)                           \
+        NTB_STMT_START {                                        \
+                if (!(condition)) {                             \
+                        ntb_warning("assertion '%s' failed",    \
+                                    #condition);                \
+                        return;                                 \
+                }                                               \
+        } NTB_STMT_END
+
+#define ntb_return_val_if_fail(condition, val)                  \
+        NTB_STMT_START {                                        \
+                if (!(condition)) {                             \
+                        ntb_warning("assertion '%s' failed",    \
+                                    #condition);                \
+                        return (val);                           \
+                }                                               \
+        } NTB_STMT_END
+
+#define ntb_warn_if_reached()                                           \
+        NTB_STMT_START {                                                \
+                ntb_warning("Line %i in %s should not be reached",      \
+                            __LINE__,                                   \
+                            __FILE__);                                  \
+        } NTB_STMT_END
 
 #endif /* NTB_UTIL_H */
