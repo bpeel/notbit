@@ -35,19 +35,49 @@
 struct ntb_error_domain
 ntb_connection_error;
 
+struct ntb_connection {
+        struct ntb_netaddress remote_address;
+        char *remote_address_string;
+        struct ntb_main_context_source *source;
+        int sock;
+
+        struct ntb_buffer in_buf;
+        struct ntb_buffer out_buf;
+
+        struct ntb_signal message_signal;
+
+        bool connect_succeeded;
+};
+
 NTB_SLICE_ALLOCATOR(struct ntb_connection,
                     ntb_connection_allocator);
 
 static void
+emit_message(struct ntb_connection *conn,
+             enum ntb_connection_message_type type,
+             struct ntb_connection_message *message)
+{
+        message->type = type;
+        message->connection = conn;
+        ntb_signal_emit(&conn->message_signal, message);
+}
+
+static void
 set_error_state(struct ntb_connection *conn)
 {
+        struct ntb_connection_message message;
+
         /* Stop polling for further events */
         if (conn->source) {
                 ntb_main_context_remove_source(conn->source);
                 conn->source = NULL;
         }
 
-        ntb_signal_emit(&conn->error_signal, conn);
+        emit_message(conn,
+                     conn->connect_succeeded ?
+                     NTB_CONNECTION_MESSAGE_ERROR :
+                     NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
+                     &message);
 }
 
 static void
@@ -147,6 +177,11 @@ connection_poll_cb(struct ntb_main_context_source *source,
 {
         struct ntb_connection *conn = user_data;
 
+        /* If the connection ever becomes ready for writing then we
+         * know it has successfully connected */
+        if ((flags & NTB_MAIN_CONTEXT_POLL_OUT))
+                conn->connect_succeeded = true;
+
         if (flags & NTB_MAIN_CONTEXT_POLL_ERROR)
                 handle_error(conn);
         else if (flags & NTB_MAIN_CONTEXT_POLL_IN)
@@ -177,8 +212,9 @@ ntb_connection_new_for_socket(int sock,
         conn->sock = sock;
         conn->remote_address = *remote_address;
         conn->remote_address_string = ntb_netaddress_to_string(remote_address);
+        conn->connect_succeeded = false;
 
-        ntb_signal_init(&conn->error_signal);
+        ntb_signal_init(&conn->message_signal);
 
         conn->source = ntb_main_context_add_poll(NULL, /* context */
                                                  sock,
@@ -210,6 +246,12 @@ set_nonblock(int sock,
         }
 
         return true;
+}
+
+struct ntb_signal *
+ntb_connection_get_message_signal(struct ntb_connection *conn)
+{
+        return &conn->message_signal;
 }
 
 struct ntb_connection *
@@ -261,6 +303,7 @@ ntb_connection_accept(int server_sock,
 {
         struct ntb_netaddress address;
         struct ntb_netaddress_native native_address;
+        struct ntb_connection *conn;
         int sock;
 
         sock = accept(server_sock,
@@ -283,5 +326,9 @@ ntb_connection_accept(int server_sock,
 
         ntb_netaddress_from_native(&address, &native_address);
 
-        return ntb_connection_new_for_socket(sock, &address);
+        conn = ntb_connection_new_for_socket(sock, &address);
+
+        conn->connect_succeeded = true;
+
+        return conn;
 }

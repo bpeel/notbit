@@ -37,17 +37,17 @@ enum ntb_connection_error {
         NTB_CONNECTION_ERROR_ACCEPT
 };
 
-struct ntb_connection {
-        struct ntb_netaddress remote_address;
-        char *remote_address_string;
-        struct ntb_main_context_source *source;
-        int sock;
-
-        struct ntb_buffer in_buf;
-        struct ntb_buffer out_buf;
-
-        struct ntb_signal error_signal;
+enum ntb_connection_message_type {
+        NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
+        NTB_CONNECTION_MESSAGE_ERROR
 };
+
+struct ntb_connection_message {
+        enum ntb_connection_message_type type;
+        struct ntb_connection *connection;
+};
+
+struct ntb_connection *connection;
 
 struct ntb_connection *
 ntb_connection_connect(const struct ntb_netaddress *address,
@@ -59,5 +59,8 @@ ntb_connection_accept(int server_sock,
 
 void
 ntb_connection_free(struct ntb_connection *conn);
+
+struct ntb_signal *
+ntb_connection_get_message_signal(struct ntb_connection *conn);
 
 #endif /* NTB_CONNECTION_H */
