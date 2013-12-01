@@ -178,6 +178,8 @@ ntb_connection_new_for_socket(int sock,
         conn->remote_address = *remote_address;
         conn->remote_address_string = ntb_netaddress_to_string(remote_address);
 
+        ntb_signal_init(&conn->error_signal);
+
         conn->source = ntb_main_context_add_poll(NULL, /* context */
                                                  sock,
                                                  NTB_MAIN_CONTEXT_POLL_IN,
