@@ -241,7 +241,8 @@ ntb_connection_connect(const struct ntb_netaddress *address,
 
         if (connect(sock,
                     &native_address.sockaddr,
-                    native_address.length) == -1) {
+                    native_address.length) == -1 &&
+            errno != EINPROGRESS) {
                 ntb_set_error(error,
                               &ntb_connection_error,
                               NTB_CONNECTION_ERROR_CONNECT,
