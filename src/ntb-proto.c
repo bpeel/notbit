@@ -58,7 +58,7 @@ ntb_proto_get_16(const uint8_t *p)
 
         memcpy(&value, p, sizeof value);
 
-        return NTB_UINT16_FROM_LE(value);
+        return NTB_UINT16_FROM_BE(value);
 }
 
 uint32_t
@@ -68,7 +68,7 @@ ntb_proto_get_32(const uint8_t *p)
 
         memcpy(&value, p, sizeof value);
 
-        return NTB_UINT32_FROM_LE(value);
+        return NTB_UINT32_FROM_BE(value);
 }
 
 uint64_t
@@ -78,7 +78,7 @@ ntb_proto_get_64(const uint8_t *p)
 
         memcpy(&value, p, sizeof value);
 
-        return NTB_UINT64_FROM_LE(value);
+        return NTB_UINT64_FROM_BE(value);
 }
 
 bool
