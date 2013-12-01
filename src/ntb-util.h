@@ -88,6 +88,9 @@
 #define NTB_STMT_START do
 #define NTB_STMT_END while (0)
 
+#define NTB_N_ELEMENTS(array) \
+  (sizeof (array) / sizeof ((array)[0]))
+
 void *
 ntb_alloc(size_t size);
 
