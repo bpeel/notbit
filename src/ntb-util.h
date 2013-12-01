@@ -91,6 +91,9 @@
 void *
 ntb_alloc(size_t size);
 
+void *
+ntb_realloc(void *ptr, size_t size);
+
 void
 ntb_free(void *ptr);
 

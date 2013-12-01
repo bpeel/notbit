@@ -62,6 +62,20 @@ ntb_alloc(size_t size)
         return result;
 }
 
+void *
+ntb_realloc(void *ptr, size_t size)
+{
+        if (ptr == NULL)
+                return ntb_alloc(size);
+
+        ptr = realloc(ptr, size);
+
+        if (ptr == NULL)
+                ntb_fatal("Memory exhausted");
+
+        return ptr;
+}
+
 void
 ntb_free(void *ptr)
 {
