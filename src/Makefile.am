@@ -12,6 +12,8 @@ notbit_SOURCES = \
 	ntb-error.h \
 	ntb-list.c \
 	ntb-list.h \
+	ntb-log.c \
+	ntb-log.h \
 	ntb-main-context.c \
 	ntb-main-context.h \
 	ntb-proto.c \
@@ -27,4 +29,5 @@ notbit_SOURCES = \
 
 notbit_LDFLAGS = \
 	$(LIBCRYPTO_LIBS) \
+	-pthread \
 	$(NULL)
