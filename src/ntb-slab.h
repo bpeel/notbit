@@ -23,10 +23,15 @@
 
 struct ntb_slab;
 
+#define NTB_SLAB_SIZE 2048
+
 struct ntb_slab_allocator {
         struct ntb_slab *slabs;
         size_t slab_used;
 };
+
+#define NTB_SLAB_STATIC_INIT \
+        { .slabs = NULL, .slab_used = NTB_SLAB_SIZE }
 
 void
 ntb_slab_init(struct ntb_slab_allocator *allocator);

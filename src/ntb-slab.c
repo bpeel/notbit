@@ -23,8 +23,6 @@
 #include "ntb-slab.h"
 #include "ntb-util.h"
 
-#define NTB_SLAB_SIZE 2048
-
 /* All of the allocations are made out of slabs of 2kb. That way all
  * of the memory can be freed by just freeing the few slabs */
 struct ntb_slab {
@@ -34,8 +32,9 @@ struct ntb_slab {
 void
 ntb_slab_init(struct ntb_slab_allocator *allocator)
 {
-        allocator->slabs = NULL;
-        allocator->slab_used = NTB_SLAB_SIZE;
+        static const struct ntb_slab_allocator init = NTB_SLAB_STATIC_INIT;
+
+        *allocator = init;
 }
 
 static size_t
