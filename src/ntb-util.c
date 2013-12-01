@@ -65,5 +65,6 @@ ntb_alloc(size_t size)
 void
 ntb_free(void *ptr)
 {
-        free(ptr);
+        if (ptr)
+                free(ptr);
 }
