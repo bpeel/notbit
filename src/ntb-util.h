@@ -31,6 +31,9 @@
 #define NTB_PRINTF_FORMAT(string_index, first_to_check)
 #endif
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 #define NTB_ALIGNOF(x) ALIGNOF_NAME(x)
 
 #define NTB_STRUCT_OFFSET(container, member) \

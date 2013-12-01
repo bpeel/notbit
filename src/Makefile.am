@@ -14,6 +14,8 @@ notbit_SOURCES = \
 	ntb-proto.h \
 	ntb-slab.c \
 	ntb-slab.h \
+	ntb-slice.c \
+	ntb-slice.h \
 	ntb-util.c \
 	ntb-util.h \
 	main.c \
