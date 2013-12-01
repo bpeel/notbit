@@ -112,7 +112,7 @@ ntb_log_thread_func(void *data)
                 size_t wrote;
 
                 /* Wait until there's something to do */
-                while (!ntb_log_finished && &ntb_log_buffer.length == 0)
+                while (!ntb_log_finished && ntb_log_buffer.length == 0)
                         pthread_cond_wait(&ntb_log_cond, &ntb_log_mutex);
 
                 if (had_error) {
