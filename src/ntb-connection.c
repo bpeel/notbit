@@ -219,7 +219,10 @@ ntb_connection_connect(const struct ntb_netaddress *address,
 
         ntb_netaddress_to_native(address, &native_address);
 
-        sock = socket(PF_INET, SOCK_STREAM, 0);
+        sock = socket(native_address.sockaddr.sa_family == AF_INET6 ?
+                      PF_INET6 : PF_INET,
+                      SOCK_STREAM,
+                      0);
         if (sock == -1) {
                 ntb_set_error(error,
                               &ntb_connection_error,
