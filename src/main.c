@@ -20,14 +20,187 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <pwd.h>
+#include <grp.h>
+#include <sys/types.h>
 
 #include "ntb-main-context.h"
+#include "ntb-log.h"
+
+static struct ntb_error_domain
+arguments_error;
+
+enum ntb_arguments_error {
+        NTB_ARGUMENTS_ERROR_INVALID,
+        NTB_ARGUMENTS_ERROR_UNKNOWN
+};
+
+static char *option_listen_address = "0.0.0.0";
+static int option_listen_port = 5142;
+static char *option_log_file = NULL;
+static bool option_daemonize = false;
+static char *option_user = NULL;
+static char *option_group = NULL;
+
+static const char options[] = "-a:p:l:du:g:";
+
+static bool
+process_arguments(int argc, char **argv, struct ntb_error **error)
+{
+        int opt;
+
+        opterr = false;
+
+        while ((opt = getopt(argc, argv, options)) != -1) {
+                switch (opt) {
+                case ':':
+                case '?':
+                        ntb_set_error(error,
+                                      &arguments_error,
+                                      NTB_ARGUMENTS_ERROR_INVALID,
+                                      "invalid option '%c'",
+                                      optopt);
+                        return false;
+
+                case '\1':
+                        ntb_set_error(error,
+                                      &arguments_error,
+                                      NTB_ARGUMENTS_ERROR_UNKNOWN,
+                                      "unexpected argument \"%s\"",
+                                      optarg);
+                        return false;
+
+                case 'a':
+                        option_listen_address = optarg;
+                        break;
+
+                case 'p':
+                        option_listen_port = atoi(optarg);
+                        break;
+
+                case 'l':
+                        option_log_file = optarg;
+                        break;
+
+                case 'd':
+                        option_daemonize = true;
+                        break;
+
+                case 'u':
+                        option_user = optarg;
+                        break;
+
+                case 'g':
+                        option_group = optarg;
+                        break;
+                }
+        }
+
+        if (optind < argc) {
+                ntb_set_error(error,
+                              &arguments_error,
+                              NTB_ARGUMENTS_ERROR_UNKNOWN,
+                              "unexpected argument \"%s\"",
+                              argv[optind]);
+                return false;
+        }
+
+        return true;
+}
+
+static void
+daemonize(void)
+{
+        pid_t pid, sid;
+
+        pid = fork();
+
+        if (pid < 0) {
+                ntb_warning("fork failed: %s", strerror(errno));
+                exit(EXIT_FAILURE);
+        }
+        if (pid > 0)
+                /* Parent process, we can just quit */
+                exit(EXIT_SUCCESS);
+
+        /* Reset the file mask (not really sure why we do this..) */
+        umask(0);
+
+        /* Create a new SID for the child process */
+        sid = setsid();
+        if (sid < 0) {
+                ntb_warning("setsid failed: %s", strerror(errno));
+                exit(EXIT_FAILURE);
+        }
+
+        /* Change the working directory so we're resilient against it being
+           removed */
+        if (chdir("/") < 0) {
+                ntb_warning("chdir failed: %s", strerror(errno));
+                exit(EXIT_FAILURE);
+        }
+
+        /* Redirect standard files to /dev/null */
+        freopen("/dev/null", "r", stdin);
+        freopen("/dev/null", "w", stdout);
+        freopen("/dev/null", "w", stderr);
+}
+
+static void
+set_user(const char *user_name)
+{
+        struct passwd *user_info;
+
+        user_info = getpwnam(user_name);
+
+        if (user_info == NULL) {
+                fprintf(stderr, "Unknown user \"%s\"\n", user_name);
+                exit(EXIT_FAILURE);
+        }
+
+        if (setuid(user_info->pw_uid) == -1) {
+                fprintf(stderr, "Error setting user privileges: %s\n",
+                        strerror(errno));
+                exit(EXIT_FAILURE);
+        }
+}
+
+static void
+set_group(const char *group_name)
+{
+        struct group *group_info;
+
+        group_info = getgrnam(group_name);
+
+        if (group_info == NULL) {
+                fprintf(stderr, "Unknown group \"%s\"\n", group_name);
+                exit(EXIT_FAILURE);
+        }
+
+        if (setgid(group_info->gr_gid) == -1) {
+                fprintf(stderr, "Error setting group privileges: %s\n",
+                        strerror(errno));
+                exit(EXIT_FAILURE);
+        }
+}
 
 int
 main(int argc, char **argv)
 {
         struct ntb_main_context *mc;
         struct ntb_error *error = NULL;
+        int ret = EXIT_SUCCESS;
+
+        if (!process_arguments(argc, argv, &error)) {
+                fprintf(stderr, "%s\n", error->message);
+                return EXIT_FAILURE;
+        }
 
         mc = ntb_main_context_get_default(&error);
 
@@ -36,7 +209,34 @@ main(int argc, char **argv)
                 return EXIT_FAILURE;
         }
 
+        if (option_log_file && !ntb_log_set_file(option_log_file, &error)) {
+                fprintf(stderr, "Error setting log file: %s\n", error->message);
+                ntb_error_clear(&error);
+                ret = EXIT_FAILURE;
+        } else {
+                if (option_group)
+                        set_group(option_group);
+                if (option_user)
+                        set_user(option_user);
+                if (option_daemonize)
+                        daemonize();
+
+                if (!ntb_log_start(&error)) {
+                        /* This probably shouldn't happen. By the time
+                           we get here may have daemonized so we can't
+                           really print anything but let's do it
+                           anyway. */
+                        ntb_warning("Error starting log file: %s\n",
+                                    error->message);
+                        ntb_error_clear(&error);
+                } else {
+                        ntb_log("Exiting...");
+                }
+
+                ntb_log_close();
+        }
+
         ntb_main_context_free(mc);
 
-        return EXIT_SUCCESS;
+        return ret;
 }
