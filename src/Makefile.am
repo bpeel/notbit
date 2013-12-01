@@ -16,6 +16,8 @@ notbit_SOURCES = \
 	ntb-log.h \
 	ntb-main-context.c \
 	ntb-main-context.h \
+	ntb-netaddress.c \
+	ntb-netaddress.h \
 	ntb-proto.c \
 	ntb-proto.h \
 	ntb-slab.c \
