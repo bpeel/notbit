@@ -8,6 +8,8 @@ AM_CPPFLAGS = \
 notbit_SOURCES = \
 	ntb-buffer.c \
 	ntb-buffer.h \
+	ntb-connection.c \
+	ntb-connection.h \
 	ntb-error.c \
 	ntb-error.h \
 	ntb-list.c \
