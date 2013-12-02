@@ -206,7 +206,7 @@ run_network(void)
         int ret = EXIT_SUCCESS;
         struct ntb_error *error = NULL;
         struct ntb_main_context_source *quit_source;
-        bool quit;
+        bool quit = false;
 
         nw = ntb_network_new();
 
