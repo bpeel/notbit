@@ -23,7 +23,6 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-#include "ntb-error.h"
 #include "ntb-buffer.h"
 #include "ntb-netaddress.h"
 
@@ -44,7 +43,18 @@ enum ntb_proto_argument {
         NTB_PROTO_ARGUMENT_TIMESTAMP,
         NTB_PROTO_ARGUMENT_NETADDRESS,
         NTB_PROTO_ARGUMENT_VAR_STR,
+        NTB_PROTO_ARGUMENT_VAR_INT_LIST,
         NTB_PROTO_ARGUMENT_END
+};
+
+struct ntb_proto_var_str {
+        uint64_t length;
+        const char *data;
+};
+
+struct ntb_proto_var_int_list {
+        uint64_t n_ints;
+        const uint8_t *values;
 };
 
 #define NTB_PROTO_HEADER_SIZE (4 + 12 + 4 + 4)
@@ -64,6 +74,12 @@ ntb_proto_address_hash(const void *data,
                        int length,
                        uint8_t *hash);
 
+static inline uint8_t
+ntb_proto_get_8(const uint8_t *p)
+{
+        return *p;
+}
+
 uint16_t
 ntb_proto_get_16(const uint8_t *p);
 
@@ -75,9 +91,28 @@ ntb_proto_get_64(const uint8_t *p);
 
 bool
 ntb_proto_get_var_int(const uint8_t **p_ptr,
-                      int *length_ptr,
-                      uint64_t *result,
-                      struct ntb_error **error);
+                      uint32_t *length_ptr,
+                      uint64_t *result);
+
+bool
+ntb_proto_get_var_str(const uint8_t **p_ptr,
+                      uint32_t *length_ptr,
+                      struct ntb_proto_var_str *result);
+
+bool
+ntb_proto_get_var_int_list(const uint8_t **p_ptr,
+                           uint32_t *length_ptr,
+                           struct ntb_proto_var_int_list *result);
+
+bool
+ntb_proto_get_message_va_list(const uint8_t *data,
+                              uint32_t length,
+                              va_list ap);
+
+bool
+ntb_proto_get_message(const uint8_t *data,
+                      uint32_t length,
+                      ...);
 
 static inline void
 ntb_proto_add_8(struct ntb_buffer *buf,
