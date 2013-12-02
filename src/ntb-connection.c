@@ -242,9 +242,9 @@ set_nonblock(int sock,
 {
         int flags;
 
-        flags = fcntl(sock, F_GETFD, 0);
+        flags = fcntl(sock, F_GETFL, 0);
 
-        if (flags == -1 || fcntl(sock, F_SETFD, flags | O_NONBLOCK) == -1) {
+        if (flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1) {
                 ntb_set_error(error,
                               &ntb_connection_error,
                               NTB_CONNECTION_ERROR_SOCKET,
