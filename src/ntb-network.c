@@ -177,6 +177,7 @@ connect_queue_cb(struct ntb_main_context_source *source,
         struct ntb_network *nw = user_data;
         struct ntb_network_peer *peer;
         struct ntb_error *error = NULL;
+        struct ntb_signal *message_signal;
         int peer_num;
 
         /* If we've reached the number of connected peers then we can
@@ -209,6 +210,10 @@ connect_queue_cb(struct ntb_main_context_source *source,
         } else {
                 nw->n_connected_peers++;
                 nw->n_unconnected_peers--;
+
+                message_signal =
+                        ntb_connection_get_message_signal(peer->connection);
+                ntb_signal_add(message_signal, &peer->message_listener);
 
                 /* Once we reach half the target number of peers then
                  * we'll switch to a minute timer for the remaining
