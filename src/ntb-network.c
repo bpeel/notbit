@@ -62,6 +62,7 @@ struct ntb_network {
         int n_unconnected_peers;
 
         struct ntb_main_context_source *connect_queue_source;
+        bool connect_queue_source_is_idle;
 };
 
 NTB_SLICE_ALLOCATOR(struct ntb_network_peer,
@@ -170,7 +171,7 @@ remove_peer(struct ntb_network *nw,
 }
 
 static void
-connect_timer_cb(struct ntb_main_context_source *source,
+connect_queue_cb(struct ntb_main_context_source *source,
                  void *user_data)
 {
         struct ntb_network *nw = user_data;
@@ -208,6 +209,15 @@ connect_timer_cb(struct ntb_main_context_source *source,
         } else {
                 nw->n_connected_peers++;
                 nw->n_unconnected_peers--;
+
+                /* Once we reach half the target number of peers then
+                 * we'll switch to a minute timer for the remaining
+                 * peers */
+                if (nw->connect_queue_source_is_idle &&
+                    nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS / 2) {
+                        remove_connect_queue_source(nw);
+                        maybe_queue_connect(nw);
+                }
         }
 }
 
@@ -227,11 +237,24 @@ maybe_queue_connect(struct ntb_network *nw)
         if (nw->n_unconnected_peers <= 0)
                 return;
 
-        nw->connect_queue_source =
-                ntb_main_context_add_timer(NULL,
-                                           1, /* minutes */
-                                           connect_timer_cb,
-                                           nw);
+        /* For the first half of the peers we'll connect on idle so
+         * that we'll connect really quickly. Otherwise we'll use a 1
+         * minute timer so that we have a chance to receive details of
+         * other peers */
+        if (nw->n_connected_peers < NTB_NETWORK_TARGET_NUM_PEERS / 2) {
+                nw->connect_queue_source =
+                        ntb_main_context_add_idle(NULL,
+                                                  connect_queue_cb,
+                                                  nw);
+                nw->connect_queue_source_is_idle = true;
+        } else {
+                nw->connect_queue_source =
+                        ntb_main_context_add_timer(NULL,
+                                                   1, /* minutes */
+                                                   connect_queue_cb,
+                                                   nw);
+                nw->connect_queue_source_is_idle = false;
+        }
 }
 
 static void
