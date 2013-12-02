@@ -92,13 +92,18 @@ handle_error(struct ntb_connection *conn)
                        &value,
                        &value_len) == -1 ||
             value_len != sizeof(value) ||
-            value == 0)
+            value == 0) {
                 ntb_log("Unknown error on socket for %s",
                         conn->remote_address_string);
-        else
+        } else if (conn->connect_succeeded) {
                 ntb_log("Error on socket for %s: %s",
                         conn->remote_address_string,
                         strerror(value));
+        } else {
+                ntb_log("Error connecting to %s: %s",
+                        conn->remote_address_string,
+                        strerror(value));
+        }
 
         set_error_state(conn);
 }
