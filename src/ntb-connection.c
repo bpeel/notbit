@@ -280,6 +280,12 @@ ntb_connection_get_message_signal(struct ntb_connection *conn)
         return &conn->message_signal;
 }
 
+const char *
+ntb_connection_get_remote_address_string(struct ntb_connection *conn)
+{
+        return conn->remote_address_string;
+}
+
 struct ntb_connection *
 ntb_connection_connect(const struct ntb_netaddress *address,
                        struct ntb_error **error)
