@@ -267,7 +267,7 @@ maybe_queue_connect(struct ntb_network *nw)
         }
 }
 
-static void
+static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data)
 {
@@ -279,15 +279,17 @@ connection_message_cb(struct ntb_listener *listener,
         switch (message->type) {
         case NTB_CONNECTION_MESSAGE_ERROR:
                 close_connection(nw, peer);
-                break;
+                return false;
 
         case NTB_CONNECTION_MESSAGE_CONNECT_FAILED:
                 /* If we never actually managed to connect to the peer
                  * then we'll assume it's a bad address and we'll stop
                  * trying to connect to it */
                 remove_peer(nw, peer);
-                break;
+                return false;
         }
+
+        return true;
 }
 
 static struct ntb_network_peer *

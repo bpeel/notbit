@@ -26,11 +26,13 @@
 #ifndef NTB_SIGNAL_H
 #define NTB_SIGNAL_H
 
+#include <stdbool.h>
+
 #include "ntb-list.h"
 
 struct ntb_listener;
 
-typedef void
+typedef bool
 (* ntb_notify_func)(struct ntb_listener *listener, void *data);
 
 struct ntb_signal {
@@ -55,13 +57,16 @@ ntb_signal_add(struct ntb_signal *signal,
         ntb_list_insert(signal->listener_list.prev, &listener->link);
 }
 
-static inline void
+static inline bool
 ntb_signal_emit(struct ntb_signal *signal, void *data)
 {
         struct ntb_listener *l, *next;
 
         ntb_list_for_each_safe(l, next, &signal->listener_list, link)
-            l->notify(l, data);
+                if (!l->notify(l, data))
+                        return false;
+
+        return true;
 }
 
 #endif /* NTB_SIGNAL_H */
