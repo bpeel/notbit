@@ -36,6 +36,7 @@ struct ntb_error_domain
 ntb_connection_error;
 
 struct ntb_connection {
+        struct ntb_netaddress local_address;
         struct ntb_netaddress remote_address;
         char *remote_address_string;
         struct ntb_main_context_source *source;
@@ -209,6 +210,20 @@ ntb_connection_free(struct ntb_connection *conn)
         close(conn->sock);
 }
 
+static void
+get_local_address(int sock,
+                  struct ntb_netaddress *address)
+{
+        struct ntb_netaddress_native native;
+
+        native.length = sizeof native.sockaddr_in6;
+
+        if (getsockname(sock, &native.sockaddr, &native.length) == 0)
+                ntb_netaddress_from_native(address, &native);
+        else
+                memset(address, 0, sizeof *address);
+}
+
 static struct ntb_connection *
 ntb_connection_new_for_socket(int sock,
                               const struct ntb_netaddress *remote_address)
@@ -221,6 +236,8 @@ ntb_connection_new_for_socket(int sock,
         conn->remote_address = *remote_address;
         conn->remote_address_string = ntb_netaddress_to_string(remote_address);
         conn->connect_succeeded = false;
+
+        get_local_address(sock, &conn->local_address);
 
         ntb_signal_init(&conn->message_signal);
 
