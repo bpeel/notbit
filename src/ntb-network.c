@@ -288,6 +288,7 @@ ntb_network_new(void)
 
         nw->n_connected_peers = 0;
         nw->n_unconnected_peers = 0;
+        nw->connect_queue_source = NULL;
 
         /* Add a hard-coded list of initial nodes which we can use to
          * discover more */
