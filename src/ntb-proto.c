@@ -22,12 +22,17 @@
 #include <openssl/ripemd.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
+#include <stdarg.h>
 
 #include "ntb-proto.h"
 #include "ntb-util.h"
 
 struct ntb_error_domain
 ntb_proto_error;
+
+static const uint8_t
+ntb_proto_magic[] = { 0xe9, 0xbe, 0xb4, 0xd9 };
 
 void
 ntb_proto_double_hash(const void *data,
@@ -129,4 +134,134 @@ error:
                       "Not enough space for a var int in a message");
 
         return false;
+}
+
+void
+ntb_proto_add_var_int(struct ntb_buffer *buf,
+                      uint64_t value)
+{
+        if (value < 0xfd) {
+                ntb_proto_add_8(buf, value);
+        } else if (value <= 0xffff) {
+                ntb_proto_add_8(buf, 0xfd);
+                ntb_proto_add_16(buf, value);
+        } else if (value <= 0xffffffff) {
+                ntb_proto_add_8(buf, 0xfe);
+                ntb_proto_add_32(buf, value);
+        } else {
+                ntb_proto_add_8(buf, 0xff);
+                ntb_proto_add_64(buf, value);
+        }
+}
+
+void
+ntb_proto_add_timestamp(struct ntb_buffer *buf)
+{
+        time_t now;
+
+        time(&now);
+        ntb_proto_add_64(buf, (uint64_t) now);
+}
+
+void
+ntb_proto_add_netaddress(struct ntb_buffer *buf,
+                         const struct ntb_netaddress *address)
+{
+        ntb_buffer_append(buf, address->host, sizeof address->host);
+        ntb_proto_add_16(buf, address->port);
+}
+
+void
+ntb_proto_add_var_str(struct ntb_buffer *buf,
+                      const char *str)
+{
+        uint8_t len = strlen(str);
+        ntb_buffer_append(buf, &len, 1);
+        ntb_buffer_append(buf, (const uint8_t *) str, len);
+}
+
+void
+ntb_proto_add_command_va_list(struct ntb_buffer *buf,
+                              const char *command,
+                              va_list ap)
+{
+        enum ntb_proto_argument arg;
+        const struct ntb_netaddress *netaddress;
+        int command_length;
+        int payload_start;
+        uint32_t payload_length, payload_length_be;
+        uint8_t hash[SHA512_DIGEST_LENGTH];
+        uint8_t *header;
+
+        ntb_buffer_ensure_size(buf,
+                               buf->length +
+                               NTB_PROTO_HEADER_SIZE);
+        payload_start = buf->length + NTB_PROTO_HEADER_SIZE;
+        header = buf->data;
+
+        memcpy(header, ntb_proto_magic, sizeof ntb_proto_magic);
+        command_length = strlen(command);
+        memcpy(header + 4, command, command_length);
+        memset(header + 4 + command_length, 0, 12 - command_length);
+
+        buf->length = payload_start;
+
+        while (true) {
+                arg = va_arg(ap, enum ntb_proto_argument);
+
+                switch (arg) {
+                case NTB_PROTO_ARGUMENT_8:
+                        ntb_proto_add_8(buf, va_arg(ap, int));
+                        break;
+                case NTB_PROTO_ARGUMENT_16:
+                        ntb_proto_add_16(buf, va_arg(ap, int));
+                        break;
+                case NTB_PROTO_ARGUMENT_32:
+                        ntb_proto_add_32(buf, va_arg(ap, uint32_t));
+                        break;
+                case NTB_PROTO_ARGUMENT_64:
+                        ntb_proto_add_64(buf, va_arg(ap, uint64_t));
+                        break;
+                case NTB_PROTO_ARGUMENT_BOOL:
+                        ntb_proto_add_bool(buf, va_arg(ap, int));
+                        break;
+                case NTB_PROTO_ARGUMENT_VAR_INT:
+                        ntb_proto_add_var_int(buf, va_arg(ap, uint64_t));
+                        break;
+                case NTB_PROTO_ARGUMENT_TIMESTAMP:
+                        ntb_proto_add_timestamp(buf);
+                        break;
+                case NTB_PROTO_ARGUMENT_NETADDRESS:
+                        netaddress = va_arg(ap, const struct ntb_netaddress *);
+                        ntb_proto_add_netaddress(buf, netaddress);
+                        break;
+                case NTB_PROTO_ARGUMENT_VAR_STR:
+                        ntb_proto_add_var_str(buf, va_arg(ap, const char *));
+                        break;
+                case NTB_PROTO_ARGUMENT_END:
+                        goto done;
+                }
+        }
+
+done:
+        header = buf->data + payload_start - NTB_PROTO_HEADER_SIZE;
+        payload_length = buf->length - payload_start;
+        payload_length_be = NTB_UINT32_TO_BE(payload_length);
+
+        memcpy(header + 16, &payload_length_be, sizeof payload_length_be);
+
+        ntb_proto_double_hash(buf->data + payload_start, payload_length, hash);
+        memcpy(header + 20, hash, 4);
+}
+
+void
+ntb_proto_add_command(struct ntb_buffer *buf,
+                      const char *command,
+                      ...)
+{
+        va_list ap;
+
+        va_start(ap, command);
+        ntb_proto_add_command_va_list(buf, command, ap);
+        va_end(ap);
 }
