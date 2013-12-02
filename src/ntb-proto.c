@@ -250,7 +250,7 @@ done:
 
         memcpy(header + 16, &payload_length_be, sizeof payload_length_be);
 
-        ntb_proto_double_hash(buf->data + payload_start, payload_length, hash);
+        SHA512(buf->data + payload_start, payload_length, hash);
         memcpy(header + 20, hash, 4);
 }
 
