@@ -20,8 +20,11 @@
 
 #include <string.h>
 #include <inttypes.h>
+#include <arpa/inet.h>
+#include <stdio.h>
 
 #include "ntb-netaddress.h"
+#include "ntb-util.h"
 
 static const uint8_t
 ipv4_magic[12] = {
