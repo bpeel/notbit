@@ -52,6 +52,10 @@ typedef void
                                      void *user_data);
 
 typedef void
+(* ntb_main_context_idle_callback) (struct ntb_main_context_source *source,
+                                    void *user_data);
+
+typedef void
 (* ntb_main_context_quit_callback) (struct ntb_main_context_source *source,
                                     void *user_data);
 
@@ -82,6 +86,11 @@ ntb_main_context_add_timer(struct ntb_main_context *mc,
                            int minutes,
                            ntb_main_context_timer_callback callback,
                            void *user_data);
+
+struct ntb_main_context_source *
+ntb_main_context_add_idle(struct ntb_main_context *mc,
+                          ntb_main_context_idle_callback callback,
+                          void *user_data);
 
 void
 ntb_main_context_remove_source(struct ntb_main_context_source *source);

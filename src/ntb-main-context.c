@@ -60,6 +60,8 @@ struct ntb_main_context {
            is received */
         struct ntb_list quit_sources;
 
+        struct ntb_list idle_sources;
+
         struct ntb_main_context_source *quit_pipe_source;
         int quit_pipe[2];
         void (* old_int_handler)(int);
@@ -76,6 +78,7 @@ struct ntb_main_context_source {
         enum {
                 NTB_MAIN_CONTEXT_POLL_SOURCE,
                 NTB_MAIN_CONTEXT_TIMER_SOURCE,
+                NTB_MAIN_CONTEXT_IDLE_SOURCE,
                 NTB_MAIN_CONTEXT_QUIT_SOURCE
         } type;
 
@@ -89,6 +92,11 @@ struct ntb_main_context_source {
                 /* Quit sources */
                 struct {
                         struct ntb_list quit_link;
+                };
+
+                /* Idle sources */
+                struct {
+                        struct ntb_list idle_link;
                 };
 
                 /* Timer sources */
@@ -173,6 +181,7 @@ ntb_main_context_new(struct ntb_error **error)
                 mc->events_size = 0;
                 mc->monotonic_time_valid = false;
                 ntb_list_init(&mc->quit_sources);
+                ntb_list_init(&mc->idle_sources);
                 mc->quit_pipe_source = NULL;
                 ntb_list_init(&mc->buckets);
                 mc->last_timer_time = ntb_main_context_get_monotonic_clock(mc);
@@ -372,6 +381,29 @@ ntb_main_context_add_timer(struct ntb_main_context *mc,
         return source;
 }
 
+struct ntb_main_context_source *
+ntb_main_context_add_idle(struct ntb_main_context *mc,
+                          ntb_main_context_idle_callback callback,
+                          void *user_data)
+{
+        struct ntb_main_context_source *source =
+                ntb_slice_alloc(&ntb_main_context_source_allocator);
+
+        if (mc == NULL)
+                mc = ntb_main_context_get_default_or_abort();
+
+        source->mc = mc;
+        source->callback = callback;
+        source->type = NTB_MAIN_CONTEXT_IDLE_SOURCE;
+        source->user_data = user_data;
+
+        ntb_list_insert(&mc->idle_sources, &source->idle_link);
+
+        mc->n_sources++;
+
+        return source;
+}
+
 void
 ntb_main_context_remove_source(struct ntb_main_context_source *source)
 {
@@ -385,11 +417,16 @@ ntb_main_context_remove_source(struct ntb_main_context_source *source)
                               EPOLL_CTL_DEL,
                               source->fd,
                               &event) == -1)
-                        ntb_warning("EPOLL_CTL_DEL failed: %s", strerror(errno));
+                        ntb_warning("EPOLL_CTL_DEL failed: %s",
+                                    strerror(errno));
                 break;
 
         case NTB_MAIN_CONTEXT_QUIT_SOURCE:
                 ntb_list_remove(&source->quit_link);
+                break;
+
+        case NTB_MAIN_CONTEXT_IDLE_SOURCE:
+                ntb_list_remove(&source->idle_link);
                 break;
 
         case NTB_MAIN_CONTEXT_TIMER_SOURCE:
@@ -415,6 +452,9 @@ get_timeout(struct ntb_main_context *mc)
         struct ntb_main_context_bucket *bucket;
         int min_minutes, minutes_to_wait;
         int64_t elapsed, elapsed_minutes;
+
+        if (!ntb_list_empty(&mc->idle_sources))
+                return 0;
 
         if (ntb_list_empty(&mc->buckets))
                 return -1;
@@ -486,6 +526,20 @@ check_timer_sources(struct ntb_main_context *mc)
 }
 
 static void
+emit_idle_sources(struct ntb_main_context *mc)
+{
+        struct ntb_main_context_source *source, *tmp_source;
+        ntb_main_context_timer_callback callback;
+
+        ntb_list_for_each_safe(source, tmp_source,
+                               &mc->idle_sources,
+                               idle_link) {
+                callback = source->callback;
+                callback(source, source->user_data);
+        }
+}
+
+static void
 handle_epoll_event(struct ntb_main_context *mc,
                    struct epoll_event *event)
 {
@@ -520,6 +574,7 @@ handle_epoll_event(struct ntb_main_context *mc,
 
         case NTB_MAIN_CONTEXT_QUIT_SOURCE:
         case NTB_MAIN_CONTEXT_TIMER_SOURCE:
+        case NTB_MAIN_CONTEXT_IDLE_SOURCE:
                 ntb_warn_if_reached();
                 break;
         }
@@ -559,6 +614,7 @@ ntb_main_context_poll(struct ntb_main_context *mc)
                         handle_epoll_event(mc, mc->events + i);
 
                 check_timer_sources(mc);
+                emit_idle_sources(mc);
         }
 }
 
