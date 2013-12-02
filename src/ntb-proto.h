@@ -59,7 +59,7 @@ struct ntb_proto_var_int_list {
 
 #define NTB_PROTO_HEADER_SIZE (4 + 12 + 4 + 4)
 
-#define NTB_PROTO_VERSION UINT32_C(3)
+#define NTB_PROTO_VERSION UINT32_C(2)
 
 #define NTB_PROTO_NETWORK_NODE UINT64_C(1)
 #define NTB_PROTO_SERVICES (NTB_PROTO_NETWORK_NODE)
