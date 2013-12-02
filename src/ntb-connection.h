@@ -27,6 +27,7 @@
 #include "ntb-buffer.h"
 #include "ntb-main-context.h"
 #include "ntb-signal.h"
+#include "ntb-proto.h"
 
 extern struct ntb_error_domain
 ntb_connection_error;
@@ -39,12 +40,29 @@ enum ntb_connection_error {
 
 enum ntb_connection_message_type {
         NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
-        NTB_CONNECTION_MESSAGE_ERROR
+        NTB_CONNECTION_MESSAGE_ERROR,
+
+        NTB_CONNECTION_MESSAGE_VERSION
 };
 
 struct ntb_connection_message {
         enum ntb_connection_message_type type;
         struct ntb_connection *connection;
+};
+
+struct ntb_connection_version_message {
+        struct ntb_connection_message parent;
+
+        uint32_t version;
+        uint64_t services;
+        int64_t timestamp;
+
+        struct ntb_netaddress addr_recv;
+        struct ntb_netaddress addr_from;
+
+        uint64_t nonce;
+        struct ntb_proto_var_str user_agent;
+        struct ntb_proto_var_int_list stream_numbers;
 };
 
 struct ntb_connection *connection;
@@ -65,6 +83,9 @@ ntb_connection_get_message_signal(struct ntb_connection *conn);
 
 const char *
 ntb_connection_get_remote_address_string(struct ntb_connection *conn);
+
+void
+ntb_connection_send_verack(struct ntb_connection *conn);
 
 void
 ntb_connection_send_version(struct ntb_connection *conn,

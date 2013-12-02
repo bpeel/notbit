@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <openssl/rand.h>
+#include <inttypes.h>
 
 #include "ntb-util.h"
 #include "ntb-slice.h"
@@ -268,6 +269,34 @@ maybe_queue_connect(struct ntb_network *nw)
 }
 
 static bool
+handle_version(struct ntb_network *nw,
+               struct ntb_network_peer *peer,
+               struct ntb_connection_version_message *message)
+{
+        const char *remote_address_string =
+                ntb_connection_get_remote_address_string(peer->connection);
+
+        if (message->nonce == nw->nonce) {
+                ntb_log("Connected to self from %s", remote_address_string);
+                close_connection(nw, peer);
+                return false;
+        }
+
+        if (message->version != NTB_PROTO_VERSION) {
+                ntb_log("Client %s is using unsupported protocol version "
+                        "%" PRIu32,
+                        remote_address_string,
+                        message->version);
+                remove_peer(nw, peer);
+                return false;
+        }
+
+        ntb_connection_send_verack(peer->connection);
+
+        return true;
+}
+
+static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data)
 {
@@ -287,6 +316,12 @@ connection_message_cb(struct ntb_listener *listener,
                  * trying to connect to it */
                 remove_peer(nw, peer);
                 return false;
+
+        case NTB_CONNECTION_MESSAGE_VERSION:
+                return handle_version(nw,
+                                      peer,
+                                      (struct ntb_connection_version_message *)
+                                      message);
         }
 
         return true;

@@ -24,6 +24,8 @@
 #include <string.h>
 #include <errno.h>
 #include <openssl/sha.h>
+#include <stdio.h>
+#include <inttypes.h>
 
 #include "ntb-connection.h"
 #include "ntb-proto.h"
@@ -32,6 +34,8 @@
 #include "ntb-main-context.h"
 #include "ntb-buffer.h"
 #include "ntb-log.h"
+
+#define NTB_CONNECTION_MAX_MESSAGE_SIZE (32 * 1024 * 1024)
 
 struct ntb_error_domain
 ntb_connection_error;
@@ -54,14 +58,14 @@ struct ntb_connection {
 NTB_SLICE_ALLOCATOR(struct ntb_connection,
                     ntb_connection_allocator);
 
-static void
+static bool
 emit_message(struct ntb_connection *conn,
              enum ntb_connection_message_type type,
              struct ntb_connection_message *message)
 {
         message->type = type;
         message->connection = conn;
-        ntb_signal_emit(&conn->message_signal, message);
+        return ntb_signal_emit(&conn->message_signal, message);
 }
 
 static void
@@ -111,8 +115,185 @@ handle_error(struct ntb_connection *conn)
 }
 
 static void
+get_hex_string(const uint8_t *data,
+               int length,
+               char *string)
+{
+        int i;
+
+        for (i = 0; i < length; i++)
+                snprintf(string + i * 2, 3, "%02x", data[i]);
+}
+
+static bool
+check_command_string(const uint8_t *command_string)
+{
+        const uint8_t *command_end;
+        int i;
+
+        /* The command must end with a zero */
+        command_end = memchr(command_string, 0, 12);
+
+        if (command_end == NULL)
+                return false;
+
+        /* The rest of the command must be zeroes */
+        for (i = command_end - command_string + 1; i < 12; i++)
+                if (command_string[i] != '\0')
+                        return false;
+
+        return true;
+}
+
+static bool
+version_command_handler(struct ntb_connection *conn,
+                        const uint8_t *data,
+                        uint32_t message_length)
+{
+        struct ntb_connection_version_message message;
+        uint64_t dummy_64;
+
+        if (!ntb_proto_get_message(data,
+                                   message_length,
+
+                                   NTB_PROTO_ARGUMENT_32,
+                                   &message.version,
+
+                                   NTB_PROTO_ARGUMENT_64,
+                                   &message.services,
+
+                                   NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                   &message.timestamp,
+
+                                   NTB_PROTO_ARGUMENT_64,
+                                   &dummy_64,
+                                   NTB_PROTO_ARGUMENT_NETADDRESS,
+                                   &message.addr_recv,
+
+                                   NTB_PROTO_ARGUMENT_64,
+                                   &dummy_64,
+                                   NTB_PROTO_ARGUMENT_NETADDRESS,
+                                   &message.addr_from,
+
+                                   NTB_PROTO_ARGUMENT_64,
+                                   &message.nonce,
+
+                                   NTB_PROTO_ARGUMENT_VAR_STR,
+                                   &message.user_agent,
+
+                                   NTB_PROTO_ARGUMENT_VAR_INT_LIST,
+                                   &message.stream_numbers,
+
+                                   NTB_PROTO_ARGUMENT_END)) {
+                ntb_log("Invalid version message received from %s",
+                        conn->remote_address_string);
+                set_error_state(conn);
+                return false;
+        }
+
+        return emit_message(conn,
+                            NTB_CONNECTION_MESSAGE_VERSION,
+                            &message.parent);
+}
+
+static const struct {
+        const char *command_name;
+        bool (* func)(struct ntb_connection *conn,
+                      const uint8_t *data,
+                      uint32_t message_length);
+} message_handlers[] = {
+        { "version", version_command_handler }
+};
+
+static bool
+process_message(struct ntb_connection *conn,
+                const uint8_t *data,
+                uint32_t message_length)
+{
+        char hex_a[9], hex_b[9];
+        uint8_t hash[SHA512_DIGEST_LENGTH];
+        int i;
+
+        if (memcmp(data, ntb_proto_magic, sizeof ntb_proto_magic)) {
+                get_hex_string(data, sizeof ntb_proto_magic, hex_a);
+                ntb_log("Invalid message magic from %s (%s)",
+                        conn->remote_address_string, hex_a);
+                set_error_state(conn);
+                return false;
+        }
+
+        if (!check_command_string(data + 4)) {
+                ntb_log("Invalid command string from %s",
+                        conn->remote_address_string);
+                set_error_state(conn);
+                return false;
+        }
+
+        SHA512(data + NTB_PROTO_HEADER_SIZE, message_length, hash);
+
+        /* Compare the checksum */
+        if (memcmp(hash, data + 20, 4)) {
+                get_hex_string(data + 20, 4, hex_a);
+                get_hex_string(hash, 4, hex_b);
+                ntb_log("Invalid checksum received from %s (%s != %s)",
+                        conn->remote_address_string,
+                        hex_a,
+                        hex_b);
+                set_error_state(conn);
+                return false;
+        }
+
+        for (i = 0; i < NTB_N_ELEMENTS(message_handlers); i++) {
+                if (!strcmp((const char *) data + 4,
+                            message_handlers[i].command_name))
+                        return message_handlers[i].func(conn,
+                                                        data +
+                                                        NTB_PROTO_HEADER_SIZE,
+                                                        message_length);
+        }
+
+        /* Unknown message which we'll just ignore */
+        return true;
+}
+
+static void
 process_messages(struct ntb_connection *conn)
 {
+        uint32_t message_length;
+        uint8_t *data = conn->in_buf.data;
+        size_t length = conn->in_buf.length;
+
+        while (true) {
+                if (length < NTB_PROTO_HEADER_SIZE)
+                        break;
+
+                message_length = ntb_proto_get_32(data + 16);
+
+                /* Limit the length of a message or the client would
+                 * be able to pretend it's going to send a really long
+                 * message and we'd just keep growing the buffer
+                 * until we run out of memory and abort */
+                if (message_length > NTB_CONNECTION_MAX_MESSAGE_SIZE) {
+                        ntb_log("Client %s sent a message that is too long "
+                                "(%" PRIu32 ")",
+                                conn->remote_address_string,
+                                message_length);
+                        set_error_state(conn);
+                        return;
+                }
+
+                if (length < NTB_PROTO_HEADER_SIZE + message_length)
+                        break;
+
+                if (!process_message(conn, data, message_length))
+                        return;
+
+                data += message_length + NTB_PROTO_HEADER_SIZE;
+                length -= message_length + NTB_PROTO_HEADER_SIZE;
+        }
+
+        memmove(conn->in_buf.data, data, length);
+        conn->in_buf.length = length;
 }
 
 static void
@@ -363,6 +544,16 @@ ntb_connection_accept(int server_sock,
         conn->connect_succeeded = true;
 
         return conn;
+}
+
+void
+ntb_connection_send_verack(struct ntb_connection *conn)
+{
+        ntb_proto_add_command(&conn->out_buf,
+                              "verack",
+                              NTB_PROTO_ARGUMENT_END);
+
+        update_poll_flags(conn);
 }
 
 void
