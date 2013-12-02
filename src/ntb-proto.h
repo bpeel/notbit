@@ -64,6 +64,9 @@ struct ntb_proto_var_int_list {
 #define NTB_PROTO_NETWORK_NODE UINT64_C(1)
 #define NTB_PROTO_SERVICES (NTB_PROTO_NETWORK_NODE)
 
+extern const uint8_t
+ntb_proto_magic[4];
+
 void
 ntb_proto_double_hash(const void *data,
                       int length,

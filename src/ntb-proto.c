@@ -29,8 +29,8 @@
 #include "ntb-proto.h"
 #include "ntb-util.h"
 
-static const uint8_t
-ntb_proto_magic[] = { 0xe9, 0xbe, 0xb4, 0xd9 };
+const uint8_t
+ntb_proto_magic[4] = { 0xe9, 0xbe, 0xb4, 0xd9 };
 
 void
 ntb_proto_double_hash(const void *data,
