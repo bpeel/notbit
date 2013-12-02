@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <openssl/sha.h>
 
 #include "ntb-connection.h"
 #include "ntb-proto.h"
@@ -356,4 +357,48 @@ ntb_connection_accept(int server_sock,
         conn->connect_succeeded = true;
 
         return conn;
+}
+
+void
+ntb_connection_send_version(struct ntb_connection *conn,
+                            uint64_t nonce)
+{
+        ntb_proto_add_command(&conn->out_buf,
+                              "version",
+
+                              NTB_PROTO_ARGUMENT_32,
+                              NTB_PROTO_VERSION,
+
+                              NTB_PROTO_ARGUMENT_64,
+                              NTB_PROTO_SERVICES,
+
+                              NTB_PROTO_ARGUMENT_TIMESTAMP,
+
+                              NTB_PROTO_ARGUMENT_64,
+                              NTB_PROTO_SERVICES,
+                              NTB_PROTO_ARGUMENT_NETADDRESS,
+                              &conn->remote_address,
+
+                              NTB_PROTO_ARGUMENT_64,
+                              NTB_PROTO_SERVICES,
+                              NTB_PROTO_ARGUMENT_NETADDRESS,
+                              &conn->local_address,
+
+                              NTB_PROTO_ARGUMENT_64,
+                              nonce,
+
+                              NTB_PROTO_ARGUMENT_VAR_STR,
+                              "notbit " VERSION,
+
+                              /* Number of streams */
+                              NTB_PROTO_ARGUMENT_VAR_INT,
+                              UINT64_C(1),
+
+                              /* The one stream */
+                              NTB_PROTO_ARGUMENT_VAR_INT,
+                              UINT64_C(1),
+
+                              NTB_PROTO_ARGUMENT_END);
+
+        update_poll_flags(conn);
 }

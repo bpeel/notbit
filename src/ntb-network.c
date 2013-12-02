@@ -27,6 +27,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <openssl/rand.h>
 
 #include "ntb-util.h"
 #include "ntb-slice.h"
@@ -63,6 +64,8 @@ struct ntb_network {
 
         struct ntb_main_context_source *connect_queue_source;
         bool connect_queue_source_is_idle;
+
+        uint64_t nonce;
 };
 
 NTB_SLICE_ALLOCATOR(struct ntb_network_peer,
@@ -211,6 +214,8 @@ connect_queue_cb(struct ntb_main_context_source *source,
                 nw->n_connected_peers++;
                 nw->n_unconnected_peers--;
 
+                ntb_connection_send_version(peer->connection, nw->nonce);
+
                 message_signal =
                         ntb_connection_get_message_signal(peer->connection);
                 ntb_signal_add(message_signal, &peer->message_listener);
@@ -317,6 +322,8 @@ ntb_network_new(void)
         nw->n_connected_peers = 0;
         nw->n_unconnected_peers = 0;
         nw->connect_queue_source = NULL;
+
+        RAND_pseudo_bytes((unsigned char *) &nw->nonce, sizeof nw->nonce);
 
         /* Add a hard-coded list of initial nodes which we can use to
          * discover more */

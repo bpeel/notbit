@@ -63,4 +63,8 @@ ntb_connection_free(struct ntb_connection *conn);
 struct ntb_signal *
 ntb_connection_get_message_signal(struct ntb_connection *conn);
 
+void
+ntb_connection_send_version(struct ntb_connection *conn,
+                            uint64_t nonce);
+
 #endif /* NTB_CONNECTION_H */
