@@ -42,7 +42,8 @@ enum ntb_connection_message_type {
         NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
         NTB_CONNECTION_MESSAGE_ERROR,
 
-        NTB_CONNECTION_MESSAGE_VERSION
+        NTB_CONNECTION_MESSAGE_VERSION,
+        NTB_CONNECTION_MESSAGE_INV
 };
 
 struct ntb_connection_message {
@@ -51,7 +52,7 @@ struct ntb_connection_message {
 };
 
 struct ntb_connection_version_message {
-        struct ntb_connection_message parent;
+        struct ntb_connection_message base;
 
         uint32_t version;
         uint64_t services;
@@ -63,6 +64,13 @@ struct ntb_connection_version_message {
         uint64_t nonce;
         struct ntb_proto_var_str user_agent;
         struct ntb_proto_var_int_list stream_numbers;
+};
+
+struct ntb_connection_inv_message {
+        struct ntb_connection_message base;
+
+        uint64_t n_inventories;
+        const uint8_t *inventories;
 };
 
 struct ntb_connection *connection;
@@ -90,5 +98,10 @@ ntb_connection_send_verack(struct ntb_connection *conn);
 void
 ntb_connection_send_version(struct ntb_connection *conn,
                             uint64_t nonce);
+
+void
+ntb_connection_send_getdata(struct ntb_connection *conn,
+                            const uint8_t *hashes,
+                            uint64_t n_hashes);
 
 #endif /* NTB_CONNECTION_H */

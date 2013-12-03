@@ -193,7 +193,31 @@ version_command_handler(struct ntb_connection *conn,
 
         return emit_message(conn,
                             NTB_CONNECTION_MESSAGE_VERSION,
-                            &message.parent);
+                            &message.base);
+}
+
+static bool
+inv_command_handler(struct ntb_connection *conn,
+                    const uint8_t *data,
+                    uint32_t message_length)
+{
+        struct ntb_connection_inv_message message;
+
+        if (!ntb_proto_get_var_int(&data,
+                                   &message_length,
+                                   &message.n_inventories) ||
+            message_length < message.n_inventories * NTB_PROTO_HASH_LENGTH) {
+                ntb_log("Invalid inv message received from %s",
+                        conn->remote_address_string);
+                set_error_state(conn);
+                return false;
+        }
+
+        message.inventories = data;
+
+        return emit_message(conn,
+                            NTB_CONNECTION_MESSAGE_INV,
+                            &message.base);
 }
 
 static const struct {
@@ -202,6 +226,7 @@ static const struct {
                       const uint8_t *data,
                       uint32_t message_length);
 } message_handlers[] = {
+        { "inv", inv_command_handler },
         { "version", version_command_handler }
 };
 
@@ -594,6 +619,26 @@ ntb_connection_send_version(struct ntb_connection *conn,
                               /* The one stream */
                               NTB_PROTO_ARGUMENT_VAR_INT,
                               UINT64_C(1),
+
+                              NTB_PROTO_ARGUMENT_END);
+
+        update_poll_flags(conn);
+}
+
+void
+ntb_connection_send_getdata(struct ntb_connection *conn,
+                            const uint8_t *hashes,
+                            uint64_t n_hashes)
+{
+        ntb_proto_add_command(&conn->out_buf,
+                              "getdata",
+
+                              NTB_PROTO_ARGUMENT_VAR_INT,
+                              n_hashes,
+
+                              NTB_PROTO_ARGUMENT_DATA,
+                              hashes,
+                              (size_t) (n_hashes * NTB_PROTO_HASH_LENGTH),
 
                               NTB_PROTO_ARGUMENT_END);
 

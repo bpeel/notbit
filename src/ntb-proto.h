@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <openssl/sha.h>
 
 #include "ntb-buffer.h"
 #include "ntb-netaddress.h"
@@ -44,6 +45,7 @@ enum ntb_proto_argument {
         NTB_PROTO_ARGUMENT_NETADDRESS,
         NTB_PROTO_ARGUMENT_VAR_STR,
         NTB_PROTO_ARGUMENT_VAR_INT_LIST,
+        NTB_PROTO_ARGUMENT_DATA,
         NTB_PROTO_ARGUMENT_END
 };
 

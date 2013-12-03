@@ -249,6 +249,9 @@ ntb_proto_get_message_va_list(const uint8_t *data,
                                                         var_int_list))
                                 return false;
                         break;
+                case NTB_PROTO_ARGUMENT_DATA:
+                        assert(false);
+                        return false;
                 case NTB_PROTO_ARGUMENT_END:
                         return true;
                 }
@@ -324,6 +327,8 @@ ntb_proto_add_command_va_list(struct ntb_buffer *buf,
         int command_length;
         int payload_start;
         uint32_t payload_length, payload_length_be;
+        size_t data_arg_length;
+        const uint8_t *data_arg;
         uint8_t hash[SHA512_DIGEST_LENGTH];
         uint8_t *header;
 
@@ -374,6 +379,11 @@ ntb_proto_add_command_va_list(struct ntb_buffer *buf,
                         break;
                 case NTB_PROTO_ARGUMENT_VAR_INT_LIST:
                         assert(false);
+                        break;
+                case NTB_PROTO_ARGUMENT_DATA:
+                        data_arg = va_arg(ap, const uint8_t *);
+                        data_arg_length = va_arg(ap, size_t);
+                        ntb_buffer_append(buf, data_arg, data_arg_length);
                         break;
                 case NTB_PROTO_ARGUMENT_END:
                         goto done;

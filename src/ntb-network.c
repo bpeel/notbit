@@ -36,6 +36,7 @@
 #include "ntb-log.h"
 #include "ntb-list.h"
 #include "ntb-network.h"
+#include "ntb-hash-table.h"
 
 struct ntb_error_domain
 ntb_network_error;
@@ -50,6 +51,8 @@ struct ntb_network_peer {
         struct ntb_connection *connection;
         struct ntb_listener message_listener;
         struct ntb_network *network;
+
+        struct ntb_list requested_inventories;
 };
 
 struct ntb_network_listen_socket {
@@ -67,7 +70,37 @@ struct ntb_network {
         bool connect_queue_source_is_idle;
 
         uint64_t nonce;
+
+        struct ntb_hash_table *inventory_hash;
+
+        /* Temporary buffer used while processing messages */
+        struct ntb_buffer buffer;
 };
+
+enum ntb_network_inventory_type {
+        NTB_NETWORK_INVENTORY_TYPE_STUB
+};
+
+struct ntb_network_inventory {
+        enum ntb_network_inventory_type type;
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+};
+
+struct ntb_network_stub_inventory {
+        struct ntb_network_inventory base;
+
+        /* Monotonic time that we sent a request for this item */
+        uint64_t last_request_time;
+
+        /* Link within the requested_inventory list for the peer that
+         * we requested this from. A stub item will always be in a
+         * list for a peer. If the peer is removed before we get a
+         * reply then we'll remove the inventory item entirely */
+        struct ntb_list link;
+};
+
+NTB_SLICE_ALLOCATOR(struct ntb_network_stub_inventory,
+                    ntb_network_stub_inventory_allocator);
 
 NTB_SLICE_ALLOCATOR(struct ntb_network_peer,
                     ntb_network_peer_allocator);
@@ -153,15 +186,26 @@ static void
 close_connection(struct ntb_network *nw,
                  struct ntb_network_peer *peer)
 {
-        if (peer->connection) {
-                ntb_connection_free(peer->connection);
-                peer->connection = NULL;
+        struct ntb_network_stub_inventory *inventory, *tmp;
 
-                nw->n_unconnected_peers++;
-                nw->n_connected_peers--;
+        if (peer->connection == NULL)
+                return;
 
-                maybe_queue_connect(nw);
+        ntb_list_for_each_safe(inventory, tmp,
+                               &peer->requested_inventories,
+                               link) {
+                ntb_hash_table_remove(nw->inventory_hash, &inventory->base);
+                ntb_slice_free(&ntb_network_stub_inventory_allocator,
+                               inventory);
         }
+
+        ntb_connection_free(peer->connection);
+        peer->connection = NULL;
+
+        nw->n_unconnected_peers++;
+        nw->n_connected_peers--;
+
+        maybe_queue_connect(nw);
 }
 
 static void
@@ -296,6 +340,55 @@ handle_version(struct ntb_network *nw,
         return true;
 }
 
+static void
+request_inventory(struct ntb_network *nw,
+                  struct ntb_network_peer *peer,
+                  const uint8_t *hash)
+{
+        struct ntb_network_stub_inventory *inv;
+
+        inv = ntb_slice_alloc(&ntb_network_stub_inventory_allocator);
+
+        inv->base.type = NTB_NETWORK_INVENTORY_TYPE_STUB;
+        memcpy(inv->base.hash, hash, NTB_PROTO_HASH_LENGTH);
+
+        inv->last_request_time = ntb_main_context_get_monotonic_clock(NULL);
+
+        ntb_list_insert(&peer->requested_inventories, &inv->link);
+
+        ntb_hash_table_set(nw->inventory_hash, &inv->base);
+
+        ntb_buffer_append(&nw->buffer, hash, NTB_PROTO_HASH_LENGTH);
+}
+
+static bool
+handle_inv(struct ntb_network *nw,
+           struct ntb_network_peer *peer,
+           struct ntb_connection_inv_message *message)
+{
+        struct ntb_network_inventory *inv;
+        const uint8_t *hash;
+        uint64_t i;
+
+        nw->buffer.length = 0;
+
+        for (i = 0; i < message->n_inventories; i++) {
+                hash = message->inventories + i * NTB_PROTO_HASH_LENGTH;
+                inv = ntb_hash_table_get(nw->inventory_hash, hash);
+
+                if (inv == NULL)
+                        request_inventory(nw, peer, hash);
+        }
+
+        if (nw->buffer.length > 0)
+                ntb_connection_send_getdata(peer->connection,
+                                            nw->buffer.data,
+                                            nw->buffer.length /
+                                            NTB_PROTO_HASH_LENGTH);
+
+        return true;
+}
+
 static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data)
@@ -322,6 +415,12 @@ connection_message_cb(struct ntb_listener *listener,
                                       peer,
                                       (struct ntb_connection_version_message *)
                                       message);
+
+        case NTB_CONNECTION_MESSAGE_INV:
+                return handle_inv(nw,
+                                  peer,
+                                  (struct ntb_connection_inv_message *)
+                                  message);
         }
 
         return true;
@@ -341,6 +440,8 @@ new_peer(struct ntb_network *nw)
         peer->message_listener.notify = connection_message_cb;
         peer->network = nw;
 
+        ntb_list_init(&peer->requested_inventories);
+
         return peer;
 }
 
@@ -350,15 +451,21 @@ ntb_network_new(void)
         struct ntb_network *nw = ntb_alloc(sizeof *nw);
         struct ntb_network_peer *peer;
         struct ntb_netaddress_native native_address;
+        size_t hash_offset;
         bool convert_result;
         int i;
 
         ntb_list_init(&nw->listen_sockets);
         ntb_list_init(&nw->peers);
 
+        ntb_buffer_init(&nw->buffer);
+
         nw->n_connected_peers = 0;
         nw->n_unconnected_peers = 0;
         nw->connect_queue_source = NULL;
+
+        hash_offset = NTB_STRUCT_OFFSET(struct ntb_network_inventory, hash);
+        nw->inventory_hash = ntb_hash_table_new(hash_offset);
 
         RAND_pseudo_bytes((unsigned char *) &nw->nonce, sizeof nw->nonce);
 
@@ -469,7 +576,11 @@ ntb_network_free(struct ntb_network *nw)
         free_peers(nw);
         free_listen_sockets(nw);
 
+        ntb_hash_table_free(nw->inventory_hash);
+
         remove_connect_queue_source(nw);
+
+        ntb_buffer_destroy(&nw->buffer);
 
         assert(nw->n_connected_peers == 0);
         assert(nw->n_unconnected_peers == 0);
