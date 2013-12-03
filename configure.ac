@@ -28,6 +28,23 @@ AS_IF([test "x$alignof_name" = "x"],
 AC_DEFINE_UNQUOTED([ALIGNOF_NAME], [$alignof_name],
                    [The name of the alignof operator])
 
+have_sync_ref_count=yes
+AC_MSG_CHECKING([for __sync_fetch_and_add])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([int x;],
+                                   [__sync_fetch_and_add(&x, 1);])],
+                  [AC_MSG_RESULT([yes])],
+                  [AC_MSG_RESULT([no])
+                   have_sync_ref_count=no])
+AC_MSG_CHECKING([for __sync_fetch_and_sub])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([int x;],
+                                   [__sync_fetch_and_sub(&x, 1);])],
+                  [AC_MSG_RESULT([yes])],
+                  [AC_MSG_RESULT([no])
+                   have_sync_ref_count=no])
+AS_IF([test "x$have_sync_ref_count" = "xyes"],
+      [AC_DEFINE([HAVE_SYNC_REF_COUNT], [1],
+                 [GCC extensions for atomic ref-counting are available])])
+
 AM_INIT_AUTOMAKE([1.9 foreign no-dist-gzip dist-xz tar-ustar])
 
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])

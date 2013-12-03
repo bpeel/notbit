@@ -6,6 +6,8 @@ AM_CPPFLAGS = \
 	$(NULL)
 
 notbit_SOURCES = \
+	ntb-blob.c \
+	ntb-blob.h \
 	ntb-buffer.c \
 	ntb-buffer.h \
 	ntb-connection.c \
