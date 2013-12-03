@@ -19,11 +19,11 @@
 #include "config.h"
 
 #include <string.h>
-#include <openssl/sha.h>
 
 #include "ntb-hash-table.h"
 #include "ntb-util.h"
 #include "ntb-slice.h"
+#include "ntb-proto.h"
 
 struct ntb_hash_table_entry {
         struct ntb_hash_table_entry *next;
@@ -84,7 +84,7 @@ ntb_hash_table_get(struct ntb_hash_table *hash_table,
         for (entry = hash_table->entries[index]; entry; entry = entry->next) {
                 if (!memcmp(hash,
                             entry->data + hash_table->hash_offset,
-                            SHA512_DIGEST_LENGTH)) {
+                            NTB_PROTO_HASH_LENGTH)) {
                         return entry->data;
                 }
         }
@@ -140,7 +140,7 @@ ntb_hash_table_set(struct ntb_hash_table *hash_table,
         for (entry = hash_table->entries[index]; entry; entry = entry->next) {
                 if (!memcmp(hash,
                             entry->data + hash_table->hash_offset,
-                            SHA512_DIGEST_LENGTH)) {
+                            NTB_PROTO_HASH_LENGTH)) {
                         old_value = entry->data;
                         entry->data = value;
                         return old_value;

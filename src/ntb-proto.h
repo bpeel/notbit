@@ -64,6 +64,10 @@ struct ntb_proto_var_int_list {
 #define NTB_PROTO_NETWORK_NODE UINT64_C(1)
 #define NTB_PROTO_SERVICES (NTB_PROTO_NETWORK_NODE)
 
+/* The hashes in Bitmessage are an SHA512 digest but only the first 32
+ * bytes are used */
+#define NTB_PROTO_HASH_LENGTH (SHA512_DIGEST_LENGTH / 2)
+
 extern const uint8_t
 ntb_proto_magic[4];
 
