@@ -44,7 +44,7 @@ enum ntb_arguments_error {
 
 static char *option_listen_address = "";
 static int option_listen_port = 8444;
-static char *option_log_file = NULL;
+static char *option_log_file = "/dev/stdout";
 static bool option_daemonize = false;
 static char *option_user = NULL;
 static char *option_group = NULL;
