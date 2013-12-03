@@ -97,8 +97,8 @@ insert_entry_at_index(struct ntb_hash_table *hash_table,
                       struct ntb_hash_table_entry *entry,
                       uint32_t index)
 {
-        entry->next = hash_table->entries[index]->next;
-        hash_table->entries[index]->next = entry;
+        entry->next = hash_table->entries[index];
+        hash_table->entries[index] = entry;
 }
 
 static void
