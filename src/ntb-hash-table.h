@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 struct ntb_hash_table;
 
@@ -34,6 +35,10 @@ ntb_hash_table_get(struct ntb_hash_table *hash_table,
 void *
 ntb_hash_table_set(struct ntb_hash_table *hash_table,
                    void *value);
+
+bool
+ntb_hash_table_remove(struct ntb_hash_table *hash_table,
+                      const void *value);
 
 void
 ntb_hash_table_free(struct ntb_hash_table *hash_table);

@@ -156,7 +156,37 @@ ntb_hash_table_set(struct ntb_hash_table *hash_table,
         entry->data = value;
         insert_entry_at_index(hash_table, entry, index);
 
+        hash_table->n_entries++;
+
         return NULL;
+}
+
+bool
+ntb_hash_table_remove(struct ntb_hash_table *hash_table,
+                      const void *value)
+{
+        struct ntb_hash_table_entry *entry, *prev = NULL;
+        const uint8_t *hash = (const uint8_t *) value + hash_table->hash_offset;
+        uint32_t index = get_index(hash_table, hash);
+
+        for (entry = hash_table->entries[index]; entry; entry = entry->next) {
+                if (entry->data == value) {
+                        if (prev)
+                                prev->next = entry->next;
+                        else
+                                hash_table->entries[index] = entry->next;
+
+                        ntb_slice_free(&ntb_hash_table_entry_allocator, entry);
+
+                        hash_table->n_entries--;
+
+                        return true;
+                }
+
+                prev = entry;
+        }
+
+        return false;
 }
 
 void
