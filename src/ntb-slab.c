@@ -58,7 +58,7 @@ ntb_slab_allocate(struct ntb_slab_allocator *allocator,
                 slab->next = allocator->slabs;
                 allocator->slabs = slab;
 
-                offset = ntb_slab_align(sizeof(struct ntb_slab), alignment);
+                offset = 0;
         } else {
                 slab = allocator->slabs;
         }
