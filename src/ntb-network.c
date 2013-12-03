@@ -72,9 +72,6 @@ struct ntb_network {
         uint64_t nonce;
 
         struct ntb_hash_table *inventory_hash;
-
-        /* Temporary buffer used while processing messages */
-        struct ntb_buffer buffer;
 };
 
 enum ntb_network_inventory_type {
@@ -358,7 +355,7 @@ request_inventory(struct ntb_network *nw,
 
         ntb_hash_table_set(nw->inventory_hash, &inv->base);
 
-        ntb_buffer_append(&nw->buffer, hash, NTB_PROTO_HASH_LENGTH);
+        ntb_connection_add_getdata_hash(peer->connection, hash);
 }
 
 static bool
@@ -370,7 +367,7 @@ handle_inv(struct ntb_network *nw,
         const uint8_t *hash;
         uint64_t i;
 
-        nw->buffer.length = 0;
+        ntb_connection_begin_getdata(peer->connection);
 
         for (i = 0; i < message->n_inventories; i++) {
                 hash = message->inventories + i * NTB_PROTO_HASH_LENGTH;
@@ -380,11 +377,7 @@ handle_inv(struct ntb_network *nw,
                         request_inventory(nw, peer, hash);
         }
 
-        if (nw->buffer.length > 0)
-                ntb_connection_send_getdata(peer->connection,
-                                            nw->buffer.data,
-                                            nw->buffer.length /
-                                            NTB_PROTO_HASH_LENGTH);
+        ntb_connection_end_getdata(peer->connection);
 
         return true;
 }
@@ -457,8 +450,6 @@ ntb_network_new(void)
 
         ntb_list_init(&nw->listen_sockets);
         ntb_list_init(&nw->peers);
-
-        ntb_buffer_init(&nw->buffer);
 
         nw->n_connected_peers = 0;
         nw->n_unconnected_peers = 0;
@@ -579,8 +570,6 @@ ntb_network_free(struct ntb_network *nw)
         ntb_hash_table_free(nw->inventory_hash);
 
         remove_connect_queue_source(nw);
-
-        ntb_buffer_destroy(&nw->buffer);
 
         assert(nw->n_connected_peers == 0);
         assert(nw->n_unconnected_peers == 0);

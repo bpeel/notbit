@@ -249,9 +249,6 @@ ntb_proto_get_message_va_list(const uint8_t *data,
                                                         var_int_list))
                                 return false;
                         break;
-                case NTB_PROTO_ARGUMENT_DATA:
-                        assert(false);
-                        return false;
                 case NTB_PROTO_ARGUMENT_END:
                         return true;
                 }
@@ -318,32 +315,55 @@ ntb_proto_add_var_str(struct ntb_buffer *buf,
 }
 
 void
-ntb_proto_add_command_va_list(struct ntb_buffer *buf,
-                              const char *command,
-                              va_list ap)
+ntb_proto_begin_command(struct ntb_buffer *buf,
+                        const char *command)
 {
-        enum ntb_proto_argument arg;
-        const struct ntb_netaddress *netaddress;
         int command_length;
-        int payload_start;
-        uint32_t payload_length, payload_length_be;
-        size_t data_arg_length;
-        const uint8_t *data_arg;
-        uint8_t hash[SHA512_DIGEST_LENGTH];
         uint8_t *header;
 
         ntb_buffer_ensure_size(buf,
                                buf->length +
                                NTB_PROTO_HEADER_SIZE);
-        payload_start = buf->length + NTB_PROTO_HEADER_SIZE;
-        header = buf->data;
+        header = buf->data + buf->length;
 
         memcpy(header, ntb_proto_magic, sizeof ntb_proto_magic);
         command_length = strlen(command);
         memcpy(header + 4, command, command_length);
         memset(header + 4 + command_length, 0, 12 - command_length);
 
-        buf->length = payload_start;
+        buf->length += NTB_PROTO_HEADER_SIZE;
+}
+
+void
+ntb_proto_end_command(struct ntb_buffer *buf,
+                      size_t command_start)
+{
+        uint32_t payload_length, payload_length_be;
+        uint8_t hash[SHA512_DIGEST_LENGTH];
+        uint8_t *header;
+
+        header = buf->data + command_start;
+        payload_length = buf->length - command_start - NTB_PROTO_HEADER_SIZE;
+        payload_length_be = NTB_UINT32_TO_BE(payload_length);
+
+        memcpy(header + 16, &payload_length_be, sizeof payload_length_be);
+
+        SHA512(header + NTB_PROTO_HEADER_SIZE, payload_length, hash);
+        memcpy(header + 20, hash, 4);
+}
+
+void
+ntb_proto_add_command_va_list(struct ntb_buffer *buf,
+                              const char *command,
+                              va_list ap)
+{
+        size_t command_start;
+        enum ntb_proto_argument arg;
+        const struct ntb_netaddress *netaddress;
+
+        command_start = buf->length;
+
+        ntb_proto_begin_command(buf, command);
 
         while (true) {
                 arg = va_arg(ap, enum ntb_proto_argument);
@@ -380,25 +400,13 @@ ntb_proto_add_command_va_list(struct ntb_buffer *buf,
                 case NTB_PROTO_ARGUMENT_VAR_INT_LIST:
                         assert(false);
                         break;
-                case NTB_PROTO_ARGUMENT_DATA:
-                        data_arg = va_arg(ap, const uint8_t *);
-                        data_arg_length = va_arg(ap, size_t);
-                        ntb_buffer_append(buf, data_arg, data_arg_length);
-                        break;
                 case NTB_PROTO_ARGUMENT_END:
                         goto done;
                 }
         }
 
 done:
-        header = buf->data + payload_start - NTB_PROTO_HEADER_SIZE;
-        payload_length = buf->length - payload_start;
-        payload_length_be = NTB_UINT32_TO_BE(payload_length);
-
-        memcpy(header + 16, &payload_length_be, sizeof payload_length_be);
-
-        SHA512(buf->data + payload_start, payload_length, hash);
-        memcpy(header + 20, hash, 4);
+        ntb_proto_end_command(buf, command_start);
 }
 
 void

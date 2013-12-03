@@ -53,6 +53,10 @@ struct ntb_connection {
         struct ntb_signal message_signal;
 
         bool connect_succeeded;
+
+        /* Position in out_buf of the start of a command. Used for
+         * functions that build up a command on the fly */
+        size_t command_start;
 };
 
 NTB_SLICE_ALLOCATOR(struct ntb_connection,
@@ -626,21 +630,57 @@ ntb_connection_send_version(struct ntb_connection *conn,
 }
 
 void
-ntb_connection_send_getdata(struct ntb_connection *conn,
-                            const uint8_t *hashes,
-                            uint64_t n_hashes)
+ntb_connection_begin_getdata(struct ntb_connection *conn)
 {
-        ntb_proto_add_command(&conn->out_buf,
-                              "getdata",
+        conn->command_start = conn->out_buf.length;
 
-                              NTB_PROTO_ARGUMENT_VAR_INT,
-                              n_hashes,
+        ntb_proto_begin_command(&conn->out_buf, "getdata");
 
-                              NTB_PROTO_ARGUMENT_DATA,
-                              hashes,
-                              (size_t) (n_hashes * NTB_PROTO_HASH_LENGTH),
+        /* Reserve space for a 1-byte varint. If we need more than
+         * this then we'll split the command up on the fly */
+        ntb_buffer_ensure_size(&conn->out_buf, conn->out_buf.length + 1);
+        conn->out_buf.length += 1;
+}
 
-                              NTB_PROTO_ARGUMENT_END);
+static int
+get_n_hashes_for_getdata(struct ntb_connection *conn)
+{
+        return (conn->out_buf.length -
+                conn->command_start -
+                1 -
+                NTB_PROTO_HEADER_SIZE) / NTB_PROTO_HASH_LENGTH;
+}
+
+void
+ntb_connection_add_getdata_hash(struct ntb_connection *conn,
+                                const uint8_t *hash)
+{
+        int n_hashes = get_n_hashes_for_getdata(conn);
+
+        /* If we can't fit further hashes into a 1-byte varint then
+         * we'll start another command */
+        if (n_hashes >= 0xfc) {
+                ntb_connection_end_getdata(conn);
+                ntb_connection_begin_getdata(conn);
+        }
+
+        ntb_buffer_append(&conn->out_buf, hash, NTB_PROTO_HASH_LENGTH);
+}
+
+void
+ntb_connection_end_getdata(struct ntb_connection *conn)
+{
+        int n_hashes = get_n_hashes_for_getdata(conn);
+
+        if (n_hashes == 0) {
+                /* Abandon the command if there weren't any hashes */
+                conn->out_buf.length = conn->command_start;
+        } else {
+                /* Update the number of hashes */
+                conn->out_buf.data[conn->command_start +
+                                   NTB_PROTO_HEADER_SIZE] = n_hashes;
+                ntb_proto_end_command(&conn->out_buf, conn->command_start);
+        }
 
         update_poll_flags(conn);
 }

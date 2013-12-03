@@ -45,7 +45,6 @@ enum ntb_proto_argument {
         NTB_PROTO_ARGUMENT_NETADDRESS,
         NTB_PROTO_ARGUMENT_VAR_STR,
         NTB_PROTO_ARGUMENT_VAR_INT_LIST,
-        NTB_PROTO_ARGUMENT_DATA,
         NTB_PROTO_ARGUMENT_END
 };
 
@@ -175,6 +174,14 @@ ntb_proto_add_netaddress(struct ntb_buffer *buf,
 void
 ntb_proto_add_var_str(struct ntb_buffer *buf,
                       const char *str);
+
+void
+ntb_proto_begin_command(struct ntb_buffer *buf,
+                        const char *command);
+
+void
+ntb_proto_end_command(struct ntb_buffer *buf,
+                      size_t command_start);
 
 void
 ntb_proto_add_command(struct ntb_buffer *buf,

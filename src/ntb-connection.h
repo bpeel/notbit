@@ -100,8 +100,13 @@ ntb_connection_send_version(struct ntb_connection *conn,
                             uint64_t nonce);
 
 void
-ntb_connection_send_getdata(struct ntb_connection *conn,
-                            const uint8_t *hashes,
-                            uint64_t n_hashes);
+ntb_connection_begin_getdata(struct ntb_connection *conn);
+
+void
+ntb_connection_add_getdata_hash(struct ntb_connection *conn,
+                                const uint8_t *hash);
+
+void
+ntb_connection_end_getdata(struct ntb_connection *conn);
 
 #endif /* NTB_CONNECTION_H */
