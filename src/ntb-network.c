@@ -83,23 +83,25 @@ enum ntb_network_inventory_type {
 struct ntb_network_inventory {
         enum ntb_network_inventory_type type;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
-};
 
-struct ntb_network_stub_inventory {
-        struct ntb_network_inventory base;
-
-        /* Monotonic time that we sent a request for this item */
-        uint64_t last_request_time;
-
-        /* Link within the requested_inventory list for the peer that
-         * we requested this from. A stub item will always be in a
-         * list for a peer. If the peer is removed before we get a
-         * reply then we'll remove the inventory item entirely */
+        /* Each inventory will be in a list. Which list that is
+         * depends on the type. For stub types it will be within the
+         * list of requested items for a peer. The other types each
+         * have their list in ntb_network */
         struct ntb_list link;
+
+        union {
+                struct {
+                        /* Monotonic time that we sent a request for
+                         * this item */
+                        uint64_t last_request_time;
+                };
+
+        };
 };
 
-NTB_SLICE_ALLOCATOR(struct ntb_network_stub_inventory,
-                    ntb_network_stub_inventory_allocator);
+NTB_SLICE_ALLOCATOR(struct ntb_network_inventory,
+                    ntb_network_inventory_allocator);
 
 NTB_SLICE_ALLOCATOR(struct ntb_network_peer,
                     ntb_network_peer_allocator);
@@ -185,7 +187,7 @@ static void
 close_connection(struct ntb_network *nw,
                  struct ntb_network_peer *peer)
 {
-        struct ntb_network_stub_inventory *inventory, *tmp;
+        struct ntb_network_inventory *inventory, *tmp;
 
         if (peer->connection == NULL)
                 return;
@@ -193,8 +195,8 @@ close_connection(struct ntb_network *nw,
         ntb_list_for_each_safe(inventory, tmp,
                                &peer->requested_inventories,
                                link) {
-                ntb_hash_table_remove(nw->inventory_hash, &inventory->base);
-                ntb_slice_free(&ntb_network_stub_inventory_allocator,
+                ntb_hash_table_remove(nw->inventory_hash, inventory);
+                ntb_slice_free(&ntb_network_inventory_allocator,
                                inventory);
         }
 
@@ -344,18 +346,18 @@ request_inventory(struct ntb_network *nw,
                   struct ntb_network_peer *peer,
                   const uint8_t *hash)
 {
-        struct ntb_network_stub_inventory *inv;
+        struct ntb_network_inventory *inv;
 
-        inv = ntb_slice_alloc(&ntb_network_stub_inventory_allocator);
+        inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
 
-        inv->base.type = NTB_NETWORK_INVENTORY_TYPE_STUB;
-        memcpy(inv->base.hash, hash, NTB_PROTO_HASH_LENGTH);
+        inv->type = NTB_NETWORK_INVENTORY_TYPE_STUB;
+        memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
 
         inv->last_request_time = ntb_main_context_get_monotonic_clock(NULL);
 
         ntb_list_insert(&peer->requested_inventories, &inv->link);
 
-        ntb_hash_table_set(nw->inventory_hash, &inv->base);
+        ntb_hash_table_set(nw->inventory_hash, inv);
 
         ntb_connection_add_getdata_hash(peer->connection, hash);
 }
