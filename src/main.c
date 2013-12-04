@@ -33,6 +33,7 @@
 #include "ntb-main-context.h"
 #include "ntb-log.h"
 #include "ntb-network.h"
+#include "ntb-store.h"
 
 static struct ntb_error_domain
 arguments_error;
@@ -48,8 +49,9 @@ static char *option_log_file = "/dev/stdout";
 static bool option_daemonize = false;
 static char *option_user = NULL;
 static char *option_group = NULL;
+static char *option_store_directory = NULL;
 
-static const char options[] = "-a:p:l:du:g:";
+static const char options[] = "-a:p:l:du:g:D:";
 
 static bool
 process_arguments(int argc, char **argv, struct ntb_error **error)
@@ -99,6 +101,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'g':
                         option_group = optarg;
+                        break;
+
+                case 'D':
+                        option_store_directory = optarg;
                         break;
                 }
         }
@@ -202,13 +208,22 @@ quit_cb(struct ntb_main_context_source *source,
 static int
 run_network(void)
 {
+        struct ntb_store *store;
         struct ntb_network *nw;
         int ret = EXIT_SUCCESS;
         struct ntb_error *error = NULL;
         struct ntb_main_context_source *quit_source;
         bool quit = false;
 
-        nw = ntb_network_new();
+        store = ntb_store_new(option_store_directory, &error);
+
+        if (store == NULL) {
+                fprintf(stderr, "%s\n", error->message);
+                ntb_error_clear(&error);
+                return EXIT_FAILURE;
+        }
+
+        nw = ntb_network_new(store);
 
         if (!ntb_network_add_listen_address(nw,
                                             option_listen_address,
@@ -249,6 +264,8 @@ run_network(void)
         }
 
         ntb_network_free(nw);
+
+        ntb_store_free(store);
 
         return ret;
 }

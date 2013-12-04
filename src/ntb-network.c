@@ -66,6 +66,8 @@ struct ntb_network {
         int n_connected_peers;
         int n_unconnected_peers;
 
+        struct ntb_store *store;
+
         struct ntb_main_context_source *connect_queue_source;
         bool connect_queue_source_is_idle;
 
@@ -439,7 +441,7 @@ new_peer(struct ntb_network *nw)
 }
 
 struct ntb_network *
-ntb_network_new(void)
+ntb_network_new(struct ntb_store *store)
 {
         struct ntb_network *nw = ntb_alloc(sizeof *nw);
         struct ntb_network_peer *peer;
@@ -450,6 +452,8 @@ ntb_network_new(void)
 
         ntb_list_init(&nw->listen_sockets);
         ntb_list_init(&nw->peers);
+
+        nw->store = store;
 
         nw->n_connected_peers = 0;
         nw->n_unconnected_peers = 0;

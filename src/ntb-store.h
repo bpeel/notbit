@@ -16,34 +16,37 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef NTB_NETWORK_H
-#define NTB_NETWORK_H
+#ifndef NTB_STORE_H
+#define NTB_STORE_H
 
-#include <stdbool.h>
+#include <stdint.h>
 
+#include "ntb-blob.h"
 #include "ntb-error.h"
-#include "ntb-store.h"
+
+/* The store is used to do all of the disk I/O. The actions are stored
+ * in a queue and then executed in a separate thread */
+
+struct ntb_store;
 
 extern struct ntb_error_domain
-ntb_network_error;
+ntb_store_error;
 
-enum ntb_network_error {
-        NTB_NETWORK_ERROR_SOCKET,
-        NTB_NETWORK_ERROR_INVALID_ADDRESS
+enum ntb_store_error {
+        NTB_STORE_ERROR_CREATING_DIRECTORY,
+        NTB_STORE_ERROR_INVALID_STORE_DIRECTORY
 };
 
-struct ntb_network;
-
-struct ntb_network *
-ntb_network_new(struct ntb_store *store);
-
-bool
-ntb_network_add_listen_address(struct ntb_network *nw,
-                               const char *address,
-                               int port,
-                               struct ntb_error **error);
+struct ntb_store *
+ntb_store_new(const char *store_directory,
+              struct ntb_error **error);
 
 void
-ntb_network_free(struct ntb_network *nw);
+ntb_store_save_blob(struct ntb_store *store,
+                    const uint8_t *hash,
+                    struct ntb_blob *blob);
 
-#endif /* NTB_NETWORK_H */
+void
+ntb_store_free(struct ntb_store *store);
+
+#endif /* NTB_STORE_H */
