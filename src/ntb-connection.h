@@ -28,6 +28,7 @@
 #include "ntb-main-context.h"
 #include "ntb-signal.h"
 #include "ntb-proto.h"
+#include "ntb-blob.h"
 
 extern struct ntb_error_domain
 ntb_connection_error;
@@ -44,7 +45,7 @@ enum ntb_connection_message_type {
 
         NTB_CONNECTION_MESSAGE_VERSION,
         NTB_CONNECTION_MESSAGE_INV,
-        NTB_CONNECTION_MESSAGE_MSG
+        NTB_CONNECTION_MESSAGE_OBJECT
 };
 
 struct ntb_connection_message {
@@ -67,8 +68,10 @@ struct ntb_connection_version_message {
         struct ntb_proto_var_int_list stream_numbers;
 };
 
-struct ntb_connection_msg_message {
+struct ntb_connection_object_message {
         struct ntb_connection_message base;
+
+        enum ntb_blob_type type;
 
         uint64_t nonce;
         int64_t timestamp;
@@ -77,8 +80,46 @@ struct ntb_connection_msg_message {
         const uint8_t *object_data;
         size_t object_data_length;
 
-        const uint8_t *encrypted_data;
-        size_t encrypted_data_length;
+        union {
+                struct {
+                        const uint8_t *ripe;
+                        const uint8_t *tag;
+                        uint64_t address_version;
+                } getpubkey;
+
+                struct {
+                        uint64_t address_version;
+                        uint32_t behaviours;
+
+                        const uint8_t *public_signing_key;
+                        const uint8_t *public_encryption_key;
+
+                        uint64_t nonce_trials_per_byte;
+                        uint64_t extra_bytes;
+
+                        uint64_t signature_length;
+                        const uint8_t *signature;
+
+                        const uint8_t *tag;
+
+                        size_t encrypted_data_length;
+                        const uint8_t *encrypted_data;
+                } pubkey;
+
+                struct {
+                        const uint8_t *encrypted_data;
+                        size_t encrypted_data_length;
+                } msg;
+
+                struct {
+                        uint64_t version;
+
+                        const uint8_t *tag;
+
+                        const uint8_t *encrypted_data;
+                        size_t encrypted_data_length;
+                } broadcast;
+        };
 };
 
 struct ntb_connection_inv_message {

@@ -33,7 +33,10 @@
  * disk. */
 
 enum ntb_blob_type {
-        NTB_BLOB_TYPE_MSG
+        NTB_BLOB_TYPE_GETPUBKEY,
+        NTB_BLOB_TYPE_PUBKEY,
+        NTB_BLOB_TYPE_MSG,
+        NTB_BLOB_TYPE_BROADCAST
 };
 
 struct ntb_blob {
