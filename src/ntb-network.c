@@ -449,8 +449,8 @@ should_reject(struct ntb_network_peer *peer,
 
         if (!ntb_pow_check(payload,
                            payload_length,
-                           14000, /* payload extra bytes */
-                           320 /* average trials per byte */)) {
+                           NTB_PROTO_MIN_EXTRA_BYTES,
+                           NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE)) {
                 ntb_log("Rejecting %s from %s because the proof-of-work is "
                         "too low",
                         type,

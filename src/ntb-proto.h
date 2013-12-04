@@ -73,6 +73,9 @@ struct ntb_proto_var_int_list {
  * ignore it and won't save it to disk. */
 #define NTB_PROTO_MAX_INV_AGE (24 * 60 * 60 * 5 / 2) /* 2.5 days */
 
+#define NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE 320
+#define NTB_PROTO_MIN_EXTRA_BYTES 14000
+
 extern const uint8_t
 ntb_proto_magic[4];
 
