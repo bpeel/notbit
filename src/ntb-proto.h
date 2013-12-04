@@ -110,6 +110,11 @@ ntb_proto_get_var_int(const uint8_t **p_ptr,
                       uint64_t *result);
 
 bool
+ntb_proto_get_timestamp(const uint8_t **p_ptr,
+                        uint32_t *length_ptr,
+                        int64_t *result);
+
+bool
 ntb_proto_get_var_str(const uint8_t **p_ptr,
                       uint32_t *length_ptr,
                       struct ntb_proto_var_str *result);

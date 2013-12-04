@@ -129,6 +129,37 @@ ntb_proto_get_var_int(const uint8_t **p_ptr,
 }
 
 bool
+ntb_proto_get_timestamp(const uint8_t **p_ptr,
+                        uint32_t *length_ptr,
+                        int64_t *result)
+{
+        /* The timestamp field is transitioning to a 64-bit type.
+         * Currently if the first 32-bits are zero it should be
+         * treated as a 64-bit value (which will obviously still be
+         * less than 32-bits) */
+
+        if (*length_ptr < sizeof (uint32_t))
+                return false;
+
+        *result = ntb_proto_get_32(*p_ptr);
+
+        *length_ptr -= sizeof (uint32_t);
+        *p_ptr += sizeof (uint32_t);
+
+        if (*result == 0) {
+                if (*length_ptr < sizeof (uint32_t))
+                        return false;
+
+                *result = ntb_proto_get_32(*p_ptr);
+
+                *length_ptr -= sizeof (uint32_t);
+                *p_ptr += sizeof (uint32_t);
+        }
+
+        return true;
+}
+
+bool
 ntb_proto_get_var_str(const uint8_t **p_ptr,
                       uint32_t *length_ptr,
                       struct ntb_proto_var_str *result)
@@ -223,11 +254,10 @@ ntb_proto_get_message_va_list(const uint8_t *data_start,
                                 return -1;
                         break;
                 case NTB_PROTO_ARGUMENT_TIMESTAMP:
-                        if (length < sizeof (uint64_t))
+                        if (!ntb_proto_get_timestamp(&data,
+                                                     &length,
+                                                     va_arg(ap, int64_t *)))
                                 return -1;
-                        *va_arg(ap, int64_t *) = ntb_proto_get_64(data);
-                        data += sizeof (uint64_t);
-                        length -= sizeof (uint64_t);
                         break;
                 case NTB_PROTO_ARGUMENT_NETADDRESS:
                         if (length < 16 + sizeof (uint16_t))
