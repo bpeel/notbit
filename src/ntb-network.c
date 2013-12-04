@@ -52,7 +52,7 @@ ntb_network_error;
 #define NTB_NETWORK_INV_CACHE_AGE (10 * 60)
 /* If any objects claim to be created this far in the future then
  * we'll ignore them */
-#define NTB_NETWORK_INV_FUTURE_AGE 60
+#define NTB_NETWORK_INV_FUTURE_AGE (30 * 60)
 
 struct ntb_network_peer {
         struct ntb_list link;
