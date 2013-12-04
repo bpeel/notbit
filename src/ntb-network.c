@@ -45,6 +45,14 @@ ntb_network_error;
  * the network */
 #define NTB_NETWORK_TARGET_NUM_PEERS 8
 
+/* If an object is older than this in seconds then we won't bother
+ * keeping it in memory. It will need to be retrieved from disk if
+ * something requests it */
+#define NTB_NETWORK_INV_CACHE_AGE (10 * 60)
+/* If any objects claim to be created this far in the future then
+ * we'll ignore them */
+#define NTB_NETWORK_INV_FUTURE_AGE 60
+
 struct ntb_network_peer {
         struct ntb_list link;
         struct ntb_netaddress address;
@@ -76,11 +84,16 @@ struct ntb_network {
         struct ntb_hash_table *inventory_hash;
 
         struct ntb_list msgs;
+        struct ntb_list rejected_inventories;
 };
 
 enum ntb_network_inventory_type {
         NTB_NETWORK_INVENTORY_TYPE_STUB,
-        NTB_NETWORK_INVENTORY_TYPE_MSG
+        NTB_NETWORK_INVENTORY_TYPE_MSG,
+        /* Rejected objects are those that we have received but that
+         * we don't care about, such as those whose proof-of-work is
+         * too low or that have a bad time stamp */
+        NTB_NETWORK_INVENTORY_TYPE_REJECTED
 };
 
 struct ntb_network_inventory {
@@ -188,6 +201,22 @@ remove_connect_queue_source(struct ntb_network *nw)
 }
 
 static void
+free_inventory(struct ntb_network_inventory *inv)
+{
+        switch (inv->type) {
+        case NTB_NETWORK_INVENTORY_TYPE_MSG:
+                if (inv->blob)
+                        ntb_blob_unref(inv->blob);
+                break;
+        case NTB_NETWORK_INVENTORY_TYPE_STUB:
+        case NTB_NETWORK_INVENTORY_TYPE_REJECTED:
+                break;
+        }
+
+        ntb_slice_free(&ntb_network_inventory_allocator, inv);
+}
+
+static void
 close_connection(struct ntb_network *nw,
                  struct ntb_network_peer *peer)
 {
@@ -200,8 +229,7 @@ close_connection(struct ntb_network *nw,
                                &peer->requested_inventories,
                                link) {
                 ntb_hash_table_remove(nw->inventory_hash, inventory);
-                ntb_slice_free(&ntb_network_inventory_allocator,
-                               inventory);
+                free_inventory(inventory);
         }
 
         ntb_connection_free(peer->connection);
@@ -397,6 +425,7 @@ handle_msg(struct ntb_network *nw,
 {
         struct ntb_network_inventory *inv;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
+        int64_t age;
 
         ntb_proto_double_hash(message->object_data,
                               message->object_data_length,
@@ -415,13 +444,31 @@ handle_msg(struct ntb_network *nw,
                 return true;
         }
 
-        inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
-        inv->blob = ntb_blob_new(message->object_data,
-                                 message->object_data_length);
+        age = ntb_main_context_get_wall_clock(NULL) - message->timestamp;
 
-        ntb_store_save_blob(nw->store, hash, inv->blob);
+        if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
+            age >= NTB_PROTO_MAX_INV_AGE) {
+                inv->type = NTB_NETWORK_INVENTORY_TYPE_REJECTED;
+                ntb_list_insert(&nw->rejected_inventories, &inv->link);
+        } else {
+                inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
+                inv->blob = ntb_blob_new(message->object_data,
+                                         message->object_data_length);
 
-        ntb_list_insert(&nw->msgs, &inv->link);
+                ntb_store_save_blob(nw->store, hash, inv->blob);
+
+                /* If the blob is not quite new then we won't bother
+                 * keeping it in memory under the assumption that's
+                 * less likely that a peer will request it. If
+                 * something does request it we'll have to load it
+                 * from disk */
+                if (age >= NTB_NETWORK_INV_CACHE_AGE) {
+                        ntb_blob_unref(inv->blob);
+                        inv->blob = NULL;
+                }
+
+                ntb_list_insert(&nw->msgs, &inv->link);
+        }
 
         return true;
 }
@@ -501,6 +548,7 @@ ntb_network_new(struct ntb_store *store)
         ntb_list_init(&nw->listen_sockets);
         ntb_list_init(&nw->peers);
         ntb_list_init(&nw->msgs);
+        ntb_list_init(&nw->rejected_inventories);
 
         nw->store = store;
 
@@ -615,16 +663,12 @@ free_peers(struct ntb_network *nw)
 }
 
 static void
-free_msgs(struct ntb_network *nw)
+free_inventories_in_list(struct ntb_list *list)
 {
         struct ntb_network_inventory *inv, *tmp;
 
-        ntb_list_for_each_safe(inv, tmp, &nw->msgs, link) {
-                if (inv->blob) {
-                        ntb_blob_unref(inv->blob);
-                        ntb_slice_free(&ntb_network_inventory_allocator, inv);
-                }
-        }
+        ntb_list_for_each_safe(inv, tmp, list, link)
+                free_inventory(inv);
 }
 
 void
@@ -632,7 +676,8 @@ ntb_network_free(struct ntb_network *nw)
 {
         free_peers(nw);
         free_listen_sockets(nw);
-        free_msgs(nw);
+        free_inventories_in_list(&nw->msgs);
+        free_inventories_in_list(&nw->rejected_inventories);
 
         ntb_hash_table_free(nw->inventory_hash);
 

@@ -69,6 +69,10 @@ struct ntb_proto_var_int_list {
  * bytes are used */
 #define NTB_PROTO_HASH_LENGTH (SHA512_DIGEST_LENGTH / 2)
 
+/* If an object is older than this in seconds then we'll totally
+ * ignore it and won't save it to disk. */
+#define NTB_PROTO_MAX_INV_AGE (24 * 60 * 60 * 5 / 2) /* 2.5 days */
+
 extern const uint8_t
 ntb_proto_magic[4];
 
