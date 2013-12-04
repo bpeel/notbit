@@ -20,6 +20,23 @@
 
 #include "ntb-slice.h"
 
+void
+ntb_slice_allocator_init(struct ntb_slice_allocator *allocator,
+                         size_t size,
+                         size_t alignment)
+{
+        allocator->element_size = MAX(size, sizeof (struct ntb_slice));
+        allocator->element_alignment = alignment;
+        allocator->magazine = NULL;
+        ntb_slab_init(&allocator->slab);
+}
+
+void
+ntb_slice_allocator_destroy(struct ntb_slice_allocator *allocator)
+{
+        ntb_slab_destroy(&allocator->slab);
+}
+
 void *
 ntb_slice_alloc(struct ntb_slice_allocator *allocator)
 {

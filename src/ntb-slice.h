@@ -42,6 +42,14 @@ struct ntb_slice_allocator {
                 .slab = NTB_SLAB_STATIC_INIT                            \
         }
 
+void
+ntb_slice_allocator_init(struct ntb_slice_allocator *allocator,
+                         size_t size,
+                         size_t alignment);
+
+void
+ntb_slice_allocator_destroy(struct ntb_slice_allocator *allocator);
+
 void *
 ntb_slice_alloc(struct ntb_slice_allocator *allocator);
 
