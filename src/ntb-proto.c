@@ -166,11 +166,12 @@ ntb_proto_get_var_int_list(const uint8_t **p_ptr,
         return true;
 }
 
-bool
-ntb_proto_get_message_va_list(const uint8_t *data,
+ssize_t
+ntb_proto_get_message_va_list(const uint8_t *data_start,
                               uint32_t length,
                               va_list ap)
 {
+        const uint8_t *data = data_start;
         enum ntb_proto_argument arg;
         struct ntb_netaddress *netaddress;
         struct ntb_proto_var_str *var_str;
@@ -182,35 +183,35 @@ ntb_proto_get_message_va_list(const uint8_t *data,
                 switch (arg) {
                 case NTB_PROTO_ARGUMENT_8:
                         if (length < sizeof (uint8_t))
-                                return false;
+                                return -1;
                         *va_arg(ap, uint8_t *) = ntb_proto_get_8(data);
                         data += sizeof (uint8_t);
                         length -= sizeof (uint8_t);
                         break;
                 case NTB_PROTO_ARGUMENT_16:
                         if (length < sizeof (uint16_t))
-                                return false;
+                                return -1;
                         *va_arg(ap, uint16_t *) = ntb_proto_get_16(data);
                         data += sizeof (uint16_t);
                         length -= sizeof (uint16_t);
                         break;
                 case NTB_PROTO_ARGUMENT_32:
                         if (length < sizeof (uint32_t))
-                                return false;
+                                return -1;
                         *va_arg(ap, uint32_t *) = ntb_proto_get_32(data);
                         data += sizeof (uint32_t);
                         length -= sizeof (uint32_t);
                         break;
                 case NTB_PROTO_ARGUMENT_64:
                         if (length < sizeof (uint64_t))
-                                return false;
+                                return -1;
                         *va_arg(ap, uint64_t *) = ntb_proto_get_64(data);
                         data += sizeof (uint64_t);
                         length -= sizeof (uint64_t);
                         break;
                 case NTB_PROTO_ARGUMENT_BOOL:
                         if (length < sizeof (uint8_t))
-                                return false;
+                                return -1;
                         *va_arg(ap, bool *) = !!ntb_proto_get_8(data);
                         data += sizeof (uint8_t);
                         length -= sizeof (uint8_t);
@@ -219,18 +220,18 @@ ntb_proto_get_message_va_list(const uint8_t *data,
                         if (!ntb_proto_get_var_int(&data,
                                                    &length,
                                                    va_arg(ap, uint64_t *)))
-                                return false;
+                                return -1;
                         break;
                 case NTB_PROTO_ARGUMENT_TIMESTAMP:
                         if (length < sizeof (uint64_t))
-                                return false;
+                                return -1;
                         *va_arg(ap, int64_t *) = ntb_proto_get_64(data);
                         data += sizeof (uint64_t);
                         length -= sizeof (uint64_t);
                         break;
                 case NTB_PROTO_ARGUMENT_NETADDRESS:
                         if (length < 16 + sizeof (uint16_t))
-                                return false;
+                                return -1;
                         netaddress = va_arg(ap, struct ntb_netaddress *);
                         memcpy(netaddress->host, data, 16);
                         netaddress->port = ntb_proto_get_16(data + 16);
@@ -242,7 +243,7 @@ ntb_proto_get_message_va_list(const uint8_t *data,
                         if (!ntb_proto_get_var_str(&data,
                                                    &length,
                                                    var_str))
-                                return false;
+                                return -1;
                         break;
                 case NTB_PROTO_ARGUMENT_VAR_INT_LIST:
                         var_int_list =
@@ -250,20 +251,20 @@ ntb_proto_get_message_va_list(const uint8_t *data,
                         if (!ntb_proto_get_var_int_list(&data,
                                                         &length,
                                                         var_int_list))
-                                return false;
+                                return -1;
                         break;
                 case NTB_PROTO_ARGUMENT_END:
-                        return true;
+                        return data - data_start;
                 }
         }
 }
 
-bool
+ssize_t
 ntb_proto_get_message(const uint8_t *data,
                       uint32_t length,
                       ...)
 {
-        bool result;
+        ssize_t result;
         va_list ap;
 
         va_start(ap, length);

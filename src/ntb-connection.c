@@ -157,38 +157,38 @@ version_command_handler(struct ntb_connection *conn,
         struct ntb_connection_version_message message;
         uint64_t dummy_64;
 
-        if (!ntb_proto_get_message(data,
-                                   message_length,
+        if (ntb_proto_get_message(data,
+                                  message_length,
 
-                                   NTB_PROTO_ARGUMENT_32,
-                                   &message.version,
+                                  NTB_PROTO_ARGUMENT_32,
+                                  &message.version,
 
-                                   NTB_PROTO_ARGUMENT_64,
-                                   &message.services,
+                                  NTB_PROTO_ARGUMENT_64,
+                                  &message.services,
 
-                                   NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                   &message.timestamp,
+                                  NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                  &message.timestamp,
 
-                                   NTB_PROTO_ARGUMENT_64,
-                                   &dummy_64,
-                                   NTB_PROTO_ARGUMENT_NETADDRESS,
-                                   &message.addr_recv,
+                                  NTB_PROTO_ARGUMENT_64,
+                                  &dummy_64,
+                                  NTB_PROTO_ARGUMENT_NETADDRESS,
+                                  &message.addr_recv,
 
-                                   NTB_PROTO_ARGUMENT_64,
-                                   &dummy_64,
-                                   NTB_PROTO_ARGUMENT_NETADDRESS,
-                                   &message.addr_from,
+                                  NTB_PROTO_ARGUMENT_64,
+                                  &dummy_64,
+                                  NTB_PROTO_ARGUMENT_NETADDRESS,
+                                  &message.addr_from,
 
-                                   NTB_PROTO_ARGUMENT_64,
-                                   &message.nonce,
+                                  NTB_PROTO_ARGUMENT_64,
+                                  &message.nonce,
 
-                                   NTB_PROTO_ARGUMENT_VAR_STR,
-                                   &message.user_agent,
+                                  NTB_PROTO_ARGUMENT_VAR_STR,
+                                  &message.user_agent,
 
-                                   NTB_PROTO_ARGUMENT_VAR_INT_LIST,
-                                   &message.stream_numbers,
+                                  NTB_PROTO_ARGUMENT_VAR_INT_LIST,
+                                  &message.stream_numbers,
 
-                                   NTB_PROTO_ARGUMENT_END)) {
+                                  NTB_PROTO_ARGUMENT_END) == -1) {
                 ntb_log("Invalid version message received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);

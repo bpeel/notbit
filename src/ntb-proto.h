@@ -112,12 +112,12 @@ ntb_proto_get_var_int_list(const uint8_t **p_ptr,
                            uint32_t *length_ptr,
                            struct ntb_proto_var_int_list *result);
 
-bool
+ssize_t
 ntb_proto_get_message_va_list(const uint8_t *data,
                               uint32_t length,
                               va_list ap);
 
-bool
+ssize_t
 ntb_proto_get_message(const uint8_t *data,
                       uint32_t length,
                       ...);
