@@ -243,6 +243,7 @@ getpubkey_command_handler(struct ntb_connection *conn,
                 return true;
         }
 
+        message.type = NTB_BLOB_TYPE_GETPUBKEY;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -362,6 +363,7 @@ pubkey_command_handler(struct ntb_connection *conn,
 
         memset(&message, 0, sizeof message);
 
+        message.type = NTB_BLOB_TYPE_PUBKEY;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -449,6 +451,7 @@ msg_command_handler(struct ntb_connection *conn,
                 return false;
         }
 
+        message.type = NTB_BLOB_TYPE_MSG;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -468,6 +471,7 @@ broadcast_command_handler(struct ntb_connection *conn,
         struct ntb_connection_object_message message;
         ssize_t header_length;
 
+        message.type = NTB_BLOB_TYPE_BROADCAST;
         message.object_data_length = message_length;
         message.object_data = data;
 
