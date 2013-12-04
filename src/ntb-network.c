@@ -605,6 +605,13 @@ ntb_network_new(struct ntb_store *store)
         hash_offset = NTB_STRUCT_OFFSET(struct ntb_network_inventory, hash);
         nw->inventory_hash = ntb_hash_table_new(hash_offset);
 
+        /* For some reason OpenSSL adds the unitialised bytes of this
+         * buffer as a source of entropy. This trips up Valgrind so we
+         * can avoid the problem by clearing it first. I don't think
+         * this will affect the entropy because if it wasn't cleared
+         * it would probably end up with a repeatable value anyway.
+         * This value doesn't need to be cryptographically secure. */
+        memset(&nw->nonce, 0, sizeof nw->nonce);
         RAND_pseudo_bytes((unsigned char *) &nw->nonce, sizeof nw->nonce);
 
         /* Add a hard-coded list of initial nodes which we can use to
