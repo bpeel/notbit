@@ -70,6 +70,9 @@ struct ntb_main_context {
         bool monotonic_time_valid;
         int64_t monotonic_time;
 
+        bool wall_time_valid;
+        int64_t wall_time;
+
         struct ntb_list buckets;
         int64_t last_timer_time;
 };
@@ -180,6 +183,7 @@ ntb_main_context_new(struct ntb_error **error)
                 mc->events = NULL;
                 mc->events_size = 0;
                 mc->monotonic_time_valid = false;
+                mc->wall_time_valid = false;
                 ntb_list_init(&mc->quit_sources);
                 ntb_list_init(&mc->idle_sources);
                 mc->quit_pipe_source = NULL;
@@ -601,8 +605,9 @@ ntb_main_context_poll(struct ntb_main_context *mc)
                               get_timeout(mc));
 
         /* Once we've polled we can assume that some time has passed so our
-           cached value of the monotonic clock is no longer valid */
+           cached values of the clocks are no longer valid */
         mc->monotonic_time_valid = false;
+        mc->wall_time_valid = false;
 
         if (n_events == -1) {
                 if (errno != EINTR)
@@ -638,6 +643,28 @@ ntb_main_context_get_monotonic_clock(struct ntb_main_context *mc)
         }
 
         return mc->monotonic_time;
+}
+
+int64_t
+ntb_main_context_get_wall_clock(struct ntb_main_context *mc)
+{
+        time_t now;
+
+        if (mc == NULL)
+                mc = ntb_main_context_get_default_or_abort();
+
+        /* Because in theory the program doesn't block between calls to
+           poll, we can act as if no time passes between calls to
+           epoll. That way we can cache the clock value instead of having to
+           do a system call every time we need it */
+        if (!mc->monotonic_time_valid) {
+                time(&now);
+
+                mc->wall_time = now;
+                mc->wall_time_valid = true;
+        }
+
+        return mc->wall_time;
 }
 
 void

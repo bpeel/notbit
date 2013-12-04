@@ -101,6 +101,9 @@ ntb_main_context_poll(struct ntb_main_context *mc);
 uint64_t
 ntb_main_context_get_monotonic_clock(struct ntb_main_context *mc);
 
+int64_t
+ntb_main_context_get_wall_clock(struct ntb_main_context *mc);
+
 void
 ntb_main_context_free(struct ntb_main_context *mc);
 
