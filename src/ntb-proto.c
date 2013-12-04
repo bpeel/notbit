@@ -38,9 +38,12 @@ ntb_proto_double_hash(const void *data,
                       uint8_t *hash)
 {
         uint8_t hash1[SHA512_DIGEST_LENGTH];
+        uint8_t hash2[SHA512_DIGEST_LENGTH];
 
         SHA512(data, length, hash1);
-        SHA512(hash1, SHA512_DIGEST_LENGTH, hash);
+        SHA512(hash1, SHA512_DIGEST_LENGTH, hash2);
+
+        memcpy(hash, hash2, NTB_PROTO_HASH_LENGTH);
 }
 
 void
