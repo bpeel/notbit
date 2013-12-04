@@ -66,6 +66,7 @@ struct ntb_network_peer {
 
 struct ntb_network_listen_socket {
         struct ntb_list link;
+        struct ntb_netaddress address;
         int sock;
 };
 
@@ -269,6 +270,9 @@ connect_queue_cb(struct ntb_main_context_source *source,
         struct ntb_network_peer *peer;
         struct ntb_error *error = NULL;
         struct ntb_signal *message_signal;
+        static const struct ntb_netaddress dummy_local_address;
+        const struct ntb_netaddress *local_address;
+        struct ntb_network_listen_socket *listen_socket;
         int peer_num;
 
         /* If we've reached the number of connected peers then we can
@@ -302,7 +306,19 @@ connect_queue_cb(struct ntb_main_context_source *source,
                 nw->n_connected_peers++;
                 nw->n_unconnected_peers--;
 
-                ntb_connection_send_version(peer->connection, nw->nonce);
+                if (ntb_list_empty(&nw->listen_sockets)) {
+                        local_address = &dummy_local_address;
+                } else {
+                        listen_socket =
+                                ntb_container_of(nw->listen_sockets.next,
+                                                 listen_socket,
+                                                 link);
+                        local_address = &listen_socket->address;
+                }
+
+                ntb_connection_send_version(peer->connection,
+                                            nw->nonce,
+                                            local_address);
 
                 message_signal =
                         ntb_connection_get_message_signal(peer->connection);
