@@ -303,6 +303,7 @@ ntb_store_new(const char *store_directory,
         struct ntb_store *store = ntb_alloc(sizeof *store);
 
         ntb_list_init(&store->queue);
+        store->quit = false;
 
         ntb_buffer_init(&store->filename_buf);
 
