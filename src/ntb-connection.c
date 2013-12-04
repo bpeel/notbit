@@ -201,6 +201,46 @@ version_command_handler(struct ntb_connection *conn,
 }
 
 static bool
+msg_command_handler(struct ntb_connection *conn,
+                    const uint8_t *data,
+                    uint32_t message_length)
+{
+        struct ntb_connection_msg_message message;
+        ssize_t header_length;
+
+        header_length = ntb_proto_get_message(data,
+                                              message_length,
+
+                                              NTB_PROTO_ARGUMENT_64,
+                                              &message.nonce,
+
+                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                              &message.timestamp,
+
+                                              NTB_PROTO_ARGUMENT_VAR_INT,
+                                              &message.stream_number,
+
+                                              NTB_PROTO_ARGUMENT_END);
+
+        if (header_length == -1) {
+                ntb_log("Invalid msg message received from %s",
+                        conn->remote_address_string);
+                set_error_state(conn);
+                return false;
+        }
+
+        message.object_data_length = message_length;
+        message.object_data = data;
+
+        message.encrypted_data_length = message_length - header_length;
+        message.encrypted_data = data + header_length;
+
+        return emit_message(conn,
+                            NTB_CONNECTION_MESSAGE_MSG,
+                            &message.base);
+}
+
+static bool
 inv_command_handler(struct ntb_connection *conn,
                     const uint8_t *data,
                     uint32_t message_length)
@@ -230,6 +270,7 @@ static const struct {
                       const uint8_t *data,
                       uint32_t message_length);
 } message_handlers[] = {
+        { "msg", msg_command_handler },
         { "inv", inv_command_handler },
         { "version", version_command_handler }
 };

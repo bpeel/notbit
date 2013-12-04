@@ -74,10 +74,13 @@ struct ntb_network {
         uint64_t nonce;
 
         struct ntb_hash_table *inventory_hash;
+
+        struct ntb_list msgs;
 };
 
 enum ntb_network_inventory_type {
-        NTB_NETWORK_INVENTORY_TYPE_STUB
+        NTB_NETWORK_INVENTORY_TYPE_STUB,
+        NTB_NETWORK_INVENTORY_TYPE_MSG
 };
 
 struct ntb_network_inventory {
@@ -97,6 +100,7 @@ struct ntb_network_inventory {
                         uint64_t last_request_time;
                 };
 
+                struct ntb_blob *blob;
         };
 };
 
@@ -387,6 +391,42 @@ handle_inv(struct ntb_network *nw,
 }
 
 static bool
+handle_msg(struct ntb_network *nw,
+           struct ntb_network_peer *peer,
+           struct ntb_connection_msg_message *message)
+{
+        struct ntb_network_inventory *inv;
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+
+        ntb_proto_double_hash(message->object_data,
+                              message->object_data_length,
+                              hash);
+
+        inv = ntb_hash_table_get(nw->inventory_hash, hash);
+
+        if (inv == NULL) {
+                inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
+                memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
+                ntb_hash_table_set(nw->inventory_hash, inv);
+        } else if (inv->type == NTB_NETWORK_INVENTORY_TYPE_STUB) {
+                ntb_list_remove(&inv->link);
+        } else {
+                /* We've already got this msg so we'll just ignore it */
+                return true;
+        }
+
+        inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
+        inv->blob = ntb_blob_new(message->object_data,
+                                 message->object_data_length);
+
+        ntb_store_save_blob(nw->store, hash, inv->blob);
+
+        ntb_list_insert(&nw->msgs, &inv->link);
+
+        return true;
+}
+
+static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data)
 {
@@ -417,6 +457,12 @@ connection_message_cb(struct ntb_listener *listener,
                 return handle_inv(nw,
                                   peer,
                                   (struct ntb_connection_inv_message *)
+                                  message);
+
+        case NTB_CONNECTION_MESSAGE_MSG:
+                return handle_msg(nw,
+                                  peer,
+                                  (struct ntb_connection_msg_message *)
                                   message);
         }
 
@@ -454,6 +500,7 @@ ntb_network_new(struct ntb_store *store)
 
         ntb_list_init(&nw->listen_sockets);
         ntb_list_init(&nw->peers);
+        ntb_list_init(&nw->msgs);
 
         nw->store = store;
 
@@ -567,11 +614,25 @@ free_peers(struct ntb_network *nw)
                 remove_peer(nw, peer);
 }
 
+static void
+free_msgs(struct ntb_network *nw)
+{
+        struct ntb_network_inventory *inv, *tmp;
+
+        ntb_list_for_each_safe(inv, tmp, &nw->msgs, link) {
+                if (inv->blob) {
+                        ntb_blob_unref(inv->blob);
+                        ntb_slice_free(&ntb_network_inventory_allocator, inv);
+                }
+        }
+}
+
 void
 ntb_network_free(struct ntb_network *nw)
 {
         free_peers(nw);
         free_listen_sockets(nw);
+        free_msgs(nw);
 
         ntb_hash_table_free(nw->inventory_hash);
 

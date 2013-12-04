@@ -43,7 +43,8 @@ enum ntb_connection_message_type {
         NTB_CONNECTION_MESSAGE_ERROR,
 
         NTB_CONNECTION_MESSAGE_VERSION,
-        NTB_CONNECTION_MESSAGE_INV
+        NTB_CONNECTION_MESSAGE_INV,
+        NTB_CONNECTION_MESSAGE_MSG
 };
 
 struct ntb_connection_message {
@@ -64,6 +65,20 @@ struct ntb_connection_version_message {
         uint64_t nonce;
         struct ntb_proto_var_str user_agent;
         struct ntb_proto_var_int_list stream_numbers;
+};
+
+struct ntb_connection_msg_message {
+        struct ntb_connection_message base;
+
+        uint64_t nonce;
+        int64_t timestamp;
+        uint64_t stream_number;
+
+        const uint8_t *object_data;
+        size_t object_data_length;
+
+        const uint8_t *encrypted_data;
+        size_t encrypted_data_length;
 };
 
 struct ntb_connection_inv_message {
