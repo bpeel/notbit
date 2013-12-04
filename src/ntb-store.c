@@ -189,7 +189,7 @@ handle_save_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
         FILE *file;
-        size_t wrote;
+        uint32_t type;
         int i;
 
         store->filename_buf.length = store->directory_len;
@@ -210,8 +210,11 @@ handle_save_blob(struct ntb_store *store,
                 return;
         }
 
-        wrote = fwrite(task->blob->data, 1, task->blob->size, file);
-        if (wrote != task->blob->size) {
+        type = NTB_UINT32_TO_BE(task->blob->type);
+
+        if (fwrite(&type, 1, sizeof type, file) != sizeof type ||
+            fwrite(task->blob->data, 1, task->blob->size, file) !=
+            task->blob->size) {
                 ntb_log("Error writing %s: %s",
                         (char *) store->filename_buf.data,
                         strerror(errno));

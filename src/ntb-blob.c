@@ -24,12 +24,14 @@
 #include "ntb-util.h"
 
 struct ntb_blob *
-ntb_blob_new(const void *data,
+ntb_blob_new(enum ntb_blob_type type,
+             const void *data,
              size_t size)
 {
         struct ntb_blob *blob =
                 ntb_alloc(NTB_STRUCT_OFFSET(struct ntb_blob, data) + size);
 
+        blob->type = type;
         blob->ref_count = 1;
         blob->size = size;
 

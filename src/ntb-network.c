@@ -498,7 +498,8 @@ handle_msg(struct ntb_network *nw,
                 ntb_list_insert(&nw->rejected_inventories, &inv->link);
         } else {
                 inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
-                inv->blob = ntb_blob_new(message->object_data,
+                inv->blob = ntb_blob_new(NTB_BLOB_TYPE_MSG,
+                                         message->object_data,
                                          message->object_data_length);
 
                 ntb_store_save_blob(nw->store, hash, inv->blob);

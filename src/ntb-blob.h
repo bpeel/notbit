@@ -32,7 +32,13 @@
  * blob can be passed off to the store thread to be written to
  * disk. */
 
+enum ntb_blob_type {
+        NTB_BLOB_TYPE_MSG
+};
+
 struct ntb_blob {
+        enum ntb_blob_type type;
+
 #ifndef HAVE_SYNC_REF_COUNT
         pthread_mutex_t ref_count_mutex;
 #endif /* HAVE_SYNC_REF_COUNT */
@@ -46,7 +52,8 @@ struct ntb_blob {
 };
 
 struct ntb_blob *
-ntb_blob_new(const void *data,
+ntb_blob_new(enum ntb_blob_type type,
+             const void *data,
              size_t size);
 
 struct ntb_blob *
