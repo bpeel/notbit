@@ -37,6 +37,7 @@
 #include "ntb-list.h"
 #include "ntb-network.h"
 #include "ntb-hash-table.h"
+#include "ntb-pow.h"
 
 struct ntb_error_domain
 ntb_network_error;
@@ -419,6 +420,48 @@ handle_inv(struct ntb_network *nw,
 }
 
 static bool
+should_reject(struct ntb_network_peer *peer,
+              const char *type,
+              const uint8_t *payload,
+              size_t payload_length,
+              int64_t age)
+{
+        const char *remote_address_string =
+                ntb_connection_get_remote_address_string(peer->connection);
+
+        if (age <= -NTB_NETWORK_INV_FUTURE_AGE) {
+                ntb_log("Rejecting %s from %s which was created "
+                        "%" PRIi64 " seconds in the future",
+                        type,
+                        remote_address_string,
+                        -age);
+                return true;
+        }
+
+        if (age >= NTB_PROTO_MAX_INV_AGE) {
+                ntb_log("Rejecting %s from %s which was created "
+                        "%" PRIi64 " seconds ago",
+                        type,
+                        remote_address_string,
+                        age);
+                return true;
+        }
+
+        if (!ntb_pow_check(payload,
+                           payload_length,
+                           14000, /* payload extra bytes */
+                           320 /* average trials per byte */)) {
+                ntb_log("Rejecting %s from %s because the proof-of-work is "
+                        "too low",
+                        type,
+                        remote_address_string);
+                return true;
+        }
+
+        return false;
+}
+
+static bool
 handle_msg(struct ntb_network *nw,
            struct ntb_network_peer *peer,
            struct ntb_connection_msg_message *message)
@@ -446,8 +489,11 @@ handle_msg(struct ntb_network *nw,
 
         age = ntb_main_context_get_wall_clock(NULL) - message->timestamp;
 
-        if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
-            age >= NTB_PROTO_MAX_INV_AGE) {
+        if (should_reject(peer,
+                          "msg",
+                          message->object_data,
+                          message->object_data_length,
+                          age)) {
                 inv->type = NTB_NETWORK_INVENTORY_TYPE_REJECTED;
                 ntb_list_insert(&nw->rejected_inventories, &inv->link);
         } else {

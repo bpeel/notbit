@@ -26,6 +26,8 @@ notbit_SOURCES = \
 	ntb-netaddress.h \
 	ntb-network.c \
 	ntb-network.h \
+	ntb-pow.c \
+	ntb-pow.h \
 	ntb-proto.c \
 	ntb-proto.h \
 	ntb-signal.h \
