@@ -150,6 +150,54 @@ check_command_string(const uint8_t *command_string)
 }
 
 static bool
+addr_command_handler(struct ntb_connection *conn,
+                     const uint8_t *data,
+                     uint32_t message_length)
+{
+        struct ntb_connection_addr_message message;
+        uint64_t n_addresses;
+        ssize_t addr_length;
+
+        if (!ntb_proto_get_var_int(&data, &message_length, &n_addresses))
+                goto error;
+
+        while (n_addresses--) {
+                addr_length =
+                        ntb_proto_get_message(data,
+                                              message_length,
+
+                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                              &message.timestamp,
+
+                                              NTB_PROTO_ARGUMENT_32,
+                                              &message.stream,
+
+                                              NTB_PROTO_ARGUMENT_64,
+                                              &message.services,
+
+                                              NTB_PROTO_ARGUMENT_NETADDRESS,
+                                              &message.address,
+
+                                              NTB_PROTO_ARGUMENT_END);
+
+                if (addr_length == -1)
+                        goto error;
+
+                if (!emit_message(conn,
+                                  NTB_CONNECTION_MESSAGE_ADDR,
+                                  &message.base))
+                        return false;
+        }
+
+        return true;
+
+error:
+        ntb_log("Invalid addr message received from %s",
+                conn->remote_address_string);
+        set_error_state(conn);
+        return false;
+}
+static bool
 version_command_handler(struct ntb_connection *conn,
                         const uint8_t *data,
                         uint32_t message_length)
@@ -568,7 +616,8 @@ static const struct {
         { "msg", msg_command_handler },
         { "broadcast", broadcast_command_handler },
         { "inv", inv_command_handler },
-        { "version", version_command_handler }
+        { "version", version_command_handler },
+        { "addr", addr_command_handler }
 };
 
 static bool

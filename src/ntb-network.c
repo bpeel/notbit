@@ -77,6 +77,9 @@ struct ntb_network_peer {
         struct ntb_list requested_inventories;
 
         int64_t advertise_time;
+        uint32_t stream;
+        uint64_t services;
+
         uint64_t last_connect_time;
 };
 
@@ -337,11 +340,8 @@ connect_queue_cb(struct ntb_main_context_source *source,
         }
 
         if (n_peers <= 0) {
-                if (nw->connect_queue_source_is_idle) {
-                        remove_connect_queue_source(nw);
-                        /* Switch to a timeout source */
-                        maybe_queue_connect(nw, false /* use_idle */);
-                }
+                /* Switch to a timeout source */
+                maybe_queue_connect(nw, false /* use_idle */);
                 return;
         }
 
@@ -392,7 +392,6 @@ connect_queue_cb(struct ntb_main_context_source *source,
                  * peers */
                 if (nw->connect_queue_source_is_idle &&
                     nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS / 2) {
-                        remove_connect_queue_source(nw);
                         maybe_queue_connect(nw, false /* use idle */);
                 }
         }
@@ -407,10 +406,6 @@ maybe_queue_connect(struct ntb_network *nw,
         if (nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS)
                 return;
 
-        /* Same if we've already queued a connect */
-        if (nw->connect_queue_source != NULL)
-                return;
-
         /* Or if we don't have any peers to connect to */
         if (nw->n_unconnected_peers <= 0)
                 return;
@@ -419,8 +414,17 @@ maybe_queue_connect(struct ntb_network *nw,
          * that we'll connect really quickly. Otherwise we'll use a 1
          * minute timer so that we have a chance to receive details of
          * other peers */
-        if (nw->n_connected_peers < NTB_NETWORK_TARGET_NUM_PEERS / 2 &&
-            use_idle) {
+        if (nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS / 2)
+                use_idle = false;
+
+        if (nw->connect_queue_source) {
+                if (nw->connect_queue_source_is_idle == use_idle)
+                        return;
+
+                ntb_main_context_remove_source(nw->connect_queue_source);
+        }
+
+        if (use_idle) {
                 nw->connect_queue_source =
                         ntb_main_context_add_idle(NULL,
                                                   connect_queue_cb,
@@ -458,8 +462,10 @@ new_peer(struct ntb_network *nw)
 
 static void
 add_peer(struct ntb_network *nw,
-         const struct ntb_netaddress *address,
-         int64_t timestamp)
+         int64_t timestamp,
+         uint32_t stream,
+         uint64_t services,
+         const struct ntb_netaddress *address)
 {
         int64_t now = ntb_main_context_get_wall_clock(NULL);
         struct ntb_network_peer *peer;
@@ -485,8 +491,12 @@ add_peer(struct ntb_network *nw,
         }
 
         peer = new_peer(nw);
-        peer->address = *address;
         peer->advertise_time = timestamp;
+        peer->stream = stream;
+        peer->services = services;
+        peer->address = *address;
+
+        maybe_queue_connect(nw, true /* use_idle */);
 }
 
 static bool
@@ -497,6 +507,9 @@ handle_version(struct ntb_network *nw,
         const char *remote_address_string =
                 ntb_connection_get_remote_address_string(peer->connection);
         struct ntb_netaddress remote_address;
+        uint64_t stream = 1;
+        const uint8_t *p;
+        uint32_t length;
 
         if (message->nonce == nw->nonce) {
                 ntb_log("Connected to self from %s", remote_address_string);
@@ -513,9 +526,19 @@ handle_version(struct ntb_network *nw,
                 return false;
         }
 
+        if (message->stream_numbers.n_ints >= 1) {
+                p = message->stream_numbers.values;
+                length = 16;
+                ntb_proto_get_var_int(&p, &length, &stream);
+        }
+
         remote_address = *ntb_connection_get_remote_address(peer->connection);
         remote_address.port = message->addr_from.port;
-        add_peer(nw, &remote_address, message->timestamp);
+        add_peer(nw,
+                 message->timestamp,
+                 stream,
+                 message->services,
+                 &remote_address);
 
         ntb_connection_send_verack(peer->connection);
 
@@ -627,6 +650,20 @@ get_blob_type_name(enum ntb_blob_type type)
 }
 
 static bool
+handle_addr(struct ntb_network *nw,
+            struct ntb_network_peer *peer,
+            struct ntb_connection_addr_message *message)
+{
+        add_peer(nw,
+                 message->timestamp,
+                 message->stream,
+                 message->services,
+                 &message->address);
+
+        return true;
+}
+
+static bool
 handle_object(struct ntb_network *nw,
               struct ntb_network_peer *peer,
               struct ntb_connection_object_message *message)
@@ -735,6 +772,12 @@ connection_message_cb(struct ntb_listener *listener,
                                   peer,
                                   (struct ntb_connection_inv_message *)
                                   message);
+
+        case NTB_CONNECTION_MESSAGE_ADDR:
+                return handle_addr(nw,
+                                   peer,
+                                   (struct ntb_connection_addr_message *)
+                                   message);
 
         case NTB_CONNECTION_MESSAGE_OBJECT:
                 return handle_object(nw,
@@ -870,6 +913,8 @@ ntb_network_new(struct ntb_store *store)
                                            &native_address);
 
                 peer->advertise_time = ntb_main_context_get_wall_clock(NULL);
+                peer->stream = 1;
+                peer->services = NTB_PROTO_SERVICES;
         }
 
         maybe_queue_connect(nw, true /* use idle */);

@@ -45,6 +45,7 @@ enum ntb_connection_message_type {
 
         NTB_CONNECTION_MESSAGE_VERSION,
         NTB_CONNECTION_MESSAGE_INV,
+        NTB_CONNECTION_MESSAGE_ADDR,
         NTB_CONNECTION_MESSAGE_OBJECT
 };
 
@@ -127,6 +128,15 @@ struct ntb_connection_inv_message {
 
         uint64_t n_inventories;
         const uint8_t *inventories;
+};
+
+struct ntb_connection_addr_message {
+        struct ntb_connection_message base;
+
+        int64_t timestamp;
+        uint32_t stream;
+        uint64_t services;
+        struct ntb_netaddress address;
 };
 
 struct ntb_connection *connection;
