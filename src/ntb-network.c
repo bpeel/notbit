@@ -386,14 +386,6 @@ connect_queue_cb(struct ntb_main_context_source *source,
                 message_signal =
                         ntb_connection_get_message_signal(peer->connection);
                 ntb_signal_add(message_signal, &peer->message_listener);
-
-                /* Once we reach half the target number of peers then
-                 * we'll switch to a minute timer for the remaining
-                 * peers */
-                if (nw->connect_queue_source_is_idle &&
-                    nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS / 2) {
-                        maybe_queue_connect(nw, false /* use idle */);
-                }
         }
 }
 
@@ -409,13 +401,6 @@ maybe_queue_connect(struct ntb_network *nw,
         /* Or if we don't have any peers to connect to */
         if (nw->n_unconnected_peers <= 0)
                 return;
-
-        /* For the first half of the peers we'll connect on idle so
-         * that we'll connect really quickly. Otherwise we'll use a 1
-         * minute timer so that we have a chance to receive details of
-         * other peers */
-        if (nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS / 2)
-                use_idle = false;
 
         if (nw->connect_queue_source) {
                 if (nw->connect_queue_source_is_idle == use_idle)
