@@ -817,6 +817,11 @@ gc_inventories(struct ntb_network *nw,
                         ntb_list_remove(&inv->link);
                         ntb_hash_table_remove(nw->inventory_hash, inv);
                         free_inventory(inv);
+                } else if (age >= NTB_NETWORK_INV_CACHE_AGE &&
+                           inv->blob &&
+                           inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED) {
+                        ntb_blob_unref(inv->blob);
+                        inv->blob = NULL;
                 }
         }
 }
