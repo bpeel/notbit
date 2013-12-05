@@ -183,6 +183,9 @@ addr_command_handler(struct ntb_connection *conn,
                 if (addr_length == -1)
                         goto error;
 
+                message_length -= addr_length;
+                data += addr_length;
+
                 if (!emit_message(conn,
                                   NTB_CONNECTION_MESSAGE_ADDR,
                                   &message.base))
