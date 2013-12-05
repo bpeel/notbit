@@ -61,6 +61,12 @@ ntb_network_error;
  * we could get it again if another peer advertised it */
 #define NTB_NETWORK_MAX_STUB_INVENTORY_AGE (5 * 60)
 
+/* Time in seconds after which we'll stop advertising a peer */
+#define NTB_NETWORK_MAX_PEER_AGE (2 * 60 * 60)
+
+/* Time in seconds before we'll retry connecting to a peer */
+#define NTB_NETWORK_MIN_RECONNECT_TIME 60
+
 struct ntb_network_peer {
         struct ntb_list link;
         struct ntb_netaddress address;
@@ -69,6 +75,9 @@ struct ntb_network_peer {
         struct ntb_network *network;
 
         struct ntb_list requested_inventories;
+
+        int64_t advertise_time;
+        uint64_t last_connect_time;
 };
 
 struct ntb_network_listen_socket {
@@ -170,7 +179,11 @@ static const struct {
 };
 
 static void
-maybe_queue_connect(struct ntb_network *nw);
+maybe_queue_connect(struct ntb_network *nw, bool use_idle);
+
+static bool
+connection_message_cb(struct ntb_listener *listener,
+                      void *data);
 
 static bool
 address_string_to_native(const char *address,
@@ -266,7 +279,7 @@ close_connection(struct ntb_network *nw,
         nw->n_unconnected_peers++;
         nw->n_connected_peers--;
 
-        maybe_queue_connect(nw);
+        maybe_queue_connect(nw, true /* use_idle */);
 }
 
 static void
@@ -277,6 +290,21 @@ remove_peer(struct ntb_network *nw,
         nw->n_unconnected_peers--;
         ntb_list_remove(&peer->link);
         ntb_slice_free(&ntb_network_peer_allocator, peer);
+}
+
+static bool
+can_connect_to_peer(struct ntb_network_peer *peer)
+{
+        uint64_t now = ntb_main_context_get_monotonic_clock(NULL);
+
+        if (peer->connection)
+                return false;
+
+        if (now - peer->last_connect_time <
+            NTB_NETWORK_MIN_RECONNECT_TIME * UINT64_C(1000000))
+                return false;
+
+        return true;
 }
 
 static void
@@ -290,6 +318,7 @@ connect_queue_cb(struct ntb_main_context_source *source,
         static const struct ntb_netaddress dummy_local_address;
         const struct ntb_netaddress *local_address;
         struct ntb_network_listen_socket *listen_socket;
+        int n_peers = 0;
         int peer_num;
 
         /* If we've reached the number of connected peers then we can
@@ -301,12 +330,27 @@ connect_queue_cb(struct ntb_main_context_source *source,
                 return;
         }
 
+        /* Count the number of peers we can connect to */
+        ntb_list_for_each(peer, &nw->peers, link) {
+                if (can_connect_to_peer(peer))
+                        n_peers++;
+        }
+
+        if (n_peers <= 0) {
+                if (nw->connect_queue_source_is_idle) {
+                        remove_connect_queue_source(nw);
+                        /* Switch to a timeout source */
+                        maybe_queue_connect(nw, false /* use_idle */);
+                }
+                return;
+        }
+
         /* Pick a random peer so that we don't accidentally favour the
          * list we retrieve from any particular peer */
-        peer_num = (uint64_t) rand() * nw->n_unconnected_peers / RAND_MAX;
+        peer_num = (uint64_t) rand() * n_peers / RAND_MAX;
 
         ntb_list_for_each(peer, &nw->peers, link) {
-                if (peer_num-- <= 0)
+                if (can_connect_to_peer(peer) && peer_num-- <= 0)
                         break;
         }
 
@@ -322,6 +366,8 @@ connect_queue_cb(struct ntb_main_context_source *source,
         } else {
                 nw->n_connected_peers++;
                 nw->n_unconnected_peers--;
+                peer->last_connect_time =
+                        ntb_main_context_get_monotonic_clock(NULL);
 
                 if (ntb_list_empty(&nw->listen_sockets)) {
                         local_address = &dummy_local_address;
@@ -347,13 +393,14 @@ connect_queue_cb(struct ntb_main_context_source *source,
                 if (nw->connect_queue_source_is_idle &&
                     nw->n_connected_peers >= NTB_NETWORK_TARGET_NUM_PEERS / 2) {
                         remove_connect_queue_source(nw);
-                        maybe_queue_connect(nw);
+                        maybe_queue_connect(nw, false /* use idle */);
                 }
         }
 }
 
 static void
-maybe_queue_connect(struct ntb_network *nw)
+maybe_queue_connect(struct ntb_network *nw,
+                    bool use_idle)
 {
         /* If we've already got enough peers then we don't need to do
          * anything */
@@ -372,7 +419,8 @@ maybe_queue_connect(struct ntb_network *nw)
          * that we'll connect really quickly. Otherwise we'll use a 1
          * minute timer so that we have a chance to receive details of
          * other peers */
-        if (nw->n_connected_peers < NTB_NETWORK_TARGET_NUM_PEERS / 2) {
+        if (nw->n_connected_peers < NTB_NETWORK_TARGET_NUM_PEERS / 2 &&
+            use_idle) {
                 nw->connect_queue_source =
                         ntb_main_context_add_idle(NULL,
                                                   connect_queue_cb,
@@ -388,6 +436,59 @@ maybe_queue_connect(struct ntb_network *nw)
         }
 }
 
+static struct ntb_network_peer *
+new_peer(struct ntb_network *nw)
+{
+        struct ntb_network_peer *peer;
+
+        peer = ntb_slice_alloc(&ntb_network_peer_allocator);
+
+        ntb_list_insert(&nw->peers, &peer->link);
+        peer->connection = NULL;
+        nw->n_unconnected_peers++;
+
+        peer->message_listener.notify = connection_message_cb;
+        peer->network = nw;
+        peer->last_connect_time = 0;
+
+        ntb_list_init(&peer->requested_inventories);
+
+        return peer;
+}
+
+static void
+add_peer(struct ntb_network *nw,
+         const struct ntb_netaddress *address,
+         int64_t timestamp)
+{
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        struct ntb_network_peer *peer;
+
+        /* Ignore old addresses */
+        if (now - timestamp >= NTB_NETWORK_MAX_PEER_AGE)
+                return;
+
+        /* Don't let addresses be advertised in the future */
+        if (timestamp > now)
+                timestamp = now;
+
+        /* Check if we already have this peer */
+        ntb_list_for_each(peer, &nw->peers, link) {
+                if (!memcmp(peer->address.host,
+                            address->host,
+                            sizeof address->host) &&
+                    peer->address.port == address->port) {
+                        if (peer->advertise_time < timestamp)
+                                peer->advertise_time = timestamp;
+                        return;
+                }
+        }
+
+        peer = new_peer(nw);
+        peer->address = *address;
+        peer->advertise_time = timestamp;
+}
+
 static bool
 handle_version(struct ntb_network *nw,
                struct ntb_network_peer *peer,
@@ -395,6 +496,7 @@ handle_version(struct ntb_network *nw,
 {
         const char *remote_address_string =
                 ntb_connection_get_remote_address_string(peer->connection);
+        struct ntb_netaddress remote_address;
 
         if (message->nonce == nw->nonce) {
                 ntb_log("Connected to self from %s", remote_address_string);
@@ -410,6 +512,10 @@ handle_version(struct ntb_network *nw,
                 remove_peer(nw, peer);
                 return false;
         }
+
+        remote_address = *ntb_connection_get_remote_address(peer->connection);
+        remote_address.port = message->addr_from.port;
+        add_peer(nw, &remote_address, message->timestamp);
 
         ntb_connection_send_verack(peer->connection);
 
@@ -680,6 +786,19 @@ gc_inventories(struct ntb_network *nw,
 }
 
 static void
+gc_peers(struct ntb_network *nw)
+{
+        struct ntb_network_peer *peer, *tmp;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+
+        ntb_list_for_each_safe(peer, tmp, &nw->peers, link) {
+                if (now - peer->advertise_time >= NTB_NETWORK_MAX_PEER_AGE &&
+                    peer->connection == NULL)
+                        remove_peer(nw, peer);
+        }
+}
+
+static void
 gc_timeout_cb(struct ntb_main_context_source *source,
               void *user_data)
 {
@@ -694,25 +813,8 @@ gc_timeout_cb(struct ntb_main_context_source *source,
         gc_inventories(nw, &nw->getpubkeys);
         gc_inventories(nw, &nw->msgs);
         gc_inventories(nw, &nw->rejected_inventories);
-}
 
-static struct ntb_network_peer *
-new_peer(struct ntb_network *nw)
-{
-        struct ntb_network_peer *peer;
-
-        peer = ntb_slice_alloc(&ntb_network_peer_allocator);
-
-        ntb_list_insert(&nw->peers, &peer->link);
-        peer->connection = NULL;
-        nw->n_unconnected_peers++;
-
-        peer->message_listener.notify = connection_message_cb;
-        peer->network = nw;
-
-        ntb_list_init(&peer->requested_inventories);
-
-        return peer;
+        gc_peers(nw);
 }
 
 struct ntb_network *
@@ -766,9 +868,11 @@ ntb_network_new(struct ntb_store *store)
 
                 ntb_netaddress_from_native(&peer->address,
                                            &native_address);
+
+                peer->advertise_time = ntb_main_context_get_wall_clock(NULL);
         }
 
-        maybe_queue_connect(nw);
+        maybe_queue_connect(nw, true /* use idle */);
 
         nw->gc_source = ntb_main_context_add_timer(NULL,
                                                    NTB_NETWORK_GC_TIMEOUT,
