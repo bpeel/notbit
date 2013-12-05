@@ -657,7 +657,7 @@ ntb_main_context_get_wall_clock(struct ntb_main_context *mc)
            poll, we can act as if no time passes between calls to
            epoll. That way we can cache the clock value instead of having to
            do a system call every time we need it */
-        if (!mc->monotonic_time_valid) {
+        if (!mc->wall_time_valid) {
                 time(&now);
 
                 mc->wall_time = now;
