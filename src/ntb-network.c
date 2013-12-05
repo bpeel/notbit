@@ -649,7 +649,7 @@ gc_requested_inventories(struct ntb_network *nw,
 
         ntb_list_for_each_safe(inv, tmp, &peer->requested_inventories, link) {
                 if (now - inv->last_request_time >=
-                    NTB_NETWORK_MAX_STUB_INVENTORY_AGE) {
+                    NTB_NETWORK_MAX_STUB_INVENTORY_AGE * UINT64_C(1000000)) {
                         ntb_list_remove(&inv->link);
                         ntb_hash_table_remove(nw->inventory_hash, inv);
                         free_inventory(inv);
