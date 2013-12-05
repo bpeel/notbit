@@ -148,6 +148,9 @@ ntb_connection_get_message_signal(struct ntb_connection *conn);
 const char *
 ntb_connection_get_remote_address_string(struct ntb_connection *conn);
 
+const struct ntb_netaddress *
+ntb_connection_get_remote_address(struct ntb_connection *conn);
+
 void
 ntb_connection_send_verack(struct ntb_connection *conn);
 
