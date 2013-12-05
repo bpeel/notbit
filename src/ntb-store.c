@@ -380,7 +380,7 @@ new_task(struct ntb_store *store,
 
         task = ntb_slice_alloc(&store->allocator);
         task->type = type;
-        ntb_list_insert(&store->queue, &task->link);
+        ntb_list_insert(store->queue.prev, &task->link);
 
         pthread_cond_signal(&store->cond);
 
