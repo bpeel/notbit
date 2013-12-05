@@ -25,6 +25,8 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <dirent.h>
 
 #include "ntb-store.h"
 #include "ntb-util.h"
@@ -33,6 +35,7 @@
 #include "ntb-list.h"
 #include "ntb-slice.h"
 #include "ntb-proto.h"
+#include "ntb-main-context.h"
 
 struct ntb_error_domain
 ntb_store_error;
@@ -415,6 +418,158 @@ ntb_store_delete_object(struct ntb_store *store,
         memcpy(task->delete_object.hash, hash, NTB_PROTO_HASH_LENGTH);
 
         pthread_mutex_unlock(&store->mutex);
+}
+
+static int
+hex_digit_value(int ch)
+{
+        if (ch >= 'a')
+                return ch - 'a' + 10;
+        if (ch >= 'A')
+                return ch - 'A' + 10;
+
+        return ch - '0';
+}
+
+static bool
+is_hex_digit(int ch)
+{
+        return ((ch >= 'a' && ch <= 'f') ||
+                (ch >= 'A' && ch <= 'F') ||
+                (ch >= '0' && ch <= '9'));
+}
+
+static void
+process_file(struct ntb_store *store,
+             const char *filename,
+             ntb_store_for_each_func func,
+             void *user_data)
+{
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+        uint8_t buf[sizeof (uint32_t) + sizeof (uint64_t) * 2];
+        uint32_t type;
+        int64_t timestamp;
+        size_t got;
+        FILE *file;
+        const char *p;
+        const uint8_t *buf_ptr;
+        uint32_t length;
+        int64_t now;
+        int i;
+
+        p = filename + store->directory_len;
+
+        for (i = 0; i < NTB_PROTO_HASH_LENGTH; i++) {
+                /* Skip files that don't look like a hash */
+                if (!is_hex_digit(p[0]) ||
+                    !is_hex_digit(p[1]))
+                        return;
+
+                hash[i] = ((hex_digit_value(p[0]) << 4) |
+                           hex_digit_value(p[1]));
+                p += 2;
+        }
+
+        /* Delete any temporary files. These could be left around if
+         * notbit crashes while writing a file */
+        if (!strcmp(p, ".tmp")) {
+                if (unlink(filename) == -1)
+                        ntb_log("Error deleting %s: %s",
+                                filename,
+                                strerror(errno));
+                return;
+        } else if (p[0] != '\0') {
+                return;
+        }
+
+        file = fopen(filename, "rb");
+        if (file == NULL) {
+                ntb_log("Error reading %s: %s",
+                        filename,
+                        strerror(errno));
+                return;
+        }
+
+        /* All of the files should start with a 32-bit type, the
+         * 64-bit nonce and then either a 32-bit or 64-bit timestamp.
+         * We only need the type and timestamp so we don't need to
+         * read the rest */
+        errno = 0;
+        got = fread(buf, 1, sizeof buf, file);
+        if (got != sizeof buf) {
+                if (errno == 0)
+                        ntb_log("The object file %s is too short",
+                                filename);
+                else
+                        ntb_log("Error reading %s: %s",
+                                filename,
+                                strerror(errno));
+                fclose(file);
+                return;
+        }
+
+        fclose(file);
+
+        now = ntb_main_context_get_wall_clock(NULL);
+
+        type = ntb_proto_get_32(buf);
+        buf_ptr = buf + sizeof (uint32_t) + sizeof (uint64_t);
+        length = sizeof (uint64_t);
+        ntb_proto_get_timestamp(&buf_ptr, &length, &timestamp);
+
+        if (now - timestamp >= NTB_PROTO_MAX_INV_AGE) {
+                if (unlink(filename) == -1)
+                        ntb_log("Error deleting %s: %s",
+                                filename,
+                                strerror(errno));
+        } else {
+                func(type, hash, timestamp, user_data);
+        }
+}
+
+void
+ntb_store_for_each(struct ntb_store *store,
+                   ntb_store_for_each_func func,
+                   void *user_data)
+{
+        DIR *dir;
+        struct dirent *dirent;
+
+        /* This function runs synchronously but it should only be
+         * called once at startup before connecting to any peers so it
+         * shouldn't really matter */
+
+        ntb_log("Loading saved object store");
+
+        ntb_buffer_append(&store->tmp_buf,
+                          store->filename_buf.data,
+                          store->directory_len);
+        while (store->tmp_buf.length > 0 &&
+               store->tmp_buf.data[store->tmp_buf.length - 1] == '/')
+                store->tmp_buf.length--;
+        ntb_buffer_append_c(&store->tmp_buf, '\0');
+
+        dir = opendir((char *) store->tmp_buf.data);
+        if (dir == NULL) {
+                ntb_log("Error listing %s: %s",
+                        (char *) store->tmp_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        while ((dirent = readdir(dir))) {
+                store->filename_buf.length = store->directory_len;
+                ntb_buffer_append_string(&store->filename_buf, dirent->d_name);
+
+                process_file(store,
+                             (char *) store->filename_buf.data,
+                             func,
+                             user_data);
+        }
+
+        closedir(dir);
+
+        ntb_log("Finished loading object store");
 }
 
 void

@@ -249,6 +249,8 @@ run_network(void)
                                     error->message);
                         ntb_error_clear(&error);
                 } else {
+                        ntb_network_load_store(nw);
+
                         quit_source = ntb_main_context_add_quit(NULL,
                                                                 quit_cb,
                                                                 &quit);

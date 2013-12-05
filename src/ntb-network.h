@@ -37,6 +37,9 @@ struct ntb_network;
 struct ntb_network *
 ntb_network_new(struct ntb_store *store);
 
+void
+ntb_network_load_store(struct ntb_network *nw);
+
 bool
 ntb_network_add_listen_address(struct ntb_network *nw,
                                const char *address,

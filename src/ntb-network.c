@@ -648,6 +648,31 @@ handle_addr(struct ntb_network *nw,
         return true;
 }
 
+static void
+add_inv_to_list(struct ntb_network *nw,
+                enum ntb_blob_type type,
+                struct ntb_network_inventory *inv)
+{
+        switch (type) {
+        case NTB_BLOB_TYPE_PUBKEY:
+                inv->type = NTB_NETWORK_INVENTORY_TYPE_PUBKEY;
+                ntb_list_insert(&nw->pubkeys, &inv->link);
+                break;
+        case NTB_BLOB_TYPE_BROADCAST:
+                inv->type = NTB_NETWORK_INVENTORY_TYPE_BROADCAST;
+                ntb_list_insert(&nw->broadcasts, &inv->link);
+                break;
+        case NTB_BLOB_TYPE_GETPUBKEY:
+                inv->type = NTB_NETWORK_INVENTORY_TYPE_GETPUBKEY;
+                ntb_list_insert(&nw->getpubkeys, &inv->link);
+                break;
+        case NTB_BLOB_TYPE_MSG:
+                inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
+                ntb_list_insert(&nw->msgs, &inv->link);
+                break;
+        }
+}
+
 static bool
 handle_object(struct ntb_network *nw,
               struct ntb_network_peer *peer,
@@ -702,24 +727,7 @@ handle_object(struct ntb_network *nw,
                         inv->blob = NULL;
                 }
 
-                switch (message->type) {
-                case NTB_BLOB_TYPE_PUBKEY:
-                        inv->type = NTB_NETWORK_INVENTORY_TYPE_PUBKEY;
-                        ntb_list_insert(&nw->pubkeys, &inv->link);
-                        break;
-                case NTB_BLOB_TYPE_BROADCAST:
-                        inv->type = NTB_NETWORK_INVENTORY_TYPE_BROADCAST;
-                        ntb_list_insert(&nw->broadcasts, &inv->link);
-                        break;
-                case NTB_BLOB_TYPE_GETPUBKEY:
-                        inv->type = NTB_NETWORK_INVENTORY_TYPE_GETPUBKEY;
-                        ntb_list_insert(&nw->getpubkeys, &inv->link);
-                        break;
-                case NTB_BLOB_TYPE_MSG:
-                        inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
-                        ntb_list_insert(&nw->msgs, &inv->link);
-                        break;
-                }
+                add_inv_to_list(nw, message->type, inv);
         }
 
         return true;
@@ -843,6 +851,37 @@ gc_timeout_cb(struct ntb_main_context_source *source,
         gc_inventories(nw, &nw->rejected_inventories);
 
         gc_peers(nw);
+}
+
+static void
+store_for_each_cb(enum ntb_blob_type type,
+                  const uint8_t *hash,
+                  int64_t timestamp,
+                  void *user_data)
+{
+        struct ntb_network *nw = user_data;
+        struct ntb_network_inventory *inv;
+
+        inv = ntb_hash_table_get(nw->inventory_hash, hash);
+
+        /* Presumably this could only happen if somehow the store
+         * reported the same hash twice. However it's probably better
+         * to be safe */
+        if (inv)
+                return;
+
+        inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
+        memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
+        inv->timestamp = timestamp;
+        inv->blob = NULL;
+        ntb_hash_table_set(nw->inventory_hash, inv);
+        add_inv_to_list(nw, type, inv);
+}
+
+void
+ntb_network_load_store(struct ntb_network *nw)
+{
+        ntb_store_for_each(nw->store, store_for_each_cb, nw);
 }
 
 struct ntb_network *

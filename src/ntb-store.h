@@ -37,6 +37,11 @@ enum ntb_store_error {
         NTB_STORE_ERROR_INVALID_STORE_DIRECTORY
 };
 
+typedef void (* ntb_store_for_each_func)(enum ntb_blob_type type,
+                                         const uint8_t *hash,
+                                         int64_t timestamp,
+                                         void *user_data);
+
 struct ntb_store *
 ntb_store_new(const char *store_directory,
               struct ntb_error **error);
@@ -49,6 +54,11 @@ ntb_store_save_blob(struct ntb_store *store,
 void
 ntb_store_delete_object(struct ntb_store *store,
                         const uint8_t *hash);
+
+void
+ntb_store_for_each(struct ntb_store *store,
+                   ntb_store_for_each_func func,
+                   void *user_data);
 
 void
 ntb_store_free(struct ntb_store *store);
