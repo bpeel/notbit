@@ -54,6 +54,13 @@ ntb_network_error;
  * we'll ignore them */
 #define NTB_NETWORK_INV_FUTURE_AGE (30 * 60)
 
+/* Time in minutes between each garbage collection run */
+#define NTB_NETWORK_GC_TIMEOUT 10
+
+/* Time in seconds after which we'll delete a stub inventory so that
+ * we could get it again if another peer advertised it */
+#define NTB_NETWORK_MAX_STUB_INVENTORY_AGE (5 * 60)
+
 struct ntb_network_peer {
         struct ntb_list link;
         struct ntb_netaddress address;
@@ -71,6 +78,8 @@ struct ntb_network_listen_socket {
 };
 
 struct ntb_network {
+        struct ntb_main_context_source *gc_source;
+
         struct ntb_list listen_sockets;
         struct ntb_list peers;
         int n_connected_peers;
@@ -121,7 +130,15 @@ struct ntb_network_inventory {
                         uint64_t last_request_time;
                 };
 
-                struct ntb_blob *blob;
+                struct {
+                        /* All types apart from the stub type
+                         * (including the rejected inventories) have a
+                         * timestamp which we'll use to garbage
+                         * collect when the item gets too old */
+                        int64_t timestamp;
+
+                        struct ntb_blob *blob;
+                };
         };
 };
 
@@ -531,6 +548,8 @@ handle_object(struct ntb_network *nw,
 
         age = ntb_main_context_get_wall_clock(NULL) - message->timestamp;
 
+        inv->timestamp = message->timestamp;
+
         if (should_reject(peer,
                           get_blob_type_name(message->type),
                           message->object_data,
@@ -621,6 +640,62 @@ connection_message_cb(struct ntb_listener *listener,
         return true;
 }
 
+static void
+gc_requested_inventories(struct ntb_network *nw,
+                         struct ntb_network_peer *peer)
+{
+        struct ntb_network_inventory *inv, *tmp;
+        uint64_t now = ntb_main_context_get_monotonic_clock(NULL);
+
+        ntb_list_for_each_safe(inv, tmp, &peer->requested_inventories, link) {
+                if (now - inv->last_request_time >=
+                    NTB_NETWORK_MAX_STUB_INVENTORY_AGE) {
+                        ntb_list_remove(&inv->link);
+                        ntb_hash_table_remove(nw->inventory_hash, inv);
+                        free_inventory(inv);
+                }
+        }
+}
+
+static void
+gc_inventories(struct ntb_network *nw,
+               struct ntb_list *list)
+{
+        struct ntb_network_inventory *inv, *tmp;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        int64_t age;
+
+        ntb_list_for_each_safe(inv, tmp, list, link) {
+                age = now - inv->timestamp;
+
+                if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
+                    age >= NTB_PROTO_MAX_INV_AGE) {
+                        if (inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED)
+                                ntb_store_delete_object(nw->store, inv->hash);
+                        ntb_list_remove(&inv->link);
+                        ntb_hash_table_remove(nw->inventory_hash, inv);
+                        free_inventory(inv);
+                }
+        }
+}
+
+static void
+gc_timeout_cb(struct ntb_main_context_source *source,
+              void *user_data)
+{
+        struct ntb_network *nw = user_data;
+        struct ntb_network_peer *peer;
+
+        ntb_list_for_each(peer, &nw->peers, link)
+                gc_requested_inventories(nw, peer);
+
+        gc_inventories(nw, &nw->pubkeys);
+        gc_inventories(nw, &nw->broadcasts);
+        gc_inventories(nw, &nw->getpubkeys);
+        gc_inventories(nw, &nw->msgs);
+        gc_inventories(nw, &nw->rejected_inventories);
+}
+
 static struct ntb_network_peer *
 new_peer(struct ntb_network *nw)
 {
@@ -695,6 +770,11 @@ ntb_network_new(struct ntb_store *store)
 
         maybe_queue_connect(nw);
 
+        nw->gc_source = ntb_main_context_add_timer(NULL,
+                                                   NTB_NETWORK_GC_TIMEOUT,
+                                                   gc_timeout_cb,
+                                                   nw);
+
         return nw;
 }
 
@@ -744,6 +824,8 @@ ntb_network_add_listen_address(struct ntb_network *nw,
         listen_socket->sock = sock;
         ntb_list_insert(&nw->listen_sockets, &listen_socket->link);
 
+        ntb_netaddress_from_native(&listen_socket->address, &native_address);
+
         return true;
 
 error:
@@ -789,6 +871,8 @@ free_inventories_in_list(struct ntb_list *list)
 void
 ntb_network_free(struct ntb_network *nw)
 {
+        ntb_main_context_remove_source(nw->gc_source);
+
         free_peers(nw);
         free_listen_sockets(nw);
         free_inventories_in_list(&nw->broadcasts);

@@ -57,7 +57,8 @@ struct ntb_store {
 };
 
 enum ntb_store_task_type {
-        NTB_STORE_TASK_TYPE_SAVE_BLOB
+        NTB_STORE_TASK_TYPE_SAVE_BLOB,
+        NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
 
 struct ntb_store_task {
@@ -68,7 +69,11 @@ struct ntb_store_task {
                 struct {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
                         struct ntb_blob *blob;
-                };
+                } save_blob;
+
+                struct {
+                        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+                } delete_object;
         };
 };
 
@@ -185,19 +190,25 @@ init_store_directory(struct ntb_store *store,
 }
 
 static void
+append_hash(struct ntb_buffer *buffer,
+            const uint8_t *hash)
+{
+        int i;
+
+        for (i = 0; i < NTB_PROTO_HASH_LENGTH; i++)
+                ntb_buffer_append_printf(buffer, "%02x", hash[i]);
+}
+
+static void
 handle_save_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
         FILE *file;
         uint32_t type;
-        int i;
 
         store->filename_buf.length = store->directory_len;
 
-        for (i = 0; i < NTB_PROTO_HASH_LENGTH; i++)
-                ntb_buffer_append_printf(&store->filename_buf,
-                                         "%02x",
-                                         task->hash[i]);
+        append_hash(&store->filename_buf, task->save_blob.hash);
 
         ntb_buffer_append_string(&store->filename_buf, ".tmp");
 
@@ -210,11 +221,12 @@ handle_save_blob(struct ntb_store *store,
                 return;
         }
 
-        type = NTB_UINT32_TO_BE(task->blob->type);
+        type = NTB_UINT32_TO_BE(task->save_blob.blob->type);
 
         if (fwrite(&type, 1, sizeof type, file) != sizeof type ||
-            fwrite(task->blob->data, 1, task->blob->size, file) !=
-            task->blob->size) {
+            fwrite(task->save_blob.blob->data, 1,
+                   task->save_blob.blob->size, file) !=
+            task->save_blob.blob->size) {
                 ntb_log("Error writing %s: %s",
                         (char *) store->filename_buf.data,
                         strerror(errno));
@@ -248,6 +260,21 @@ handle_save_blob(struct ntb_store *store,
 }
 
 static void
+handle_delete_object(struct ntb_store *store,
+                     struct ntb_store_task *task)
+{
+        store->filename_buf.length = store->directory_len;
+
+        append_hash(&store->filename_buf, task->delete_object.hash);
+
+        if (unlink((char *) store->filename_buf.data) == -1) {
+                ntb_log("Error deleting %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+        }
+}
+
+static void
 free_task(struct ntb_store *store,
            struct ntb_store_task *task)
 {
@@ -255,7 +282,9 @@ free_task(struct ntb_store *store,
 
         switch (task->type) {
         case NTB_STORE_TASK_TYPE_SAVE_BLOB:
-                ntb_blob_unref(task->blob);
+                ntb_blob_unref(task->save_blob.blob);
+                break;
+        case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
                 break;
         }
 
@@ -286,6 +315,9 @@ store_thread_func(void *user_data)
                 switch (task->type) {
                 case NTB_STORE_TASK_TYPE_SAVE_BLOB:
                         handle_save_blob(store, task);
+                        break;
+                case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
+                        handle_delete_object(store, task);
                         break;
                 }
 
@@ -365,8 +397,22 @@ ntb_store_save_blob(struct ntb_store *store,
         pthread_mutex_lock(&store->mutex);
 
         task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_BLOB);
-        memcpy(task->hash, hash, NTB_PROTO_HASH_LENGTH);
-        task->blob = ntb_blob_ref(blob);
+        memcpy(task->save_blob.hash, hash, NTB_PROTO_HASH_LENGTH);
+        task->save_blob.blob = ntb_blob_ref(blob);
+
+        pthread_mutex_unlock(&store->mutex);
+}
+
+void
+ntb_store_delete_object(struct ntb_store *store,
+                        const uint8_t *hash)
+{
+        struct ntb_store_task *task;
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_DELETE_OBJECT);
+        memcpy(task->delete_object.hash, hash, NTB_PROTO_HASH_LENGTH);
 
         pthread_mutex_unlock(&store->mutex);
 }

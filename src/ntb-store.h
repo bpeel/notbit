@@ -47,6 +47,10 @@ ntb_store_save_blob(struct ntb_store *store,
                     struct ntb_blob *blob);
 
 void
+ntb_store_delete_object(struct ntb_store *store,
+                        const uint8_t *hash);
+
+void
 ntb_store_free(struct ntb_store *store);
 
 #endif /* NTB_STORE_H */
