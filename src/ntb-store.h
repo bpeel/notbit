@@ -37,9 +37,19 @@ enum ntb_store_error {
         NTB_STORE_ERROR_INVALID_STORE_DIRECTORY
 };
 
+struct ntb_store_cookie;
+
 typedef void (* ntb_store_for_each_func)(enum ntb_blob_type type,
                                          const uint8_t *hash,
                                          int64_t timestamp,
+                                         void *user_data);
+
+/* This is called when a load is complete. If the load succeeded then
+ * blob will point to the contents. If it failed the callback will
+ * still be called but blob will be NULL. The callback won't be called
+ * at all if the task is cancelled. The callback will always be
+ * invoked from an idle handler in the main thread */
+typedef void (* ntb_store_load_callback)(struct ntb_blob *blob,
                                          void *user_data);
 
 struct ntb_store *
@@ -59,6 +69,15 @@ void
 ntb_store_for_each(struct ntb_store *store,
                    ntb_store_for_each_func func,
                    void *user_data);
+
+struct ntb_store_cookie *
+ntb_store_load_blob(struct ntb_store *store,
+                    const uint8_t *hash,
+                    ntb_store_load_callback func,
+                    void *user_data);
+
+void
+ntb_store_cancel_task(struct ntb_store_cookie *cookie);
 
 void
 ntb_store_free(struct ntb_store *store);

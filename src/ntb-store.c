@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <assert.h>
 
 #include "ntb-store.h"
 #include "ntb-util.h"
@@ -61,6 +62,7 @@ struct ntb_store {
 
 enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_SAVE_BLOB,
+        NTB_STORE_TASK_TYPE_LOAD_BLOB,
         NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
 
@@ -76,9 +78,27 @@ struct ntb_store_task {
 
                 struct {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
+                        struct ntb_store_cookie *cookie;
+                } load_blob;
+
+                struct {
+                        uint8_t hash[NTB_PROTO_HASH_LENGTH];
                 } delete_object;
         };
 };
+
+struct ntb_store_cookie {
+        struct ntb_store *store;
+        struct ntb_blob *blob;
+        struct ntb_store_task *task;
+        struct ntb_main_context_source *idle_source;
+        ntb_store_load_callback func;
+        void *user_data;
+};
+
+/* The cookies are only allocated and destroyed in the main thread so
+ * we don't need to have a per-store allocator */
+NTB_SLICE_ALLOCATOR(struct ntb_store_cookie, ntb_store_cookie_allocator);
 
 static void
 strip_trailing_slashes(struct ntb_buffer *buffer)
@@ -203,6 +223,129 @@ append_hash(struct ntb_buffer *buffer,
 }
 
 static void
+load_blob_idle_cb(struct ntb_main_context_source *source,
+                  void *user_data)
+{
+        struct ntb_store_cookie *cookie = user_data;
+
+        cookie->func(cookie->blob, cookie->user_data);
+
+        if (cookie->blob)
+                ntb_blob_unref(cookie->blob);
+
+        ntb_slice_free(&ntb_store_cookie_allocator, cookie);
+
+        ntb_main_context_remove_source(source);
+}
+
+static bool
+read_all(const char *filename,
+         void *data,
+         size_t size,
+         FILE *stream)
+{
+        errno = 0;
+
+        if (fread(data, 1, size, stream) != size) {
+                if (errno == 0)
+                        ntb_log("The object file %s is too short",
+                                filename);
+                else
+                        ntb_log("Error reading %s: %s",
+                                filename,
+                                strerror(errno));
+
+                return false;
+        }
+
+        return true;
+}
+
+static struct ntb_blob *
+load_blob_from_file(const char *filename,
+                    FILE *file)
+{
+        struct stat statbuf;
+        struct ntb_blob *blob;
+        uint32_t type;
+
+        if (fstat(fileno(file), &statbuf) == -1) {
+                ntb_log("Error getting info for %s", filename);
+                return NULL;
+        }
+
+        if (statbuf.st_size < sizeof (uint32_t)) {
+                ntb_log("Object file %s is too short", filename);
+                return NULL;
+        }
+
+        if (!read_all(filename, &type, sizeof type, file))
+                return NULL;
+
+        blob = ntb_blob_new(type,
+                            NULL /* data */,
+                            statbuf.st_size - sizeof (uint32_t));
+
+        if (!read_all(filename, blob->data, blob->size, file)) {
+                ntb_blob_unref(blob);
+                return NULL;
+        }
+
+        return blob;
+}
+
+static void
+handle_load_blob(struct ntb_store *store,
+                 struct ntb_store_task *task)
+{
+        struct ntb_blob *blob;
+        FILE *file;
+
+        /* As a special case this the lock is still held when this
+         * function is called */
+
+        /* If the task was cancelled before we got here then the
+         * cookie will have been reset to NULL. In that case we don't
+         * need to do anything */
+        if (task->load_blob.cookie == NULL)
+                return;
+
+        pthread_mutex_unlock(&store->mutex);
+
+        store->filename_buf.length = store->directory_len;
+        append_hash(&store->filename_buf, task->load_blob.hash);
+
+        file = fopen((char *) store->filename_buf.data, "rb");
+
+        if (file == NULL) {
+                ntb_log("Error opening %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+        } else {
+                blob = load_blob_from_file((char *) store->filename_buf.data,
+                                           file);
+
+                fclose(file);
+        }
+
+        pthread_mutex_lock(&store->mutex);
+
+        /* The task could have also been cancelled while we were
+         * loading with the mutex unlocked */
+        if (task->load_blob.cookie == NULL) {
+                if (blob)
+                        ntb_blob_unref(blob);
+                return;
+        }
+
+        task->load_blob.cookie->blob = blob;
+        task->load_blob.cookie->idle_source =
+                ntb_main_context_add_idle(NULL,
+                                          load_blob_idle_cb,
+                                          task->load_blob.cookie);
+}
+
+static void
 handle_save_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
@@ -287,6 +430,7 @@ free_task(struct ntb_store *store,
         case NTB_STORE_TASK_TYPE_SAVE_BLOB:
                 ntb_blob_unref(task->save_blob.blob);
                 break;
+        case NTB_STORE_TASK_TYPE_LOAD_BLOB:
         case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
                 break;
         }
@@ -313,18 +457,27 @@ store_thread_func(void *user_data)
                 task = ntb_container_of(store->queue.next, task, link);
                 ntb_list_remove(&task->link);
 
-                pthread_mutex_unlock(&store->mutex);
+                if (task->type == NTB_STORE_TASK_TYPE_LOAD_BLOB) {
+                        /* This special case needs to keep the lock
+                         * held for part of the task */
+                        handle_load_blob(store, task);
+                } else {
+                        pthread_mutex_unlock(&store->mutex);
 
-                switch (task->type) {
-                case NTB_STORE_TASK_TYPE_SAVE_BLOB:
-                        handle_save_blob(store, task);
-                        break;
-                case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
-                        handle_delete_object(store, task);
-                        break;
+                        switch (task->type) {
+                        case NTB_STORE_TASK_TYPE_SAVE_BLOB:
+                                handle_save_blob(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
+                                handle_delete_object(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_LOAD_BLOB:
+                                assert(false);
+                                break;
+                        }
+
+                        pthread_mutex_lock(&store->mutex);
                 }
-
-                pthread_mutex_lock(&store->mutex);
 
                 free_task(store, task);
         }
@@ -449,7 +602,6 @@ process_file(struct ntb_store *store,
         uint8_t buf[sizeof (uint32_t) + sizeof (uint64_t) * 2];
         uint32_t type;
         int64_t timestamp;
-        size_t got;
         FILE *file;
         const char *p;
         const uint8_t *buf_ptr;
@@ -494,19 +646,8 @@ process_file(struct ntb_store *store,
          * 64-bit nonce and then either a 32-bit or 64-bit timestamp.
          * We only need the type and timestamp so we don't need to
          * read the rest */
-        errno = 0;
-        got = fread(buf, 1, sizeof buf, file);
-        if (got != sizeof buf) {
-                if (errno == 0)
-                        ntb_log("The object file %s is too short",
-                                filename);
-                else
-                        ntb_log("Error reading %s: %s",
-                                filename,
-                                strerror(errno));
-                fclose(file);
+        if (!read_all(filename, buf, sizeof buf, file))
                 return;
-        }
 
         fclose(file);
 
@@ -570,6 +711,54 @@ ntb_store_for_each(struct ntb_store *store,
         closedir(dir);
 
         ntb_log("Finished loading object store");
+}
+
+struct ntb_store_cookie *
+ntb_store_load_blob(struct ntb_store *store,
+                    const uint8_t *hash,
+                    ntb_store_load_callback func,
+                    void *user_data)
+{
+        struct ntb_store_task *task;
+        struct ntb_store_cookie *cookie;
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_LOAD_BLOB);
+        memcpy(task->load_blob.hash, hash, NTB_PROTO_HASH_LENGTH);
+
+        cookie = ntb_slice_alloc(&ntb_store_cookie_allocator);
+        cookie->store = store;
+        cookie->blob = NULL;
+        cookie->task = task;
+        cookie->idle_source = NULL;
+        cookie->func = func;
+        cookie->user_data = user_data;
+
+        task->load_blob.cookie = cookie;
+
+        pthread_mutex_unlock(&store->mutex);
+
+        return cookie;
+}
+
+void
+ntb_store_cancel_task(struct ntb_store_cookie *cookie)
+{
+        struct ntb_store *store = cookie->store;
+
+        pthread_mutex_lock(&store->mutex);
+
+        if (cookie->task)
+                cookie->task->load_blob.cookie = NULL;
+        if (cookie->idle_source)
+                ntb_main_context_remove_source(cookie->idle_source);
+        if (cookie->blob)
+                ntb_blob_unref(cookie->blob);
+
+        pthread_mutex_unlock(&store->mutex);
+
+        ntb_slice_free(&ntb_store_cookie_allocator, cookie);
 }
 
 void
