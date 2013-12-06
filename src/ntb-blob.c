@@ -39,7 +39,8 @@ ntb_blob_new(enum ntb_blob_type type,
         pthread_mutex_init(&blob->ref_count_mutex, NULL);
 #endif
 
-        memcpy(blob->data, data, size);
+        if (data)
+                memcpy(blob->data, data, size);
 
         return blob;
 }
