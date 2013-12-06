@@ -517,10 +517,72 @@ add_peer(struct ntb_network *nw,
 }
 
 static void
+send_addresses(struct ntb_network *nw,
+               struct ntb_network_peer *peer)
+{
+        struct ntb_connection *conn = peer->connection;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        int64_t age;
+
+        ntb_connection_begin_addr(conn);
+
+        ntb_list_for_each(peer, &nw->peers, link) {
+                age = now - peer->advertise_time;
+
+                if (age > NTB_NETWORK_MAX_PEER_AGE)
+                        continue;
+
+                ntb_connection_add_addr_address(conn,
+                                                peer->advertise_time,
+                                                peer->stream,
+                                                &peer->address);
+        }
+
+        ntb_connection_end_addr(conn);
+}
+
+static void
+send_inventory_in_list(struct ntb_network *nw,
+                       struct ntb_network_peer *peer,
+                       struct ntb_list *list)
+{
+        struct ntb_network_inventory *inv;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        int64_t age;
+
+        ntb_list_for_each(inv, list, link) {
+                age = now - inv->timestamp;
+
+                if (age > NTB_PROTO_MAX_INV_AGE)
+                        continue;
+
+                ntb_connection_add_inv_hash(peer->connection, inv->hash);
+        }
+}
+
+static void
+send_inventory(struct ntb_network *nw,
+               struct ntb_network_peer *peer)
+{
+        struct ntb_connection *conn = peer->connection;
+
+        ntb_connection_begin_inv(conn);
+
+        send_inventory_in_list(nw, peer, &nw->getpubkeys);
+        send_inventory_in_list(nw, peer, &nw->pubkeys);
+        send_inventory_in_list(nw, peer, &nw->msgs);
+        send_inventory_in_list(nw, peer, &nw->broadcasts);
+
+        ntb_connection_end_inv(conn);
+}
+
+static void
 connection_established(struct ntb_network *nw,
                        struct ntb_network_peer *peer)
 {
         peer->state = NTB_NETWORK_PEER_STATE_CONNECTED;
+        send_addresses(nw, peer);
+        send_inventory(nw, peer);
 }
 
 static bool

@@ -180,4 +180,26 @@ ntb_connection_add_getdata_hash(struct ntb_connection *conn,
 void
 ntb_connection_end_getdata(struct ntb_connection *conn);
 
+void
+ntb_connection_begin_addr(struct ntb_connection *conn);
+
+void
+ntb_connection_add_addr_address(struct ntb_connection *conn,
+                                int64_t timestamp,
+                                uint32_t stream,
+                                const struct ntb_netaddress *address);
+
+void
+ntb_connection_end_addr(struct ntb_connection *conn);
+
+void
+ntb_connection_begin_inv(struct ntb_connection *conn);
+
+void
+ntb_connection_add_inv_hash(struct ntb_connection *conn,
+                            const uint8_t *hash);
+
+void
+ntb_connection_end_inv(struct ntb_connection *conn);
+
 #endif /* NTB_CONNECTION_H */
