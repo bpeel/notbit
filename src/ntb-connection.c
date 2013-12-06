@@ -27,6 +27,7 @@
 #include <openssl/ripemd.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <assert.h>
 
 #include "ntb-connection.h"
 #include "ntb-proto.h"
@@ -249,6 +250,16 @@ version_command_handler(struct ntb_connection *conn,
         return emit_message(conn,
                             NTB_CONNECTION_MESSAGE_VERSION,
                             &message.base);
+}
+
+static bool
+verack_command_handler(struct ntb_connection *conn,
+                       const uint8_t *data,
+                       uint32_t message_length)
+{
+        struct ntb_connection_message message;
+
+        return emit_message(conn, NTB_CONNECTION_MESSAGE_VERACK, &message);
 }
 
 static bool
@@ -620,7 +631,9 @@ static const struct {
         { "broadcast", broadcast_command_handler },
         { "inv", inv_command_handler },
         { "version", version_command_handler },
-        { "addr", addr_command_handler }
+        { "addr", addr_command_handler },
+        { "getdata", getdata_command_handler },
+        { "verack", verack_command_handler }
 };
 
 static bool

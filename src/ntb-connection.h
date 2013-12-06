@@ -46,7 +46,8 @@ enum ntb_connection_message_type {
         NTB_CONNECTION_MESSAGE_VERSION,
         NTB_CONNECTION_MESSAGE_INV,
         NTB_CONNECTION_MESSAGE_ADDR,
-        NTB_CONNECTION_MESSAGE_OBJECT
+        NTB_CONNECTION_MESSAGE_OBJECT,
+        NTB_CONNECTION_MESSAGE_VERACK
 };
 
 struct ntb_connection_message {

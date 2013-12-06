@@ -68,6 +68,28 @@ ntb_network_error;
 /* Time in seconds before we'll retry connecting to a peer */
 #define NTB_NETWORK_MIN_RECONNECT_TIME 60
 
+enum ntb_network_peer_state {
+        NTB_NETWORK_PEER_STATE_DISCONNECTED,
+
+        /* If we initiated the connection then we will go through these
+         * two steps before the connection is considered established.
+         * First we will send a version command, then wait for the
+         * verack and then finally wait for the version. At that point
+         * we will post a verack and we are connected */
+        NTB_NETWORK_PEER_STATE_AWAITING_VERACK_OUT,
+        NTB_NETWORK_PEER_STATE_AWAITING_VERSION_OUT,
+
+        /* If the peer initiated the connection then we will go
+         * through these two steps instead. First we will wait for a
+         * version, then we will send a verack and a version, then we
+         * will wait for a verack. Once we receive that we are
+         * connected */
+        NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN,
+        NTB_NETWORK_PEER_STATE_AWAITING_VERACK_IN,
+
+        NTB_NETWORK_PEER_STATE_CONNECTED
+};
+
 struct ntb_network_peer {
         struct ntb_list link;
         struct ntb_netaddress address;
@@ -82,6 +104,8 @@ struct ntb_network_peer {
         uint64_t services;
 
         uint64_t last_connect_time;
+
+        enum ntb_network_peer_state state;
 };
 
 struct ntb_network_listen_socket {
@@ -310,6 +334,27 @@ can_connect_to_peer(struct ntb_network_peer *peer)
 }
 
 static void
+send_version_to_peer(struct ntb_network *nw,
+                     struct ntb_network_peer *peer)
+{
+        static const struct ntb_netaddress dummy_local_address;
+        const struct ntb_netaddress *local_address;
+        struct ntb_network_listen_socket *listen_socket;
+
+        if (ntb_list_empty(&nw->listen_sockets)) {
+                local_address = &dummy_local_address;
+        } else {
+                listen_socket =
+                        ntb_container_of(nw->listen_sockets.next,
+                                         listen_socket,
+                                         link);
+                local_address = &listen_socket->address;
+        }
+
+        ntb_connection_send_version(peer->connection, nw->nonce, local_address);
+}
+
+static void
 connect_queue_cb(struct ntb_main_context_source *source,
                  void *user_data)
 {
@@ -317,9 +362,6 @@ connect_queue_cb(struct ntb_main_context_source *source,
         struct ntb_network_peer *peer;
         struct ntb_error *error = NULL;
         struct ntb_signal *message_signal;
-        static const struct ntb_netaddress dummy_local_address;
-        const struct ntb_netaddress *local_address;
-        struct ntb_network_listen_socket *listen_socket;
         int n_peers = 0;
         int peer_num;
 
@@ -368,19 +410,9 @@ connect_queue_cb(struct ntb_main_context_source *source,
                 peer->last_connect_time =
                         ntb_main_context_get_monotonic_clock(NULL);
 
-                if (ntb_list_empty(&nw->listen_sockets)) {
-                        local_address = &dummy_local_address;
-                } else {
-                        listen_socket =
-                                ntb_container_of(nw->listen_sockets.next,
-                                                 listen_socket,
-                                                 link);
-                        local_address = &listen_socket->address;
-                }
+                send_version_to_peer(nw, peer);
 
-                ntb_connection_send_version(peer->connection,
-                                            nw->nonce,
-                                            local_address);
+                peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERACK_OUT;
 
                 message_signal =
                         ntb_connection_get_message_signal(peer->connection);
@@ -433,6 +465,7 @@ new_peer(struct ntb_network *nw)
 
         ntb_list_insert(&nw->peers, &peer->link);
         peer->connection = NULL;
+        peer->state = NTB_NETWORK_PEER_STATE_DISCONNECTED;
         nw->n_unconnected_peers++;
 
         peer->message_listener.notify = connection_message_cb;
@@ -483,6 +516,13 @@ add_peer(struct ntb_network *nw,
         maybe_queue_connect(nw, true /* use_idle */);
 }
 
+static void
+connection_established(struct ntb_network *nw,
+                       struct ntb_network_peer *peer)
+{
+        peer->state = NTB_NETWORK_PEER_STATE_CONNECTED;
+}
+
 static bool
 handle_version(struct ntb_network *nw,
                struct ntb_network_peer *peer,
@@ -525,6 +565,52 @@ handle_version(struct ntb_network *nw,
                  &remote_address);
 
         ntb_connection_send_verack(peer->connection);
+
+        switch (peer->state) {
+        case NTB_NETWORK_PEER_STATE_DISCONNECTED:
+                assert(false);
+                break;
+
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERACK_OUT:
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERACK_IN:
+        case NTB_NETWORK_PEER_STATE_CONNECTED:
+                break;
+
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERSION_OUT:
+                connection_established(nw, peer);
+                break;
+
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN:
+                send_version_to_peer(nw, peer);
+                peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERACK_IN;
+                break;
+        }
+
+        return true;
+}
+
+static bool
+handle_verack(struct ntb_network *nw,
+              struct ntb_network_peer *peer)
+{
+        switch (peer->state) {
+        case NTB_NETWORK_PEER_STATE_DISCONNECTED:
+                assert(false);
+                break;
+
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERACK_OUT:
+                peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERSION_OUT;
+                break;
+
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERACK_IN:
+                connection_established(nw, peer);
+                break;
+
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERSION_OUT:
+        case NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN:
+        case NTB_NETWORK_PEER_STATE_CONNECTED:
+                break;
+        }
 
         return true;
 }
@@ -758,6 +844,9 @@ connection_message_cb(struct ntb_listener *listener,
                                       peer,
                                       (struct ntb_connection_version_message *)
                                       message);
+
+        case NTB_CONNECTION_MESSAGE_VERACK:
+                return handle_verack(nw, peer);
 
         case NTB_CONNECTION_MESSAGE_INV:
                 return handle_inv(nw,
