@@ -795,6 +795,28 @@ handle_addr(struct ntb_network *nw,
         return true;
 }
 
+static bool
+handle_getdata(struct ntb_network *nw,
+               struct ntb_network_peer *peer,
+               struct ntb_connection_getdata_message *message)
+{
+        struct ntb_network_inventory *inv;
+        uint64_t i;
+
+        for (i = 0; i < message->n_hashes; i++) {
+                inv = ntb_hash_table_get(nw->inventory_hash,
+                                         message->hashes + i *
+                                         NTB_PROTO_HASH_LENGTH);
+                if (inv && inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED) {
+                        ntb_connection_send_blob(peer->connection,
+                                                 inv->hash,
+                                                 inv->blob);
+                }
+        }
+
+        return true;
+}
+
 static void
 add_inv_to_list(struct ntb_network *nw,
                 enum ntb_blob_type type,
@@ -921,6 +943,12 @@ connection_message_cb(struct ntb_listener *listener,
                                    peer,
                                    (struct ntb_connection_addr_message *)
                                    message);
+
+        case NTB_CONNECTION_MESSAGE_GETDATA:
+                return handle_getdata(nw,
+                                      peer,
+                                      (struct ntb_connection_getdata_message *)
+                                      message);
 
         case NTB_CONNECTION_MESSAGE_OBJECT:
                 return handle_object(nw,

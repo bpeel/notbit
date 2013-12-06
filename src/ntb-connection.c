@@ -36,6 +36,7 @@
 #include "ntb-main-context.h"
 #include "ntb-buffer.h"
 #include "ntb-log.h"
+#include "ntb-store.h"
 
 #define NTB_CONNECTION_MAX_MESSAGE_SIZE (128 * 1024 * 1024)
 
@@ -58,10 +59,28 @@ struct ntb_connection {
         /* Position in out_buf of the start of a command. Used for
          * functions that build up a command on the fly */
         size_t command_start;
+
+        /* We only load one blob from the store at a time. If we are
+         * currently loading a blob then this is its cookie */
+        struct ntb_store_cookie *load_cookie;
+
+        /* List of queued loads that already have a blob. This can be
+         * directly copied into the out buffer next time we need to
+         * write */
+        struct ntb_list ready_objects;
+        struct ntb_list objects_to_load;
+};
+
+struct ntb_connection_queue_entry {
+        struct ntb_list link;
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+        struct ntb_blob *blob;
 };
 
 NTB_SLICE_ALLOCATOR(struct ntb_connection,
                     ntb_connection_allocator);
+NTB_SLICE_ALLOCATOR(struct ntb_connection_queue_entry,
+                    ntb_connection_queue_entry_allocator);
 
 static bool
 emit_message(struct ntb_connection *conn,
@@ -201,6 +220,35 @@ error:
         set_error_state(conn);
         return false;
 }
+
+static bool
+getdata_command_handler(struct ntb_connection *conn,
+                        const uint8_t *data,
+                        uint32_t message_length)
+{
+        struct ntb_connection_getdata_message message;
+
+        if (!ntb_proto_get_var_int(&data, &message_length, &message.n_hashes))
+                goto error;
+
+        if (message_length < message.n_hashes * NTB_PROTO_HASH_LENGTH)
+                goto error;
+
+        message.hashes = data;
+
+        return emit_message(conn,
+                            NTB_CONNECTION_MESSAGE_GETDATA,
+                            &message.base);
+
+        return true;
+
+error:
+        ntb_log("Invalid addr message received from %s",
+                conn->remote_address_string);
+        set_error_state(conn);
+        return false;
+}
+
 static bool
 version_command_handler(struct ntb_connection *conn,
                         const uint8_t *data,
@@ -759,16 +807,148 @@ update_poll_flags(struct ntb_connection *conn)
 {
         enum ntb_main_context_poll_flags flags = NTB_MAIN_CONTEXT_POLL_IN;
 
-        if (conn->out_buf.length > 0)
+        if (conn->out_buf.length > 0 ||
+            !ntb_list_empty(&conn->ready_objects))
                 flags |= NTB_MAIN_CONTEXT_POLL_OUT;
 
         ntb_main_context_modify_poll(conn->source, flags);
 }
 
 static void
+load_cb(struct ntb_blob *blob,
+        void *user_data)
+{
+        struct ntb_connection *conn = user_data;
+        struct ntb_connection_queue_entry *entry;
+
+        assert(!ntb_list_empty(&conn->objects_to_load));
+
+        entry = ntb_container_of(conn->objects_to_load.next, entry, link);
+
+        assert(entry->blob == NULL);
+
+        ntb_list_remove(&entry->link);
+        entry->blob = ntb_blob_ref(blob);
+
+        ntb_list_insert(conn->ready_objects.prev, &entry->link);
+
+        conn->load_cookie = NULL;
+
+        update_poll_flags(conn);
+}
+
+static void
+maybe_queue_load(struct ntb_connection *conn)
+{
+        struct ntb_connection_queue_entry *entry;
+
+        if (conn->load_cookie)
+                return;
+
+        /* We only want to load one blob at a time because we can
+         * probably load items from the disk faster than we can write
+         * to the socket so it we don't do this then it might end up
+         * loading the whole database into memory if a peer requests
+         * everything */
+        if (!ntb_list_empty(&conn->ready_objects))
+                return;
+
+        if (ntb_list_empty(&conn->objects_to_load))
+                return;
+
+        entry = ntb_container_of(conn->objects_to_load.next, entry, link);
+        conn->load_cookie = ntb_store_load_blob(NULL, /* default store */
+                                                entry->hash,
+                                                load_cb,
+                                                conn);
+}
+
+void
+ntb_connection_send_blob(struct ntb_connection *conn,
+                         const uint8_t *hash,
+                         struct ntb_blob *blob)
+{
+        struct ntb_connection_queue_entry *entry;
+
+        entry = ntb_slice_alloc(&ntb_connection_queue_entry_allocator);
+
+        memcpy(entry->hash, hash, NTB_PROTO_HASH_LENGTH);
+
+        if (blob) {
+                entry->blob = ntb_blob_ref(blob);
+                ntb_list_insert(conn->ready_objects.prev, &entry->link);
+                update_poll_flags(conn);
+        } else {
+                entry->blob = NULL;
+                ntb_list_insert(conn->objects_to_load.prev, &entry->link);
+                maybe_queue_load(conn);
+        }
+}
+
+static const char *
+get_command_name_for_blob(struct ntb_blob *blob)
+{
+        switch (blob->type) {
+        case NTB_BLOB_TYPE_PUBKEY:
+                return "pubkey";
+        case NTB_BLOB_TYPE_GETPUBKEY:
+                return "getpubkey";
+        case NTB_BLOB_TYPE_MSG:
+                return "msg";
+        case NTB_BLOB_TYPE_BROADCAST:
+                return "broadcast";
+        }
+
+        assert(false);
+
+        return NULL;
+}
+
+static void
+free_queue_entry(struct ntb_connection_queue_entry *entry)
+{
+        if (entry->blob)
+                ntb_blob_unref(entry->blob);
+        ntb_list_remove(&entry->link);
+        ntb_slice_free(&ntb_connection_queue_entry_allocator, entry);
+}
+
+static void
+add_ready_objects(struct ntb_connection *conn)
+{
+        struct ntb_connection_queue_entry *entry;
+        const char *command_name;
+        size_t command_start;
+
+        /* Keep adding objects until we either run out or we've filled
+         * 1024 bytes. We don't want to add too many in one go because
+         * otherwise we'll just be pointlessly copying all of the data
+         * to another buffer. The socket buffer wouldn't be large
+         * enough to hold all of them */
+        while (conn->out_buf.length < 1024 &&
+               !ntb_list_empty(&conn->ready_objects)) {
+                entry = ntb_container_of(conn->ready_objects.next, entry, link);
+                command_name = get_command_name_for_blob(entry->blob);
+
+                command_start = conn->out_buf.length;
+                ntb_proto_begin_command(&conn->out_buf, command_name);
+                ntb_buffer_append(&conn->out_buf,
+                                  entry->blob->data,
+                                  entry->blob->size);
+                ntb_proto_end_command(&conn->out_buf, command_start);
+
+                free_queue_entry(entry);
+
+                maybe_queue_load(conn);
+        }
+}
+
+static void
 handle_write(struct ntb_connection *conn)
 {
         int wrote;
+
+        add_ready_objects(conn);
 
         wrote = write(conn->sock,
                       conn->out_buf.data,
@@ -812,11 +992,27 @@ connection_poll_cb(struct ntb_main_context_source *source,
                 handle_write(conn);
 }
 
+static void
+free_queue_entry_list(struct ntb_list *list)
+{
+        struct ntb_connection_queue_entry *entry, *tmp;
+
+        ntb_list_for_each_safe(entry, tmp, list, link)
+                free_queue_entry(entry);
+}
+
 void
 ntb_connection_free(struct ntb_connection *conn)
 {
         if (conn->source)
                 ntb_main_context_remove_source(conn->source);
+
+        free_queue_entry_list(&conn->ready_objects);
+        free_queue_entry_list(&conn->objects_to_load);
+
+        if (conn->load_cookie)
+                ntb_store_cancel_task(conn->load_cookie);
+
         ntb_free(conn->remote_address_string);
         ntb_buffer_destroy(&conn->in_buf);
         ntb_buffer_destroy(&conn->out_buf);
@@ -848,6 +1044,10 @@ ntb_connection_new_for_socket(int sock,
 
         ntb_buffer_init(&conn->in_buf);
         ntb_buffer_init(&conn->out_buf);
+
+        ntb_list_init(&conn->objects_to_load);
+        ntb_list_init(&conn->ready_objects);
+        conn->load_cookie = NULL;
 
         return conn;
 }

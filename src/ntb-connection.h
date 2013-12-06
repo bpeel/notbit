@@ -47,6 +47,7 @@ enum ntb_connection_message_type {
         NTB_CONNECTION_MESSAGE_INV,
         NTB_CONNECTION_MESSAGE_ADDR,
         NTB_CONNECTION_MESSAGE_OBJECT,
+        NTB_CONNECTION_MESSAGE_GETDATA,
         NTB_CONNECTION_MESSAGE_VERACK
 };
 
@@ -140,6 +141,13 @@ struct ntb_connection_addr_message {
         struct ntb_netaddress address;
 };
 
+struct ntb_connection_getdata_message {
+        struct ntb_connection_message base;
+
+        uint64_t n_hashes;
+        const uint8_t *hashes;
+};
+
 struct ntb_connection *connection;
 
 struct ntb_connection *
@@ -169,6 +177,11 @@ void
 ntb_connection_send_version(struct ntb_connection *conn,
                             uint64_t nonce,
                             const struct ntb_netaddress *local_address);
+
+void
+ntb_connection_send_blob(struct ntb_connection *conn,
+                         const uint8_t *hash,
+                         struct ntb_blob *blob);
 
 void
 ntb_connection_begin_getdata(struct ntb_connection *conn);
