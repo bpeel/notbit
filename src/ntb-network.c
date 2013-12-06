@@ -117,6 +117,8 @@ struct ntb_network_listen_socket {
         struct ntb_list link;
         struct ntb_netaddress address;
         int sock;
+        struct ntb_main_context_source *source;
+        struct ntb_network *nw;
 };
 
 struct ntb_network {
@@ -1117,6 +1119,40 @@ ntb_network_load_store(struct ntb_network *nw)
         ntb_store_for_each(NULL, store_for_each_cb, nw);
 }
 
+static void
+remove_listen_socket(struct ntb_network_listen_socket *listen_socket)
+{
+        ntb_main_context_remove_source(listen_socket->source);
+        ntb_list_remove(&listen_socket->link);
+        close(listen_socket->sock);
+        free(listen_socket);
+}
+
+static void
+listen_socket_source_cb(struct ntb_main_context_source *source,
+                        int fd,
+                        enum ntb_main_context_poll_flags flags,
+                        void *user_data)
+{
+        struct ntb_network_listen_socket *listen_socket = user_data;
+        struct ntb_network *nw = listen_socket->nw;
+        struct ntb_connection *conn;
+        struct ntb_error *error = NULL;
+        struct ntb_network_peer *peer;
+
+        conn = ntb_connection_accept(fd, &error);
+
+        if (conn == NULL) {
+                ntb_log("%s", error->message);
+                ntb_error_free(error);
+                remove_listen_socket(listen_socket);
+                return;
+        }
+
+        peer = add_peer(nw, conn);
+        peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN;
+}
+
 struct ntb_network *
 ntb_network_new(void)
 {
@@ -1227,23 +1263,23 @@ ntb_network_add_listen_address(struct ntb_network *nw,
 
         listen_socket = ntb_alloc(sizeof *listen_socket);
         listen_socket->sock = sock;
+        listen_socket->nw = nw;
         ntb_list_insert(&nw->listen_sockets, &listen_socket->link);
 
         ntb_netaddress_from_native(&listen_socket->address, &native_address);
+
+        listen_socket->source =
+                ntb_main_context_add_poll(NULL,
+                                          sock,
+                                          NTB_MAIN_CONTEXT_POLL_IN,
+                                          listen_socket_source_cb,
+                                          listen_socket);
 
         return true;
 
 error:
         close(sock);
         return false;
-}
-
-static void
-remove_listen_socket(struct ntb_network_listen_socket *listen_socket)
-{
-        ntb_list_remove(&listen_socket->link);
-        close(listen_socket->sock);
-        free(listen_socket);
 }
 
 static void
