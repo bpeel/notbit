@@ -42,7 +42,6 @@ ntb_network_load_store(struct ntb_network *nw);
 bool
 ntb_network_add_listen_address(struct ntb_network *nw,
                                const char *address,
-                               int port,
                                struct ntb_error **error);
 
 void

@@ -85,6 +85,8 @@ struct ntb_proto_var_int_list {
  * won't request objects from peers */
 #define NTB_PROTO_EXTRA_AGE (6 * 60 * 60 /* 6 hours */)
 
+#define NTB_PROTO_DEFAULT_PORT 8444
+
 extern const uint8_t
 ntb_proto_magic[4];
 

@@ -34,6 +34,7 @@
 #include "ntb-log.h"
 #include "ntb-network.h"
 #include "ntb-store.h"
+#include "ntb-proto.h"
 
 static struct ntb_error_domain
 arguments_error;
@@ -43,15 +44,45 @@ enum ntb_arguments_error {
         NTB_ARGUMENTS_ERROR_UNKNOWN
 };
 
-static char *option_listen_address = "";
-static int option_listen_port = 8444;
+struct address {
+        const char *address;
+        struct address *next;
+};
+
+static struct address *option_listen_addresses = NULL;
 static char *option_log_file = "/dev/stdout";
 static bool option_daemonize = false;
 static char *option_user = NULL;
 static char *option_group = NULL;
 static char *option_store_directory = NULL;
 
-static const char options[] = "-a:p:l:du:g:D:";
+static const char options[] = "-a:l:du:g:D:";
+
+static void
+add_listen_address(const char *address)
+{
+        struct address *listen_address;
+
+        listen_address = ntb_alloc(sizeof (struct address));
+        listen_address->address = address;
+        listen_address->next = option_listen_addresses;
+        option_listen_addresses = listen_address;
+}
+
+static void
+free_listen_addresses(void)
+{
+        struct address *address, *next;
+
+        for (address = option_listen_addresses;
+             address;
+             address = next) {
+                next = address->next;
+                ntb_free(address);
+        }
+
+        option_listen_addresses = NULL;
+}
 
 static bool
 process_arguments(int argc, char **argv, struct ntb_error **error)
@@ -69,7 +100,7 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                                       NTB_ARGUMENTS_ERROR_INVALID,
                                       "invalid option '%c'",
                                       optopt);
-                        return false;
+                        goto error;
 
                 case '\1':
                         ntb_set_error(error,
@@ -77,14 +108,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                                       NTB_ARGUMENTS_ERROR_UNKNOWN,
                                       "unexpected argument \"%s\"",
                                       optarg);
-                        return false;
+                        goto error;
 
                 case 'a':
-                        option_listen_address = optarg;
-                        break;
-
-                case 'p':
-                        option_listen_port = atoi(optarg);
+                        add_listen_address(optarg);
                         break;
 
                 case 'l':
@@ -115,10 +142,17 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                               NTB_ARGUMENTS_ERROR_UNKNOWN,
                               "unexpected argument \"%s\"",
                               argv[optind]);
-                return false;
+                goto error;
         }
 
+        if (option_listen_addresses == NULL)
+                add_listen_address("[::]");
+
         return true;
+
+error:
+        free_listen_addresses();
+        return false;
 }
 
 static void
@@ -205,6 +239,24 @@ quit_cb(struct ntb_main_context_source *source,
         *quit = true;
 }
 
+static bool
+add_listen_addresses(struct ntb_network *nw,
+                     struct ntb_error **error)
+{
+        struct address *address;
+
+        for (address = option_listen_addresses;
+             address;
+             address = address->next) {
+                if (!ntb_network_add_listen_address(nw,
+                                                    address->address,
+                                                    error))
+                        return false;
+        }
+
+        return true;
+}
+
 static int
 run_network(void)
 {
@@ -217,10 +269,7 @@ run_network(void)
 
         nw = ntb_network_new();
 
-        if (!ntb_network_add_listen_address(nw,
-                                            option_listen_address,
-                                            option_listen_port,
-                                            &error)) {
+        if (!add_listen_addresses(nw, &error)) {
                 fprintf(stderr, "%s\n", error->message);
                 ntb_error_clear(&error);
                 ret = EXIT_FAILURE;
@@ -312,6 +361,8 @@ main(int argc, char **argv)
         }
 
         ntb_main_context_free(mc);
+
+        free_listen_addresses();
 
         return ret;
 }

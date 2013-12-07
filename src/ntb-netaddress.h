@@ -52,4 +52,8 @@ ntb_netaddress_from_native(struct ntb_netaddress *address,
 char *
 ntb_netaddress_to_string(const struct ntb_netaddress *address);
 
+bool
+ntb_netaddress_from_string(struct ntb_netaddress *address,
+                           const char *str);
+
 #endif /* NTB_NETADDRESS_H */

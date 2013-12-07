@@ -22,9 +22,13 @@
 #include <inttypes.h>
 #include <arpa/inet.h>
 #include <stdio.h>
+#include <stdbool.h>
+#include <errno.h>
 
 #include "ntb-netaddress.h"
 #include "ntb-util.h"
+#include "ntb-buffer.h"
+#include "ntb-proto.h"
 
 static const uint8_t
 ipv4_magic[12] = {
@@ -138,4 +142,78 @@ ntb_netaddress_to_string(const struct ntb_netaddress *address)
                  address->port);
 
         return buf;
+}
+
+bool
+ntb_netaddress_from_string(struct ntb_netaddress *address,
+                           const char *str)
+{
+        struct ntb_buffer buffer;
+        const char *addr_end;
+        char *port_end;
+        unsigned long port;
+        bool ret = true;
+
+        ntb_buffer_init(&buffer);
+
+        if (*str == '[') {
+                /* IPv6 address */
+                addr_end = strchr(str + 1, ']');
+
+                if (addr_end == NULL) {
+                        ret = false;
+                        goto out;
+                }
+
+                ntb_buffer_append(&buffer, str + 1, addr_end - str - 1);
+                ntb_buffer_append_c(&buffer, '\0');
+
+                if (inet_pton(AF_INET6,
+                              (char *) buffer.data,
+                              address->host) != 1) {
+                        ret = false;
+                        goto out;
+                }
+
+                addr_end++;
+        } else {
+                addr_end = strchr(str + 1, ':');
+                if (addr_end == NULL)
+                        addr_end = str + strlen(str);
+
+                ntb_buffer_append(&buffer, str, addr_end - str);
+                ntb_buffer_append_c(&buffer, '\0');
+
+                if (inet_pton(AF_INET,
+                              (char *) buffer.data,
+                              address->host + sizeof ipv4_magic) != 1) {
+                        ret = false;
+                        goto out;
+                }
+
+                memcpy(address->host, ipv4_magic, sizeof ipv4_magic);
+        }
+
+        if (*addr_end == ':') {
+                errno = 0;
+                port = strtoul(addr_end + 1, &port_end, 10);
+                if (errno ||
+                    port > 0xffff ||
+                    port_end == addr_end + 1 ||
+                    *port_end) {
+                        ret = false;
+                        goto out;
+                }
+                address->port = port;
+        } else if (*addr_end != '\0') {
+                ret = false;
+                goto out;
+        } else {
+                address->port = NTB_PROTO_DEFAULT_PORT;
+        }
+
+out:
+        ntb_buffer_destroy(&buffer);
+
+        return ret;
 }

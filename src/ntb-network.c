@@ -195,25 +195,23 @@ NTB_SLICE_ALLOCATOR(struct ntb_network_peer,
 NTB_SLICE_ALLOCATOR(struct ntb_network_addr,
                     ntb_network_addr_allocator);
 
-static const struct {
-        const char *address;
-        int port;
-} default_addrs[] = {
+static const char *
+default_addrs[] = {
 #if 0
         /* These are the addresses from the official Python client */
-        { "176.31.246.114", 8444 },
-        { "109.229.197.133", 8444 },
-        { "174.3.101.111", 8444 },
-        { "90.188.238.79", 7829 },
-        { "184.75.69.2", 8444 },
-        { "60.225.209.243", 8444 },
-        { "5.145.140.218", 8444 },
-        { "5.19.255.216", 8444 },
-        { "193.159.162.189", 8444 },
-        { "86.26.15.171", 8444 },
+        "176.31.246.114:8444",
+        "109.229.197.133:8444",
+        "174.3.101.111:8444",
+        "90.188.238.79:7829",
+        "184.75.69.2:8444",
+        "60.225.209.243:8444",
+        "5.145.140.218:8444",
+        "5.19.255.216:8444",
+        "193.159.162.189:8444",
+        "86.26.15.171:8444",
 #endif
         /* For testing, it'll only connect to localhost */
-        { "127.0.0.1", 8444 }
+        "127.0.0.1:8444"
 };
 
 static void
@@ -222,50 +220,6 @@ maybe_queue_connect(struct ntb_network *nw, bool use_idle);
 static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data);
-
-static bool
-address_string_to_native(const char *address,
-                         int port,
-                         struct ntb_netaddress_native *native,
-                         struct ntb_error **error)
-{
-        if (address == NULL || *address == '\0') {
-                native->sockaddr_in.sin_family = AF_INET;
-                native->sockaddr_in.sin_addr.s_addr = htonl(INADDR_ANY);
-                native->sockaddr_in.sin_port = htons(port);
-                native->length = sizeof native->sockaddr_in;
-                return true;
-        }
-
-        if (strchr(address, ':')) {
-                if (inet_pton(AF_INET6,
-                              address,
-                              &native->sockaddr_in6.sin6_addr) <= 0)
-                        goto error;
-                native->sockaddr_in6.sin6_family = AF_INET6;
-                native->sockaddr_in6.sin6_port = htons(port);
-                native->sockaddr_in6.sin6_flowinfo = 0;
-                native->length = sizeof native->sockaddr_in6;
-        } else {
-                if (inet_pton(AF_INET,
-                              address,
-                              &native->sockaddr_in.sin_addr) <= 0)
-                        goto error;
-                native->sockaddr_in.sin_family = AF_INET;
-                native->sockaddr_in.sin_port = htons(port);
-                native->length = sizeof native->sockaddr_in;
-        }
-
-        return true;
-
-error:
-        ntb_set_error(error,
-                      &ntb_network_error,
-                      NTB_NETWORK_ERROR_INVALID_ADDRESS,
-                      "Invalid IP address \"%s\"",
-                      address);
-        return false;
-}
 
 static void
 remove_connect_queue_source(struct ntb_network *nw)
@@ -1154,7 +1108,6 @@ ntb_network_new(void)
 {
         struct ntb_network *nw = ntb_alloc(sizeof *nw);
         struct ntb_network_addr *addr;
-        struct ntb_netaddress_native native_address;
         size_t hash_offset;
         bool convert_result;
         int i;
@@ -1186,16 +1139,12 @@ ntb_network_new(void)
         for (i = 0; i < NTB_N_ELEMENTS(default_addrs); i++) {
                 addr = new_addr(nw);
                 convert_result =
-                        address_string_to_native(default_addrs[i].address,
-                                                 default_addrs[i].port,
-                                                 &native_address,
-                                                 NULL);
+                        ntb_netaddress_from_string(&addr->address,
+                                                   default_addrs[i]);
+
                 /* These addresses are hard-coded so they should
                  * always work */
                 assert(convert_result);
-
-                ntb_netaddress_from_native(&addr->address,
-                                           &native_address);
 
                 addr->advertise_time = ntb_main_context_get_wall_clock(NULL);
                 addr->stream = 1;
@@ -1215,16 +1164,23 @@ ntb_network_new(void)
 bool
 ntb_network_add_listen_address(struct ntb_network *nw,
                                const char *address,
-                               int port,
                                struct ntb_error **error)
 {
         struct ntb_network_listen_socket *listen_socket;
+        struct ntb_netaddress netaddress;
         struct ntb_netaddress_native native_address;
         const int true_value = true;
         int sock;
 
-        if (!address_string_to_native(address, port, &native_address, error))
+        if (!ntb_netaddress_from_string(&netaddress, address)) {
+                ntb_set_error(error,
+                              &ntb_network_error,
+                              NTB_NETWORK_ERROR_INVALID_ADDRESS,
+                              "The listen address %s is invalid", address);
                 return false;
+        }
+
+        ntb_netaddress_to_native(&netaddress, &native_address);
 
         sock = socket(native_address.sockaddr.sa_family == AF_INET6 ?
                       PF_INET6 : PF_INET, SOCK_STREAM, 0);
