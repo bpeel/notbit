@@ -310,7 +310,7 @@ load_blob_from_file(const char *filename,
         if (!read_all(filename, &type, sizeof type, file))
                 return NULL;
 
-        blob = ntb_blob_new(type,
+        blob = ntb_blob_new(NTB_UINT32_FROM_BE(type),
                             NULL /* data */,
                             statbuf.st_size - sizeof (uint32_t));
 
