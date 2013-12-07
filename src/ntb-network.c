@@ -99,6 +99,7 @@ struct ntb_network_addr {
         uint64_t last_connect_time;
 
         bool connected;
+        bool explicitly_added;
 };
 
 struct ntb_network_peer {
@@ -131,6 +132,7 @@ struct ntb_network {
 
         int n_unconnected_addrs;
         struct ntb_list addrs;
+        bool only_use_explicit_addresses;
 
         struct ntb_main_context_source *connect_queue_source;
         bool connect_queue_source_is_idle;
@@ -296,7 +298,8 @@ remove_peer_and_addr(struct ntb_network *nw,
 }
 
 static bool
-can_connect_to_addr(struct ntb_network_addr *addr)
+can_connect_to_addr(struct ntb_network *nw,
+                    struct ntb_network_addr *addr)
 {
         uint64_t now = ntb_main_context_get_monotonic_clock(NULL);
 
@@ -305,6 +308,10 @@ can_connect_to_addr(struct ntb_network_addr *addr)
 
         if (now - addr->last_connect_time <
             NTB_NETWORK_MIN_RECONNECT_TIME * UINT64_C(1000000))
+                return false;
+
+        if (nw->only_use_explicit_addresses &&
+            !addr->explicitly_added)
                 return false;
 
         return true;
@@ -410,7 +417,7 @@ connect_queue_cb(struct ntb_main_context_source *source,
 
         /* Count the number of addrs we can connect to */
         ntb_list_for_each(addr, &nw->addrs, link) {
-                if (can_connect_to_addr(addr))
+                if (can_connect_to_addr(nw, addr))
                         n_addrs++;
         }
 
@@ -425,7 +432,7 @@ connect_queue_cb(struct ntb_main_context_source *source,
         addr_num = (uint64_t) rand() * n_addrs / RAND_MAX;
 
         ntb_list_for_each(addr, &nw->addrs, link) {
-                if (can_connect_to_addr(addr) && addr_num-- <= 0)
+                if (can_connect_to_addr(nw, addr) && addr_num-- <= 0)
                         break;
         }
 
@@ -480,6 +487,7 @@ new_addr(struct ntb_network *nw)
 
         ntb_list_insert(&nw->addrs, &addr->link);
         addr->connected = false;
+        addr->explicitly_added = false;
         nw->n_unconnected_addrs++;
 
         addr->last_connect_time = 0;
@@ -1103,13 +1111,39 @@ listen_socket_source_cb(struct ntb_main_context_source *source,
         peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN;
 }
 
+static struct ntb_network_addr *
+add_addr_string(struct ntb_network *nw,
+                const char *address,
+                struct ntb_error **error)
+{
+        struct ntb_network_addr *addr;
+
+        addr = new_addr(nw);
+
+        if (!ntb_netaddress_from_string(&addr->address, address)) {
+                ntb_set_error(error,
+                              &ntb_network_error,
+                              NTB_NETWORK_ERROR_INVALID_ADDRESS,
+                              "Peer address %s is invalid",
+                              address);
+                remove_addr(nw, addr);
+
+                return NULL;
+        }
+
+        addr->advertise_time = ntb_main_context_get_wall_clock(NULL);
+        addr->stream = 1;
+        addr->services = NTB_PROTO_SERVICES;
+
+        return addr;
+}
+
 struct ntb_network *
 ntb_network_new(void)
 {
         struct ntb_network *nw = ntb_alloc(sizeof *nw);
         struct ntb_network_addr *addr;
         size_t hash_offset;
-        bool convert_result;
         int i;
 
         ntb_list_init(&nw->listen_sockets);
@@ -1121,6 +1155,7 @@ ntb_network_new(void)
         nw->n_peers = 0;
         nw->n_unconnected_addrs = 0;
         nw->connect_queue_source = NULL;
+        nw->only_use_explicit_addresses = false;
 
         hash_offset = NTB_STRUCT_OFFSET(struct ntb_network_inventory, hash);
         nw->inventory_hash = ntb_hash_table_new(hash_offset);
@@ -1137,18 +1172,10 @@ ntb_network_new(void)
         /* Add a hard-coded list of initial nodes which we can use to
          * discover more */
         for (i = 0; i < NTB_N_ELEMENTS(default_addrs); i++) {
-                addr = new_addr(nw);
-                convert_result =
-                        ntb_netaddress_from_string(&addr->address,
-                                                   default_addrs[i]);
-
+                addr = add_addr_string(nw, default_addrs[i], NULL);
                 /* These addresses are hard-coded so they should
                  * always work */
-                assert(convert_result);
-
-                addr->advertise_time = ntb_main_context_get_wall_clock(NULL);
-                addr->stream = 1;
-                addr->services = NTB_PROTO_SERVICES;
+                assert(addr);
         }
 
         maybe_queue_connect(nw, true /* use idle */);
@@ -1234,6 +1261,31 @@ ntb_network_add_listen_address(struct ntb_network *nw,
 error:
         close(sock);
         return false;
+}
+
+bool
+ntb_network_add_peer_address(struct ntb_network *nw,
+                             const char *address,
+                             struct ntb_error **error)
+{
+        struct ntb_network_addr *addr;
+
+        addr = add_addr_string(nw, address, error);
+
+        if (addr == NULL)
+                return false;
+
+        addr->explicitly_added = true;
+
+        return true;
+}
+
+void
+ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
+                                            bool value)
+{
+        nw->only_use_explicit_addresses = value;
+        maybe_queue_connect(nw, true /* use idle */);
 }
 
 static void

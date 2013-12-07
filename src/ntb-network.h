@@ -44,6 +44,15 @@ ntb_network_add_listen_address(struct ntb_network *nw,
                                const char *address,
                                struct ntb_error **error);
 
+bool
+ntb_network_add_peer_address(struct ntb_network *nw,
+                             const char *address,
+                             struct ntb_error **error);
+
+void
+ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
+                                            bool value);
+
 void
 ntb_network_free(struct ntb_network *nw);
 

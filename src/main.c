@@ -50,38 +50,39 @@ struct address {
 };
 
 static struct address *option_listen_addresses = NULL;
+static struct address *option_peer_addresses = NULL;
 static char *option_log_file = "/dev/stdout";
 static bool option_daemonize = false;
 static char *option_user = NULL;
 static char *option_group = NULL;
 static char *option_store_directory = NULL;
+static bool option_only_explicit_addresses = false;
 
-static const char options[] = "-a:l:du:g:D:";
+static const char options[] = "-a:l:du:g:D:p:e";
 
 static void
-add_listen_address(const char *address)
+add_address(struct address **list,
+            const char *address)
 {
         struct address *listen_address;
 
         listen_address = ntb_alloc(sizeof (struct address));
         listen_address->address = address;
-        listen_address->next = option_listen_addresses;
-        option_listen_addresses = listen_address;
+        listen_address->next = *list;
+        *list = listen_address;
 }
 
 static void
-free_listen_addresses(void)
+free_addresses(struct address *list)
 {
         struct address *address, *next;
 
-        for (address = option_listen_addresses;
+        for (address = list;
              address;
              address = next) {
                 next = address->next;
                 ntb_free(address);
         }
-
-        option_listen_addresses = NULL;
 }
 
 static bool
@@ -111,7 +112,11 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                         goto error;
 
                 case 'a':
-                        add_listen_address(optarg);
+                        add_address(&option_listen_addresses, optarg);
+                        break;
+
+                case 'p':
+                        add_address(&option_peer_addresses, optarg);
                         break;
 
                 case 'l':
@@ -133,6 +138,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                 case 'D':
                         option_store_directory = optarg;
                         break;
+
+                case 'e':
+                        option_only_explicit_addresses = true;
+                        break;
                 }
         }
 
@@ -146,12 +155,15 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
         }
 
         if (option_listen_addresses == NULL)
-                add_listen_address("[::]");
+                add_address(&option_listen_addresses, "[::]");
 
         return true;
 
 error:
-        free_listen_addresses();
+        free_addresses(option_peer_addresses);
+        option_peer_addresses = NULL;
+        free_addresses(option_listen_addresses);
+        option_listen_addresses = NULL;
         return false;
 }
 
@@ -240,8 +252,8 @@ quit_cb(struct ntb_main_context_source *source,
 }
 
 static bool
-add_listen_addresses(struct ntb_network *nw,
-                     struct ntb_error **error)
+add_addresses(struct ntb_network *nw,
+              struct ntb_error **error)
 {
         struct address *address;
 
@@ -253,6 +265,18 @@ add_listen_addresses(struct ntb_network *nw,
                                                     error))
                         return false;
         }
+
+        for (address = option_peer_addresses;
+             address;
+             address = address->next) {
+                if (!ntb_network_add_peer_address(nw,
+                                                  address->address,
+                                                  error))
+                        return false;
+        }
+
+        if (option_only_explicit_addresses)
+                ntb_network_set_only_use_explicit_addresses(nw, true);
 
         return true;
 }
@@ -269,7 +293,7 @@ run_network(void)
 
         nw = ntb_network_new();
 
-        if (!add_listen_addresses(nw, &error)) {
+        if (!add_addresses(nw, &error)) {
                 fprintf(stderr, "%s\n", error->message);
                 ntb_error_clear(&error);
                 ret = EXIT_FAILURE;
@@ -362,7 +386,8 @@ main(int argc, char **argv)
 
         ntb_main_context_free(mc);
 
-        free_listen_addresses();
+        free_addresses(option_peer_addresses);
+        free_addresses(option_listen_addresses);
 
         return ret;
 }
