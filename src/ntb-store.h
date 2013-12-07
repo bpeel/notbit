@@ -33,6 +33,7 @@ extern struct ntb_error_domain
 ntb_store_error;
 
 enum ntb_store_error {
+        NTB_STORE_ERROR_THREAD,
         NTB_STORE_ERROR_CREATING_DIRECTORY,
         NTB_STORE_ERROR_INVALID_STORE_DIRECTORY
 };
@@ -55,6 +56,16 @@ typedef void (* ntb_store_load_callback)(struct ntb_blob *blob,
 struct ntb_store *
 ntb_store_new(const char *store_directory,
               struct ntb_error **error);
+
+bool
+ntb_store_start(struct ntb_store *store,
+                struct ntb_error **error);
+
+struct ntb_store *
+ntb_store_get_default(void);
+
+void
+ntb_store_set_default(struct ntb_store *store);
 
 void
 ntb_store_save_blob(struct ntb_store *store,

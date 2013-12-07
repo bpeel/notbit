@@ -22,7 +22,6 @@
 #include <stdbool.h>
 
 #include "ntb-error.h"
-#include "ntb-store.h"
 
 extern struct ntb_error_domain
 ntb_network_error;
@@ -35,7 +34,7 @@ enum ntb_network_error {
 struct ntb_network;
 
 struct ntb_network *
-ntb_network_new(struct ntb_store *store);
+ntb_network_new(void);
 
 void
 ntb_network_load_store(struct ntb_network *nw);

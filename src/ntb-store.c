@@ -49,6 +49,7 @@ struct ntb_store {
         pthread_mutex_t mutex;
         pthread_cond_t cond;
         pthread_t thread;
+        bool started;
 
         struct ntb_list queue;
 
@@ -99,6 +100,33 @@ struct ntb_store_cookie {
 /* The cookies are only allocated and destroyed in the main thread so
  * we don't need to have a per-store allocator */
 NTB_SLICE_ALLOCATOR(struct ntb_store_cookie, ntb_store_cookie_allocator);
+
+static struct ntb_store *ntb_store_default = NULL;
+
+static struct ntb_store *
+ntb_store_get_default_or_abort(void)
+{
+        struct ntb_store *store;
+
+        store = ntb_store_get_default();
+
+        if (store == NULL)
+                ntb_fatal("default store is missing");
+
+        return store;
+}
+
+struct ntb_store *
+ntb_store_get_default(void)
+{
+        return ntb_store_default;
+}
+
+void
+ntb_store_set_default(struct ntb_store *store)
+{
+        ntb_store_default = store;
+}
 
 static void
 strip_trailing_slashes(struct ntb_buffer *buffer)
@@ -504,15 +532,6 @@ ntb_store_new(const char *store_directory,
         pthread_mutex_init(&store->mutex, NULL /* attrs */);
         pthread_cond_init(&store->cond, NULL /* attrs */);
 
-        if (pthread_create(&store->thread,
-                           NULL, /* attr */
-                           store_thread_func,
-                           store)) {
-                pthread_cond_destroy(&store->cond);
-                pthread_mutex_destroy(&store->mutex);
-                goto error;
-        }
-
         ntb_slice_allocator_init(&store->allocator,
                                  sizeof (struct ntb_store_task),
                                  NTB_ALIGNOF(struct ntb_store_task));
@@ -524,6 +543,29 @@ error:
         ntb_buffer_destroy(&store->filename_buf);
         ntb_free(store);
         return NULL;
+}
+
+bool
+ntb_store_start(struct ntb_store *store,
+                struct ntb_error **error)
+{
+        if (store->started)
+                return true;
+
+        if (pthread_create(&store->thread,
+                           NULL, /* attr */
+                           store_thread_func,
+                           store)) {
+                ntb_set_error(error,
+                              &ntb_store_error,
+                              NTB_STORE_ERROR_THREAD,
+                              "Error starting store thread");
+                return false;
+        }
+
+        store->started = true;
+
+        return true;
 }
 
 static struct ntb_store_task *
@@ -550,6 +592,9 @@ ntb_store_save_blob(struct ntb_store *store,
 {
         struct ntb_store_task *task;
 
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
         pthread_mutex_lock(&store->mutex);
 
         task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_BLOB);
@@ -564,6 +609,9 @@ ntb_store_delete_object(struct ntb_store *store,
                         const uint8_t *hash)
 {
         struct ntb_store_task *task;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
 
         pthread_mutex_lock(&store->mutex);
 
@@ -676,6 +724,9 @@ ntb_store_for_each(struct ntb_store *store,
         DIR *dir;
         struct dirent *dirent;
 
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
         /* This function runs synchronously but it should only be
          * called once at startup before connecting to any peers so it
          * shouldn't really matter */
@@ -722,6 +773,9 @@ ntb_store_load_blob(struct ntb_store *store,
         struct ntb_store_task *task;
         struct ntb_store_cookie *cookie;
 
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
         pthread_mutex_lock(&store->mutex);
 
         task = new_task(store, NTB_STORE_TASK_TYPE_LOAD_BLOB);
@@ -766,11 +820,13 @@ ntb_store_free(struct ntb_store *store)
 {
         struct ntb_store_task *task, *tmp;
 
-        pthread_mutex_lock(&store->mutex);
-        store->quit = true;
-        pthread_cond_signal(&store->cond);
-        pthread_mutex_unlock(&store->mutex);
-        pthread_join(store->thread, NULL);
+        if (store->started) {
+                pthread_mutex_lock(&store->mutex);
+                store->quit = true;
+                pthread_cond_signal(&store->cond);
+                pthread_mutex_unlock(&store->mutex);
+                pthread_join(store->thread, NULL);
+        }
 
         ntb_list_for_each_safe(task, tmp, &store->queue, link)
                 free_task(store, task);
@@ -781,4 +837,7 @@ ntb_store_free(struct ntb_store *store)
         ntb_slice_allocator_destroy(&store->allocator);
 
         ntb_free(store);
+
+        if (ntb_store_default == store)
+                ntb_store_default = NULL;
 }

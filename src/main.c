@@ -215,15 +215,7 @@ run_network(void)
         struct ntb_main_context_source *quit_source;
         bool quit = false;
 
-        store = ntb_store_new(option_store_directory, &error);
-
-        if (store == NULL) {
-                fprintf(stderr, "%s\n", error->message);
-                ntb_error_clear(&error);
-                return EXIT_FAILURE;
-        }
-
-        nw = ntb_network_new(store);
+        nw = ntb_network_new();
 
         if (!ntb_network_add_listen_address(nw,
                                             option_listen_address,
@@ -237,37 +229,55 @@ run_network(void)
                         set_group(option_group);
                 if (option_user)
                         set_user(option_user);
-                if (option_daemonize)
-                        daemonize();
 
-                if (!ntb_log_start(&error)) {
-                        /* This probably shouldn't happen. By the time
-                           we get here may have daemonized so we can't
-                           really print anything but let's do it
-                           anyway. */
-                        ntb_warning("Error starting log file: %s\n",
-                                    error->message);
+                store = ntb_store_new(option_store_directory, &error);
+
+                if (store == NULL) {
+                        fprintf(stderr, "%s\n", error->message);
                         ntb_error_clear(&error);
+                        ret = EXIT_FAILURE;
                 } else {
-                        ntb_network_load_store(nw);
+                        ntb_store_set_default(store);
 
-                        quit_source = ntb_main_context_add_quit(NULL,
-                                                                quit_cb,
-                                                                &quit);
+                        if (option_daemonize)
+                                daemonize();
 
-                        do
-                                ntb_main_context_poll(NULL);
-                        while(!quit);
+                        if (!ntb_store_start(store, &error)) {
+                                /* This probably shouldn't happen. By
+                                   the time we get here may have
+                                   daemonized so we can't really print
+                                   anything but let's do it anyway. */
+                                ntb_warning("%s\n", error->message);
+                                ntb_error_clear(&error);
+                        } else if (!ntb_log_start(&error)) {
+                                /* This probably shouldn't happen. By the time
+                                   we get here may have daemonized so we can't
+                                   really print anything but let's do it
+                                   anyway. */
+                                ntb_warning("Error starting log file: %s\n",
+                                            error->message);
+                                ntb_error_clear(&error);
+                        } else {
+                                ntb_network_load_store(nw);
 
-                        ntb_log("Exiting...");
+                                quit_source = ntb_main_context_add_quit(NULL,
+                                                                        quit_cb,
+                                                                        &quit);
 
-                        ntb_main_context_remove_source(quit_source);
+                                do
+                                        ntb_main_context_poll(NULL);
+                                while(!quit);
+
+                                ntb_log("Exiting...");
+
+                                ntb_main_context_remove_source(quit_source);
+                        }
+
+                        ntb_store_free(store);
                 }
         }
 
         ntb_network_free(nw);
-
-        ntb_store_free(store);
 
         return ret;
 }

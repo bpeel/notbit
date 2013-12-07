@@ -38,6 +38,7 @@
 #include "ntb-network.h"
 #include "ntb-hash-table.h"
 #include "ntb-pow.h"
+#include "ntb-store.h"
 
 struct ntb_error_domain
 ntb_network_error;
@@ -96,8 +97,6 @@ struct ntb_network {
         struct ntb_list peers;
         int n_connected_peers;
         int n_unconnected_peers;
-
-        struct ntb_store *store;
 
         struct ntb_main_context_source *connect_queue_source;
         bool connect_queue_source_is_idle;
@@ -715,7 +714,7 @@ handle_object(struct ntb_network *nw,
                                          message->object_data,
                                          message->object_data_length);
 
-                ntb_store_save_blob(nw->store, hash, inv->blob);
+                ntb_store_save_blob(NULL, hash, inv->blob);
 
                 /* If the blob is not quite new then we won't bother
                  * keeping it in memory under the assumption that's
@@ -813,7 +812,7 @@ gc_inventories(struct ntb_network *nw,
                 if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
                     age >= NTB_PROTO_MAX_INV_AGE) {
                         if (inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED)
-                                ntb_store_delete_object(nw->store, inv->hash);
+                                ntb_store_delete_object(NULL, inv->hash);
                         ntb_list_remove(&inv->link);
                         ntb_hash_table_remove(nw->inventory_hash, inv);
                         free_inventory(inv);
@@ -886,11 +885,11 @@ store_for_each_cb(enum ntb_blob_type type,
 void
 ntb_network_load_store(struct ntb_network *nw)
 {
-        ntb_store_for_each(nw->store, store_for_each_cb, nw);
+        ntb_store_for_each(NULL, store_for_each_cb, nw);
 }
 
 struct ntb_network *
-ntb_network_new(struct ntb_store *store)
+ntb_network_new(void)
 {
         struct ntb_network *nw = ntb_alloc(sizeof *nw);
         struct ntb_network_peer *peer;
@@ -906,8 +905,6 @@ ntb_network_new(struct ntb_store *store)
         ntb_list_init(&nw->getpubkeys);
         ntb_list_init(&nw->msgs);
         ntb_list_init(&nw->rejected_inventories);
-
-        nw->store = store;
 
         nw->n_connected_peers = 0;
         nw->n_unconnected_peers = 0;
