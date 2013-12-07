@@ -100,7 +100,7 @@ ntb_netaddress_from_native(struct ntb_netaddress *address,
                 break;
 
         default:
-                memset(&address, 0, sizeof *address);
+                memset(address, 0, sizeof *address);
                 break;
         }
 }
