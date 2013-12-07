@@ -1142,6 +1142,8 @@ ntb_connection_accept(int server_sock,
         struct ntb_connection *conn;
         int sock;
 
+        native_address.length = sizeof native_address.sockaddr_in6;
+
         sock = accept(server_sock,
                       &native_address.sockaddr,
                       &native_address.length);
