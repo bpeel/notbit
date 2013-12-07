@@ -91,6 +91,9 @@
 #define NTB_N_ELEMENTS(array) \
   (sizeof (array) / sizeof ((array)[0]))
 
+#define NTB_STRINGIFY(macro_or_string) NTB_STRINGIFY_ARG(macro_or_string)
+#define NTB_STRINGIFY_ARG(contents) #contents
+
 void *
 ntb_alloc(size_t size);
 
