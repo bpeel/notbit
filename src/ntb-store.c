@@ -28,6 +28,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "ntb-store.h"
 #include "ntb-util.h"
@@ -64,6 +65,7 @@ struct ntb_store {
 enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_SAVE_BLOB,
         NTB_STORE_TASK_TYPE_LOAD_BLOB,
+        NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST,
         NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
 
@@ -81,6 +83,11 @@ struct ntb_store_task {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
                         struct ntb_store_cookie *cookie;
                 } load_blob;
+
+                struct {
+                        struct ntb_store_addr *addrs;
+                        int n_addrs;
+                } save_addr_list;
 
                 struct {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
@@ -194,7 +201,7 @@ init_store_directory(struct ntb_store *store,
                 ntb_buffer_append_string(&store->filename_buf,
                                          store_directory);
                 strip_trailing_slashes(&store->filename_buf);
-                ntb_buffer_append_string(&store->filename_buf, "/objects/");
+                ntb_buffer_append_string(&store->filename_buf, "/");
         } else if ((data_home = getenv("XDG_DATA_HOME"))) {
                 if (data_home[0] != '/') {
                         ntb_set_error(error,
@@ -209,7 +216,7 @@ init_store_directory(struct ntb_store *store,
                                          data_home);
                 strip_trailing_slashes(&store->filename_buf);
                 ntb_buffer_append_string(&store->filename_buf,
-                                         "/notbit/objects/");
+                                         "/notbit/");
         } else if ((home = getenv("HOME"))) {
                 if (home[0] != '/') {
                         ntb_set_error(error,
@@ -223,7 +230,7 @@ init_store_directory(struct ntb_store *store,
                 ntb_buffer_append_string(&store->filename_buf, home);
                 strip_trailing_slashes(&store->filename_buf);
                 ntb_buffer_append_string(&store->filename_buf,
-                                         "/.local/share/notbit/objects/");
+                                         "/.local/share/notbit/");
         } else {
                 ntb_set_error(error,
                               &ntb_store_error,
@@ -232,10 +239,12 @@ init_store_directory(struct ntb_store *store,
                 return false;
         }
 
+        store->directory_len = store->filename_buf.length;
+
+        ntb_buffer_append_string(&store->filename_buf, "objects");
+
         if (!make_directory_hierarchy(&store->filename_buf, error))
                 return false;
-
-        store->directory_len = store->filename_buf.length;
 
         return true;
 }
@@ -323,6 +332,15 @@ load_blob_from_file(const char *filename,
 }
 
 static void
+set_hash_filename(struct ntb_store *store,
+                  const uint8_t *hash)
+{
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "objects/");
+        append_hash(&store->filename_buf, hash);
+}
+
+static void
 handle_load_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
@@ -340,8 +358,7 @@ handle_load_blob(struct ntb_store *store,
 
         pthread_mutex_unlock(&store->mutex);
 
-        store->filename_buf.length = store->directory_len;
-        append_hash(&store->filename_buf, task->load_blob.hash);
+        set_hash_filename(store, task->load_blob.hash);
 
         file = fopen((char *) store->filename_buf.data, "rb");
 
@@ -380,9 +397,7 @@ handle_save_blob(struct ntb_store *store,
         FILE *file;
         uint32_t type;
 
-        store->filename_buf.length = store->directory_len;
-
-        append_hash(&store->filename_buf, task->save_blob.hash);
+        set_hash_filename(store, task->save_blob.hash);
 
         ntb_buffer_append_string(&store->filename_buf, ".tmp");
 
@@ -437,9 +452,7 @@ static void
 handle_delete_object(struct ntb_store *store,
                      struct ntb_store_task *task)
 {
-        store->filename_buf.length = store->directory_len;
-
-        append_hash(&store->filename_buf, task->delete_object.hash);
+        set_hash_filename(store, task->delete_object.hash);
 
         if (unlink((char *) store->filename_buf.data) == -1) {
                 ntb_log("Error deleting %s: %s",
@@ -449,8 +462,67 @@ handle_delete_object(struct ntb_store *store,
 }
 
 static void
+handle_save_addr_list(struct ntb_store *store,
+                      struct ntb_store_task *task)
+{
+        struct ntb_store_addr *addrs;
+        char *address;
+        FILE *out;
+        int i;
+
+        ntb_log("Saving addr list");
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf,
+                                 "addr-list.txt.tmp");
+
+        addrs = task->save_addr_list.addrs;
+
+        out = fopen((char *) store->filename_buf.data, "w");
+
+        if (out == NULL) {
+                ntb_log("Error opening %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        for (i = 0; i < task->save_addr_list.n_addrs; i++) {
+                address = ntb_netaddress_to_string(&addrs[i].address);
+                fprintf(out,
+                        "%" PRIi64 ",%" PRIu32 ",%" PRIu64 ",%s\n",
+                        addrs[i].timestamp,
+                        addrs[i].stream,
+                        addrs[i].services,
+                        address);
+                ntb_free(address);
+        }
+
+        if (fclose(out) == EOF) {
+                ntb_log("Error writing to %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        store->tmp_buf.length = 0;
+        ntb_buffer_append(&store->tmp_buf,
+                          store->filename_buf.data,
+                          store->filename_buf.length - 4);
+        ntb_buffer_append_c(&store->tmp_buf, '\0');
+
+        if (rename((char *) store->filename_buf.data,
+                   (char *) store->tmp_buf.data) == -1) {
+                ntb_log("Error renaming %s to %s: %s",
+                        (char *) store->filename_buf.data,
+                        (char *) store->tmp_buf.data,
+                        strerror(errno));
+        }
+}
+
+static void
 free_task(struct ntb_store *store,
-           struct ntb_store_task *task)
+          struct ntb_store_task *task)
 {
         /* This must be called with the lock */
 
@@ -460,6 +532,9 @@ free_task(struct ntb_store *store,
                 break;
         case NTB_STORE_TASK_TYPE_LOAD_BLOB:
         case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
+                break;
+        case NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST:
+                ntb_free(task->save_addr_list.addrs);
                 break;
         }
 
@@ -498,6 +573,9 @@ store_thread_func(void *user_data)
                                 break;
                         case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
                                 handle_delete_object(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST:
+                                handle_save_addr_list(store, task);
                                 break;
                         case NTB_STORE_TASK_TYPE_LOAD_BLOB:
                                 assert(false);
@@ -621,6 +699,28 @@ ntb_store_delete_object(struct ntb_store *store,
         pthread_mutex_unlock(&store->mutex);
 }
 
+void
+ntb_store_save_addr_list(struct ntb_store *store,
+                         struct ntb_store_addr *addrs,
+                         int n_addrs)
+{
+        struct ntb_store_task *task;
+
+        /* This function takes ownership of the addrs array */
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST);
+
+        task->save_addr_list.addrs = addrs;
+        task->save_addr_list.n_addrs = n_addrs;
+
+        pthread_mutex_unlock(&store->mutex);
+}
+
 static int
 hex_digit_value(int ch)
 {
@@ -657,7 +757,7 @@ process_file(struct ntb_store *store,
         int64_t now;
         int i;
 
-        p = filename + store->directory_len;
+        p = filename + store->directory_len + 8;
 
         for (i = 0; i < NTB_PROTO_HASH_LENGTH; i++) {
                 /* Skip files that don't look like a hash */
@@ -734,15 +834,10 @@ ntb_store_for_each(struct ntb_store *store,
 
         ntb_log("Loading saved object store");
 
-        ntb_buffer_append(&store->tmp_buf,
-                          store->filename_buf.data,
-                          store->directory_len);
-        while (store->tmp_buf.length > 0 &&
-               store->tmp_buf.data[store->tmp_buf.length - 1] == '/')
-                store->tmp_buf.length--;
-        ntb_buffer_append_c(&store->tmp_buf, '\0');
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "objects");
 
-        dir = opendir((char *) store->tmp_buf.data);
+        dir = opendir((char *) store->filename_buf.data);
         if (dir == NULL) {
                 ntb_log("Error listing %s: %s",
                         (char *) store->tmp_buf.data,
@@ -750,8 +845,10 @@ ntb_store_for_each(struct ntb_store *store,
                 return;
         }
 
+        ntb_buffer_append_c(&store->filename_buf, '/');
+
         while ((dirent = readdir(dir))) {
-                store->filename_buf.length = store->directory_len;
+                store->filename_buf.length = store->directory_len + 8;
                 ntb_buffer_append_string(&store->filename_buf, dirent->d_name);
 
                 process_file(store,

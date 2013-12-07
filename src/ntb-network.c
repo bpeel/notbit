@@ -68,6 +68,11 @@ ntb_network_error;
 /* Time in seconds before we'll retry connecting to an addr */
 #define NTB_NETWORK_MIN_RECONNECT_TIME 60
 
+/* Frequency in minutes which we'll save the address list. This is
+ * only triggered when the address list changes. This is set to the
+ * same as the GC timeout so that it will use the same bucket */
+#define NTB_NETWORK_SAVE_ADDR_LIST_TIMEOUT NTB_NETWORK_GC_TIMEOUT
+
 enum ntb_network_peer_state {
         /* If we initiated the connection then we will go through these
          * two steps before the connection is considered established.
@@ -143,6 +148,8 @@ struct ntb_network {
 
         struct ntb_list accepted_inventories;
         struct ntb_list rejected_inventories;
+
+        struct ntb_main_context_source *save_addr_list_source;
 };
 
 enum ntb_network_inv_state {
@@ -222,6 +229,40 @@ maybe_queue_connect(struct ntb_network *nw, bool use_idle);
 static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data);
+
+static void
+save_addr_list_cb(struct ntb_main_context_source *source,
+                  void *user_data)
+{
+        struct ntb_network *nw = user_data;
+        struct ntb_buffer buffer;
+        struct ntb_network_addr *addr;
+        struct ntb_store_addr *store_addr;
+        int n_addrs = 0;
+
+        ntb_buffer_init(&buffer);
+
+        ntb_list_for_each(addr, &nw->addrs, link) {
+                ntb_buffer_ensure_size(&buffer,
+                                       buffer.length + sizeof *store_addr);
+                store_addr =
+                        (struct ntb_store_addr *) (buffer.data + buffer.length);
+                store_addr->timestamp = addr->advertise_time;
+                store_addr->stream = addr->stream;
+                store_addr->services = addr->services;
+                store_addr->address = addr->address;
+                buffer.length += sizeof *store_addr;
+                n_addrs++;
+        }
+
+        /* This function takes ownership of the buffer */
+        ntb_store_save_addr_list(NULL, /* default store */
+                                 (struct ntb_store_addr *) buffer.data,
+                                 n_addrs);
+
+        ntb_main_context_remove_source(source);
+        nw->save_addr_list_source = NULL;
+}
 
 static void
 remove_connect_queue_source(struct ntb_network *nw)
@@ -514,6 +555,19 @@ broadcast_addr(struct ntb_network *nw,
         }
 }
 
+static void
+queue_save_addr_list(struct ntb_network *nw)
+{
+        if (nw->save_addr_list_source)
+                return;
+
+        nw->save_addr_list_source =
+                ntb_main_context_add_timer(NULL,
+                                           NTB_NETWORK_SAVE_ADDR_LIST_TIMEOUT,
+                                           save_addr_list_cb,
+                                           nw);
+}
+
 static struct ntb_network_addr *
 add_addr(struct ntb_network *nw,
          int64_t timestamp,
@@ -540,6 +594,7 @@ add_addr(struct ntb_network *nw,
                     addr->address.port == address->port) {
                         if (addr->advertise_time < timestamp) {
                                 addr->advertise_time = timestamp;
+                                queue_save_addr_list(nw);
                                 broadcast_addr(nw, addr);
                         }
                         return addr;
@@ -551,6 +606,8 @@ add_addr(struct ntb_network *nw,
         addr->stream = stream;
         addr->services = services;
         addr->address = *address;
+
+        queue_save_addr_list(nw);
 
         broadcast_addr(nw, addr);
 
@@ -1157,6 +1214,8 @@ ntb_network_new(void)
         nw->connect_queue_source = NULL;
         nw->only_use_explicit_addresses = false;
 
+        nw->save_addr_list_source = NULL;
+
         hash_offset = NTB_STRUCT_OFFSET(struct ntb_network_inventory, hash);
         nw->inventory_hash = ntb_hash_table_new(hash_offset);
 
@@ -1327,6 +1386,13 @@ free_inventories_in_list(struct ntb_list *list)
 void
 ntb_network_free(struct ntb_network *nw)
 {
+        if (nw->save_addr_list_source) {
+                /* Make sure the list is saved before we quit. This
+                 * will also remove the source */
+                save_addr_list_cb(nw->save_addr_list_source, nw);
+                assert(nw->save_addr_list_source == NULL);
+        }
+
         ntb_main_context_remove_source(nw->gc_source);
 
         free_peers(nw);

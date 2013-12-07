@@ -315,7 +315,7 @@ add_addresses(struct ntb_network *nw,
 static int
 run_network(void)
 {
-        struct ntb_store *store;
+        struct ntb_store *store = NULL;
         struct ntb_network *nw;
         int ret = EXIT_SUCCESS;
         struct ntb_error *error = NULL;
@@ -376,12 +376,17 @@ run_network(void)
 
                                 ntb_main_context_remove_source(quit_source);
                         }
-
-                        ntb_store_free(store);
                 }
         }
 
         ntb_network_free(nw);
+
+        /* We need to free the store after freeing the network so that
+         * if the network queues anything in the store just before it
+         * is freed then we will be sure to complete the task before
+         * exiting */
+        if (store)
+                ntb_store_free(store);
 
         return ret;
 }

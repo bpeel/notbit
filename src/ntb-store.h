@@ -23,6 +23,7 @@
 
 #include "ntb-blob.h"
 #include "ntb-error.h"
+#include "ntb-netaddress.h"
 
 /* The store is used to do all of the disk I/O. The actions are stored
  * in a queue and then executed in a separate thread */
@@ -53,6 +54,13 @@ typedef void (* ntb_store_for_each_func)(enum ntb_proto_inv_type type,
 typedef void (* ntb_store_load_callback)(struct ntb_blob *blob,
                                          void *user_data);
 
+struct ntb_store_addr {
+        int64_t timestamp;
+        uint32_t stream;
+        uint64_t services;
+        struct ntb_netaddress address;
+};
+
 struct ntb_store *
 ntb_store_new(const char *store_directory,
               struct ntb_error **error);
@@ -75,6 +83,11 @@ ntb_store_save_blob(struct ntb_store *store,
 void
 ntb_store_delete_object(struct ntb_store *store,
                         const uint8_t *hash);
+
+void
+ntb_store_save_addr_list(struct ntb_store *store,
+                         struct ntb_store_addr *addrs,
+                         int n_addrs);
 
 void
 ntb_store_for_each(struct ntb_store *store,
