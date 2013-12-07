@@ -330,6 +330,17 @@ remove_addr(struct ntb_network *nw,
         nw->n_unconnected_addrs--;
 }
 
+static void
+remove_peer_and_addr(struct ntb_network *nw,
+                     struct ntb_network_peer *peer)
+{
+        struct ntb_network_addr *addr = peer->addr;
+
+        remove_peer(nw, peer);
+        if (addr)
+                remove_addr(nw, addr);
+}
+
 static bool
 can_connect_to_addr(struct ntb_network_addr *addr)
 {
@@ -665,9 +676,7 @@ handle_version(struct ntb_network *nw,
                         "%" PRIu32,
                         remote_address_string,
                         message->version);
-                if (peer->addr)
-                        remove_addr(nw, peer->addr);
-                remove_peer(nw, peer);
+                remove_peer_and_addr(nw, peer);
                 return false;
         }
 
@@ -957,9 +966,7 @@ connection_message_cb(struct ntb_listener *listener,
                 /* If we never actually managed to connect to the peer
                  * then we'll assume it's a bad address and we'll stop
                  * trying to connect to it */
-                if (peer->addr)
-                        remove_addr(nw, peer->addr);
-                remove_peer(nw, peer);
+                remove_peer_and_addr(nw, peer);
                 return false;
 
         case NTB_CONNECTION_MESSAGE_VERSION:
