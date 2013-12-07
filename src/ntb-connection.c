@@ -961,7 +961,9 @@ connection_poll_cb(struct ntb_main_context_source *source,
 
         /* If the connection ever becomes ready for writing then we
          * know it has successfully connected */
-        if ((flags & NTB_MAIN_CONTEXT_POLL_OUT) &&
+        if ((flags & (NTB_MAIN_CONTEXT_POLL_OUT |
+                      NTB_MAIN_CONTEXT_POLL_ERROR)) ==
+            NTB_MAIN_CONTEXT_POLL_OUT &&
             !conn->connect_succeeded) {
                 conn->connect_succeeded = true;
                 ntb_log("Connected to %s", conn->remote_address_string);
