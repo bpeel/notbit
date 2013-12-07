@@ -1227,6 +1227,7 @@ ntb_network_add_listen_address(struct ntb_network *nw,
 {
         struct ntb_network_listen_socket *listen_socket;
         struct ntb_netaddress_native native_address;
+        const int true_value = true;
         int sock;
 
         if (!address_string_to_native(address, port, &native_address, error))
@@ -1242,6 +1243,10 @@ ntb_network_add_listen_address(struct ntb_network *nw,
                               strerror(errno));
                 return false;
         }
+
+        setsockopt(sock,
+                   SOL_SOCKET, SO_REUSEADDR,
+                   &true_value, sizeof true_value);
 
         if (bind(sock, &native_address.sockaddr, native_address.length) == -1) {
                 ntb_set_error(error,
