@@ -524,6 +524,24 @@ new_addr(struct ntb_network *nw)
         return addr;
 }
 
+static void
+broadcast_addr(struct ntb_network *nw,
+               struct ntb_network_addr *addr)
+{
+        struct ntb_network_peer *peer;
+
+        ntb_list_for_each(peer, &nw->peers, link) {
+                if (peer->state == NTB_NETWORK_PEER_STATE_CONNECTED) {
+                        ntb_connection_begin_addr(peer->connection);
+                        ntb_connection_add_addr_address(peer->connection,
+                                                        addr->advertise_time,
+                                                        addr->stream,
+                                                        &addr->address);
+                        ntb_connection_end_addr(peer->connection);
+                }
+        }
+}
+
 static struct ntb_network_addr *
 add_addr(struct ntb_network *nw,
          int64_t timestamp,
@@ -548,8 +566,10 @@ add_addr(struct ntb_network *nw,
                             address->host,
                             sizeof address->host) &&
                     addr->address.port == address->port) {
-                        if (addr->advertise_time < timestamp)
+                        if (addr->advertise_time < timestamp) {
                                 addr->advertise_time = timestamp;
+                                broadcast_addr(nw, addr);
+                        }
                         return addr;
                 }
         }
@@ -559,6 +579,8 @@ add_addr(struct ntb_network *nw,
         addr->stream = stream;
         addr->services = services;
         addr->address = *address;
+
+        broadcast_addr(nw, addr);
 
         maybe_queue_connect(nw, true /* use_idle */);
 
@@ -892,6 +914,21 @@ add_inv_to_list(struct ntb_network *nw,
         }
 }
 
+static void
+broadcast_inv(struct ntb_network *nw,
+              const uint8_t *hash)
+{
+        struct ntb_network_peer *peer;
+
+        ntb_list_for_each(peer, &nw->peers, link) {
+                if (peer->state == NTB_NETWORK_PEER_STATE_CONNECTED) {
+                        ntb_connection_begin_inv(peer->connection);
+                        ntb_connection_add_inv_hash(peer->connection, hash);
+                        ntb_connection_end_inv(peer->connection);
+                }
+        }
+}
+
 static bool
 handle_object(struct ntb_network *nw,
               struct ntb_network_peer *peer,
@@ -947,6 +984,8 @@ handle_object(struct ntb_network *nw,
                 }
 
                 add_inv_to_list(nw, message->type, inv);
+
+                broadcast_inv(nw, hash);
         }
 
         return true;
