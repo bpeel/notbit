@@ -34,6 +34,13 @@ enum ntb_proto_error {
         NTB_PROTO_ERROR_PROTOCOL
 };
 
+enum ntb_proto_inv_type {
+        NTB_PROTO_INV_TYPE_GETPUBKEY,
+        NTB_PROTO_INV_TYPE_PUBKEY,
+        NTB_PROTO_INV_TYPE_MSG,
+        NTB_PROTO_INV_TYPE_BROADCAST
+};
+
 enum ntb_proto_argument {
         NTB_PROTO_ARGUMENT_8,
         NTB_PROTO_ARGUMENT_16,
@@ -69,12 +76,14 @@ struct ntb_proto_var_int_list {
  * bytes are used */
 #define NTB_PROTO_HASH_LENGTH (SHA512_DIGEST_LENGTH / 2)
 
-/* If an object is older than this in seconds then we'll totally
- * ignore it and won't save it to disk. */
-#define NTB_PROTO_MAX_INV_AGE (24 * 60 * 60 * 5 / 2) /* 2.5 days */
-
 #define NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE 320
 #define NTB_PROTO_MIN_EXTRA_BYTES 14000
+
+/* In addition to the maximum age of an object defined by the
+ * protocol, we won't delete objects on disk for this amount of extra
+ * time so that we can cope with clocks that are a bit different and
+ * won't request objects from peers */
+#define NTB_PROTO_EXTRA_AGE (6 * 60 * 60 /* 6 hours */)
 
 extern const uint8_t
 ntb_proto_magic[4];
@@ -88,6 +97,12 @@ void
 ntb_proto_address_hash(const void *data,
                        int length,
                        uint8_t *hash);
+
+int64_t
+ntb_proto_get_max_age_for_type(enum ntb_proto_inv_type type);
+
+const char *
+ntb_proto_get_command_name_for_type(enum ntb_proto_inv_type type);
 
 static inline uint8_t
 ntb_proto_get_8(const uint8_t *p)

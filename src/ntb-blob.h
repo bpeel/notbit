@@ -26,21 +26,16 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "ntb-proto.h"
+
 /* A blob represents a ref-counted immutable chunk of data. This will
  * be used to hold all inventory objects from the network such as
  * messages and public keys. The ref-count is thread-safe so that the
  * blob can be passed off to the store thread to be written to
  * disk. */
 
-enum ntb_blob_type {
-        NTB_BLOB_TYPE_GETPUBKEY,
-        NTB_BLOB_TYPE_PUBKEY,
-        NTB_BLOB_TYPE_MSG,
-        NTB_BLOB_TYPE_BROADCAST
-};
-
 struct ntb_blob {
-        enum ntb_blob_type type;
+        enum ntb_proto_inv_type type;
 
 #ifndef HAVE_SYNC_REF_COUNT
         pthread_mutex_t ref_count_mutex;
@@ -55,7 +50,7 @@ struct ntb_blob {
 };
 
 struct ntb_blob *
-ntb_blob_new(enum ntb_blob_type type,
+ntb_blob_new(enum ntb_proto_inv_type type,
              const void *data,
              size_t size);
 

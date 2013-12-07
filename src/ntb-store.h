@@ -40,7 +40,7 @@ enum ntb_store_error {
 
 struct ntb_store_cookie;
 
-typedef void (* ntb_store_for_each_func)(enum ntb_blob_type type,
+typedef void (* ntb_store_for_each_func)(enum ntb_proto_inv_type type,
                                          const uint8_t *hash,
                                          int64_t timestamp,
                                          void *user_data);

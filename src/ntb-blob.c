@@ -24,7 +24,7 @@
 #include "ntb-util.h"
 
 struct ntb_blob *
-ntb_blob_new(enum ntb_blob_type type,
+ntb_blob_new(enum ntb_proto_inv_type type,
              const void *data,
              size_t size)
 {

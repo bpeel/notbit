@@ -352,7 +352,7 @@ getpubkey_command_handler(struct ntb_connection *conn,
                 return true;
         }
 
-        message.type = NTB_BLOB_TYPE_GETPUBKEY;
+        message.type = NTB_PROTO_INV_TYPE_GETPUBKEY;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -472,7 +472,7 @@ pubkey_command_handler(struct ntb_connection *conn,
 
         memset(&message, 0, sizeof message);
 
-        message.type = NTB_BLOB_TYPE_PUBKEY;
+        message.type = NTB_PROTO_INV_TYPE_PUBKEY;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -560,7 +560,7 @@ msg_command_handler(struct ntb_connection *conn,
                 return false;
         }
 
-        message.type = NTB_BLOB_TYPE_MSG;
+        message.type = NTB_PROTO_INV_TYPE_MSG;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -580,7 +580,7 @@ broadcast_command_handler(struct ntb_connection *conn,
         struct ntb_connection_object_message message;
         ssize_t header_length;
 
-        message.type = NTB_BLOB_TYPE_BROADCAST;
+        message.type = NTB_PROTO_INV_TYPE_BROADCAST;
         message.object_data_length = message_length;
         message.object_data = data;
 
@@ -885,25 +885,6 @@ ntb_connection_send_blob(struct ntb_connection *conn,
         }
 }
 
-static const char *
-get_command_name_for_blob(struct ntb_blob *blob)
-{
-        switch (blob->type) {
-        case NTB_BLOB_TYPE_PUBKEY:
-                return "pubkey";
-        case NTB_BLOB_TYPE_GETPUBKEY:
-                return "getpubkey";
-        case NTB_BLOB_TYPE_MSG:
-                return "msg";
-        case NTB_BLOB_TYPE_BROADCAST:
-                return "broadcast";
-        }
-
-        assert(false);
-
-        return NULL;
-}
-
 static void
 free_queue_entry(struct ntb_connection_queue_entry *entry)
 {
@@ -917,6 +898,7 @@ static void
 add_ready_objects(struct ntb_connection *conn)
 {
         struct ntb_connection_queue_entry *entry;
+        enum ntb_proto_inv_type type;
         const char *command_name;
         size_t command_start;
 
@@ -928,7 +910,8 @@ add_ready_objects(struct ntb_connection *conn)
         while (conn->out_buf.length < 1024 &&
                !ntb_list_empty(&conn->ready_objects)) {
                 entry = ntb_container_of(conn->ready_objects.next, entry, link);
-                command_name = get_command_name_for_blob(entry->blob);
+                type = entry->blob->type;
+                command_name = ntb_proto_get_command_name_for_type(type);
 
                 command_start = conn->out_buf.length;
                 ntb_proto_begin_command(&conn->out_buf, command_name);

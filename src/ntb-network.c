@@ -139,33 +139,34 @@ struct ntb_network {
 
         struct ntb_hash_table *inventory_hash;
 
-        struct ntb_list pubkeys;
-        struct ntb_list broadcasts;
-        struct ntb_list getpubkeys;
-        struct ntb_list msgs;
+        struct ntb_list accepted_inventories;
         struct ntb_list rejected_inventories;
 };
 
-enum ntb_network_inventory_type {
-        NTB_NETWORK_INVENTORY_TYPE_STUB,
-        NTB_NETWORK_INVENTORY_TYPE_BROADCAST,
-        NTB_NETWORK_INVENTORY_TYPE_PUBKEY,
-        NTB_NETWORK_INVENTORY_TYPE_GETPUBKEY,
-        NTB_NETWORK_INVENTORY_TYPE_MSG,
+enum ntb_network_inv_state {
+        /* Stub objects are those that we have sent a requested for
+         * but haven't received yet. We don't know anything about the
+         * details of the object yet */
+        NTB_NETWORK_INV_STATE_STUB,
         /* Rejected objects are those that we have received but that
          * we don't care about, such as those whose proof-of-work is
          * too low or that have a bad time stamp */
-        NTB_NETWORK_INVENTORY_TYPE_REJECTED
+        NTB_NETWORK_INV_STATE_REJECTED,
+        /* Accepted objects are those that we are willing to
+         * distribute. These will either be in memory or on the disk
+         * cache */
+        NTB_NETWORK_INV_STATE_ACCEPTED
 };
 
 struct ntb_network_inventory {
-        enum ntb_network_inventory_type type;
+        enum ntb_network_inv_state state;
+        enum ntb_proto_inv_type type;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
 
         /* Each inventory will be in a list. Which list that is
-         * depends on the type. For stub types it will be within the
-         * list of requested items for a peer. The other types each
-         * have their list in ntb_network */
+         * depends on the state. For stub objects it will be within
+         * the list of requested items for a peer. The other states
+         * each have their own list in ntb_network */
         struct ntb_list link;
 
         union {
@@ -278,16 +279,13 @@ remove_connect_queue_source(struct ntb_network *nw)
 static void
 free_inventory(struct ntb_network_inventory *inv)
 {
-        switch (inv->type) {
-        case NTB_NETWORK_INVENTORY_TYPE_BROADCAST:
-        case NTB_NETWORK_INVENTORY_TYPE_PUBKEY:
-        case NTB_NETWORK_INVENTORY_TYPE_GETPUBKEY:
-        case NTB_NETWORK_INVENTORY_TYPE_MSG:
+        switch (inv->state) {
+        case NTB_NETWORK_INV_STATE_ACCEPTED:
                 if (inv->blob)
                         ntb_blob_unref(inv->blob);
                 break;
-        case NTB_NETWORK_INVENTORY_TYPE_STUB:
-        case NTB_NETWORK_INVENTORY_TYPE_REJECTED:
+        case NTB_NETWORK_INV_STATE_STUB:
+        case NTB_NETWORK_INV_STATE_REJECTED:
                 break;
         }
 
@@ -613,38 +611,25 @@ send_addresses(struct ntb_network *nw,
 }
 
 static void
-send_inventory_in_list(struct ntb_network *nw,
-                       struct ntb_network_peer *peer,
-                       struct ntb_list *list)
+send_inventory(struct ntb_network *nw,
+               struct ntb_network_peer *peer)
 {
         struct ntb_network_inventory *inv;
         int64_t now = ntb_main_context_get_wall_clock(NULL);
         int64_t age;
 
-        ntb_list_for_each(inv, list, link) {
+        ntb_connection_begin_inv(peer->connection);
+
+        ntb_list_for_each(inv, &nw->accepted_inventories, link) {
                 age = now - inv->timestamp;
 
-                if (age > NTB_PROTO_MAX_INV_AGE)
+                if (age >= ntb_proto_get_max_age_for_type(inv->type))
                         continue;
 
                 ntb_connection_add_inv_hash(peer->connection, inv->hash);
         }
-}
 
-static void
-send_inventory(struct ntb_network *nw,
-               struct ntb_network_peer *peer)
-{
-        struct ntb_connection *conn = peer->connection;
-
-        ntb_connection_begin_inv(conn);
-
-        send_inventory_in_list(nw, peer, &nw->getpubkeys);
-        send_inventory_in_list(nw, peer, &nw->pubkeys);
-        send_inventory_in_list(nw, peer, &nw->msgs);
-        send_inventory_in_list(nw, peer, &nw->broadcasts);
-
-        ntb_connection_end_inv(conn);
+        ntb_connection_end_inv(peer->connection);
 }
 
 static void
@@ -758,7 +743,7 @@ request_inventory(struct ntb_network *nw,
 
         inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
 
-        inv->type = NTB_NETWORK_INVENTORY_TYPE_STUB;
+        inv->state = NTB_NETWORK_INV_STATE_STUB;
         memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
 
         inv->last_request_time = ntb_main_context_get_monotonic_clock(NULL);
@@ -796,27 +781,30 @@ handle_inv(struct ntb_network *nw,
 
 static bool
 should_reject(struct ntb_network_peer *peer,
-              const char *type,
+              enum ntb_proto_inv_type type,
               const uint8_t *payload,
               size_t payload_length,
               int64_t age)
 {
+        const char *type_name;
         const char *remote_address_string =
                 ntb_connection_get_remote_address_string(peer->connection);
+
+        type_name = ntb_proto_get_command_name_for_type(type);
 
         if (age <= -NTB_NETWORK_INV_FUTURE_AGE) {
                 ntb_log("Rejecting %s from %s which was created "
                         "%" PRIi64 " seconds in the future",
-                        type,
+                        type_name,
                         remote_address_string,
                         -age);
                 return true;
         }
 
-        if (age >= NTB_PROTO_MAX_INV_AGE) {
+        if (age >= ntb_proto_get_max_age_for_type(type)) {
                 ntb_log("Rejecting %s from %s which was created "
                         "%" PRIi64 " seconds ago",
-                        type,
+                        type_name,
                         remote_address_string,
                         age);
                 return true;
@@ -828,29 +816,12 @@ should_reject(struct ntb_network_peer *peer,
                            NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE)) {
                 ntb_log("Rejecting %s from %s because the proof-of-work is "
                         "too low",
-                        type,
+                        type_name,
                         remote_address_string);
                 return true;
         }
 
         return false;
-}
-
-static const char *
-get_blob_type_name(enum ntb_blob_type type)
-{
-        switch (type) {
-        case NTB_BLOB_TYPE_GETPUBKEY:
-                return "getpubkey";
-        case NTB_BLOB_TYPE_MSG:
-                return "msg";
-        case NTB_BLOB_TYPE_BROADCAST:
-                return "broadcast";
-        case NTB_BLOB_TYPE_PUBKEY:
-                return "pubkey";
-        }
-
-        assert(false);
 }
 
 static bool
@@ -879,7 +850,7 @@ handle_getdata(struct ntb_network *nw,
                 inv = ntb_hash_table_get(nw->inventory_hash,
                                          message->hashes + i *
                                          NTB_PROTO_HASH_LENGTH);
-                if (inv && inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED) {
+                if (inv && inv->state != NTB_NETWORK_INV_STATE_REJECTED) {
                         ntb_connection_send_blob(peer->connection,
                                                  inv->hash,
                                                  inv->blob);
@@ -887,31 +858,6 @@ handle_getdata(struct ntb_network *nw,
         }
 
         return true;
-}
-
-static void
-add_inv_to_list(struct ntb_network *nw,
-                enum ntb_blob_type type,
-                struct ntb_network_inventory *inv)
-{
-        switch (type) {
-        case NTB_BLOB_TYPE_PUBKEY:
-                inv->type = NTB_NETWORK_INVENTORY_TYPE_PUBKEY;
-                ntb_list_insert(&nw->pubkeys, &inv->link);
-                break;
-        case NTB_BLOB_TYPE_BROADCAST:
-                inv->type = NTB_NETWORK_INVENTORY_TYPE_BROADCAST;
-                ntb_list_insert(&nw->broadcasts, &inv->link);
-                break;
-        case NTB_BLOB_TYPE_GETPUBKEY:
-                inv->type = NTB_NETWORK_INVENTORY_TYPE_GETPUBKEY;
-                ntb_list_insert(&nw->getpubkeys, &inv->link);
-                break;
-        case NTB_BLOB_TYPE_MSG:
-                inv->type = NTB_NETWORK_INVENTORY_TYPE_MSG;
-                ntb_list_insert(&nw->msgs, &inv->link);
-                break;
-        }
 }
 
 static void
@@ -948,7 +894,7 @@ handle_object(struct ntb_network *nw,
                 inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
                 memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
                 ntb_hash_table_set(nw->inventory_hash, inv);
-        } else if (inv->type == NTB_NETWORK_INVENTORY_TYPE_STUB) {
+        } else if (inv->state == NTB_NETWORK_INV_STATE_STUB) {
                 ntb_list_remove(&inv->link);
         } else {
                 /* We've already got this object so we'll just ignore it */
@@ -960,11 +906,11 @@ handle_object(struct ntb_network *nw,
         inv->timestamp = message->timestamp;
 
         if (should_reject(peer,
-                          get_blob_type_name(message->type),
+                          message->type,
                           message->object_data,
                           message->object_data_length,
                           age)) {
-                inv->type = NTB_NETWORK_INVENTORY_TYPE_REJECTED;
+                inv->state = NTB_NETWORK_INV_STATE_REJECTED;
                 ntb_list_insert(&nw->rejected_inventories, &inv->link);
         } else {
                 inv->blob = ntb_blob_new(message->type,
@@ -983,7 +929,9 @@ handle_object(struct ntb_network *nw,
                         inv->blob = NULL;
                 }
 
-                add_inv_to_list(nw, message->type, inv);
+                ntb_list_insert(&nw->accepted_inventories, &inv->link);
+                inv->type = message->type;
+                inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
 
                 broadcast_inv(nw, hash);
         }
@@ -1080,15 +1028,16 @@ gc_inventories(struct ntb_network *nw,
                 age = now - inv->timestamp;
 
                 if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
-                    age >= NTB_PROTO_MAX_INV_AGE) {
-                        if (inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED)
+                    age >= (ntb_proto_get_max_age_for_type(inv->type) +
+                            NTB_PROTO_EXTRA_AGE)) {
+                        if (inv->state != NTB_NETWORK_INV_STATE_REJECTED)
                                 ntb_store_delete_object(NULL, inv->hash);
                         ntb_list_remove(&inv->link);
                         ntb_hash_table_remove(nw->inventory_hash, inv);
                         free_inventory(inv);
                 } else if (age >= NTB_NETWORK_INV_CACHE_AGE &&
                            inv->blob &&
-                           inv->type != NTB_NETWORK_INVENTORY_TYPE_REJECTED) {
+                           inv->state != NTB_NETWORK_INV_STATE_REJECTED) {
                         ntb_blob_unref(inv->blob);
                         inv->blob = NULL;
                 }
@@ -1118,17 +1067,14 @@ gc_timeout_cb(struct ntb_main_context_source *source,
         ntb_list_for_each(peer, &nw->peers, link)
                 gc_requested_inventories(nw, peer);
 
-        gc_inventories(nw, &nw->pubkeys);
-        gc_inventories(nw, &nw->broadcasts);
-        gc_inventories(nw, &nw->getpubkeys);
-        gc_inventories(nw, &nw->msgs);
+        gc_inventories(nw, &nw->accepted_inventories);
         gc_inventories(nw, &nw->rejected_inventories);
 
         gc_addrs(nw);
 }
 
 static void
-store_for_each_cb(enum ntb_blob_type type,
+store_for_each_cb(enum ntb_proto_inv_type type,
                   const uint8_t *hash,
                   int64_t timestamp,
                   void *user_data)
@@ -1149,7 +1095,9 @@ store_for_each_cb(enum ntb_blob_type type,
         inv->timestamp = timestamp;
         inv->blob = NULL;
         ntb_hash_table_set(nw->inventory_hash, inv);
-        add_inv_to_list(nw, type, inv);
+        ntb_list_insert(&nw->accepted_inventories, &inv->link);
+        inv->type = type;
+        inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
 }
 
 void
@@ -1205,10 +1153,7 @@ ntb_network_new(void)
         ntb_list_init(&nw->listen_sockets);
         ntb_list_init(&nw->peers);
         ntb_list_init(&nw->addrs);
-        ntb_list_init(&nw->broadcasts);
-        ntb_list_init(&nw->pubkeys);
-        ntb_list_init(&nw->getpubkeys);
-        ntb_list_init(&nw->msgs);
+        ntb_list_init(&nw->accepted_inventories);
         ntb_list_init(&nw->rejected_inventories);
 
         nw->n_peers = 0;
@@ -1370,10 +1315,7 @@ ntb_network_free(struct ntb_network *nw)
         free_peers(nw);
         free_addrs(nw);
         free_listen_sockets(nw);
-        free_inventories_in_list(&nw->broadcasts);
-        free_inventories_in_list(&nw->pubkeys);
-        free_inventories_in_list(&nw->getpubkeys);
-        free_inventories_in_list(&nw->msgs);
+        free_inventories_in_list(&nw->accepted_inventories);
         free_inventories_in_list(&nw->rejected_inventories);
 
         ntb_hash_table_free(nw->inventory_hash);

@@ -706,7 +706,8 @@ process_file(struct ntb_store *store,
         length = sizeof (uint64_t);
         ntb_proto_get_timestamp(&buf_ptr, &length, &timestamp);
 
-        if (now - timestamp >= NTB_PROTO_MAX_INV_AGE) {
+        if (now - timestamp >= (ntb_proto_get_max_age_for_type(type) +
+                                NTB_PROTO_EXTRA_AGE)) {
                 if (unlink(filename) == -1)
                         ntb_log("Error deleting %s: %s",
                                 filename,

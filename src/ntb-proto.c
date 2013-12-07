@@ -57,6 +57,42 @@ ntb_proto_address_hash(const void *data,
         RIPEMD160(hash1, SHA512_DIGEST_LENGTH, hash);
 }
 
+int64_t
+ntb_proto_get_max_age_for_type(enum ntb_proto_inv_type type)
+{
+        switch (type) {
+        case NTB_PROTO_INV_TYPE_PUBKEY:
+                /* The official client keeps pubkeys around for 4
+                 * weeks rather than 2.5 days so we should do the same
+                 * or we'll keep getting keys from peers that we'll
+                 * just reject later */
+                return 4 * 7 * 24 * 60 * 60;
+        case NTB_PROTO_INV_TYPE_MSG:
+        case NTB_PROTO_INV_TYPE_GETPUBKEY:
+        case NTB_PROTO_INV_TYPE_BROADCAST:
+                return 24 * 60 * 60 * 5 / 2;
+        }
+
+        assert(false);
+}
+
+const char *
+ntb_proto_get_command_name_for_type(enum ntb_proto_inv_type type)
+{
+        switch (type) {
+        case NTB_PROTO_INV_TYPE_GETPUBKEY:
+                return "getpubkey";
+        case NTB_PROTO_INV_TYPE_MSG:
+                return "msg";
+        case NTB_PROTO_INV_TYPE_BROADCAST:
+                return "broadcast";
+        case NTB_PROTO_INV_TYPE_PUBKEY:
+                return "pubkey";
+        }
+
+        assert(false);
+}
+
 uint16_t
 ntb_proto_get_16(const uint8_t *p)
 {

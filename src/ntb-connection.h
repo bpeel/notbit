@@ -74,7 +74,7 @@ struct ntb_connection_version_message {
 struct ntb_connection_object_message {
         struct ntb_connection_message base;
 
-        enum ntb_blob_type type;
+        enum ntb_proto_inv_type type;
 
         uint64_t nonce;
         int64_t timestamp;
