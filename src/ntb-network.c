@@ -545,6 +545,7 @@ broadcast_addr(struct ntb_network *nw,
                         ntb_connection_add_addr_address(peer->connection,
                                                         addr->advertise_time,
                                                         addr->stream,
+                                                        addr->services,
                                                         &addr->address);
                         ntb_connection_end_addr(peer->connection);
                 }
@@ -615,6 +616,7 @@ send_addresses(struct ntb_network *nw,
                 ntb_connection_add_addr_address(peer->connection,
                                                 addr->advertise_time,
                                                 addr->stream,
+                                                addr->services,
                                                 &addr->address);
         }
 

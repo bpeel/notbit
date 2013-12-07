@@ -200,6 +200,7 @@ void
 ntb_connection_add_addr_address(struct ntb_connection *conn,
                                 int64_t timestamp,
                                 uint32_t stream,
+                                uint64_t services,
                                 const struct ntb_netaddress *address);
 
 void
