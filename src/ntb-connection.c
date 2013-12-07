@@ -1080,6 +1080,7 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                        struct ntb_error **error)
 {
         struct ntb_netaddress_native native_address;
+        char *address_string;
         int sock;
 
         ntb_netaddress_to_native(address, &native_address);
@@ -1106,11 +1107,14 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                     &native_address.sockaddr,
                     native_address.length) == -1 &&
             errno != EINPROGRESS) {
+                address_string = ntb_netaddress_to_string(address);
                 ntb_set_error(error,
                               &ntb_connection_error,
                               NTB_CONNECTION_ERROR_CONNECT,
-                              "Failed to connect to remote peer: %s",
+                              "Failed to connect to %s: %s",
+                              address_string,
                               strerror(errno));
+                ntb_free(address_string);
                 close(sock);
                 return NULL;
         }
