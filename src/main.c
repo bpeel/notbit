@@ -58,7 +58,7 @@ static char *option_group = NULL;
 static char *option_store_directory = NULL;
 static bool option_only_explicit_addresses = false;
 
-static const char options[] = "-a:l:du:g:D:p:e";
+static const char options[] = "-a:l:du:g:D:p:eh";
 
 static void
 add_address(struct address **list,
@@ -83,6 +83,33 @@ free_addresses(struct address *list)
                 next = address->next;
                 ntb_free(address);
         }
+}
+
+static void
+usage(void)
+{
+        printf("Notbit - a Bitmessage ↔ maildir daemon\n"
+               "usage: notbit [options]...\n"
+               " -h                    Show this help message\n"
+               " -a <address[:port]>   Add an address to listen on. Can be\n"
+               "                       specified multiple times. Defaults to\n"
+               "                       [::1] to listen on port "
+               NTB_STRINGIFY(NTB_PROTO_DEFAULT_PORT) "\n"
+               " -p <address[:port]>   Add to the list of initial peers that\n"
+               "                       might be connected to.\n"
+               " -e                    Only connect to peers specified by "
+               ""                      "-p\n"
+               " -l <file>             Specify the pathname for the log file\n"
+               "                       Defaults to stdout.\n"
+               " -d                    Fork and detach from terminal after\n"
+               "                       creating listen socket. (Daemonize)\n"
+               " -u <user>             Specify a user to run as. Used to drop\n"
+               "                       privileges.\n"
+               " -g <group>            Specify a group to run as.\n"
+               " -D <datadir>          Specify an alternate location for the\n"
+               "                       object store. Defaults to $XDG_DATA_HOME"
+               ""                      "/notbit\n");
+        exit(EXIT_FAILURE);
 }
 
 static bool
@@ -141,6 +168,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'e':
                         option_only_explicit_addresses = true;
+                        break;
+
+                case 'h':
+                        usage();
                         break;
                 }
         }
