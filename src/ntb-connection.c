@@ -808,6 +808,8 @@ ntb_connection_free(struct ntb_connection *conn)
         ntb_buffer_destroy(&conn->in_buf);
         ntb_buffer_destroy(&conn->out_buf);
         close(conn->sock);
+
+        ntb_slice_free(&ntb_connection_allocator, conn);
 }
 
 static struct ntb_connection *
