@@ -93,7 +93,7 @@ usage(void)
                " -h                    Show this help message\n"
                " -a <address[:port]>   Add an address to listen on. Can be\n"
                "                       specified multiple times. Defaults to\n"
-               "                       [::1] to listen on port "
+               "                       [::] to listen on port "
                NTB_STRINGIFY(NTB_PROTO_DEFAULT_PORT) "\n"
                " -p <address[:port]>   Add to the list of initial peers that\n"
                "                       might be connected to.\n"
