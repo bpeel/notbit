@@ -1174,6 +1174,9 @@ listen_socket_source_cb(struct ntb_main_context_source *source,
                 return;
         }
 
+        ntb_log("Accepted connection from %s",
+                ntb_connection_get_remote_address_string(conn));
+
         peer = add_peer(nw, conn);
         peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN;
 }
