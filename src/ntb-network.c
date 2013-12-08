@@ -287,7 +287,7 @@ free_inventory(struct ntb_network_inventory *inv)
 
 static void
 remove_peer(struct ntb_network *nw,
-                 struct ntb_network_peer *peer)
+            struct ntb_network_peer *peer)
 {
         struct ntb_network_inventory *inventory, *tmp;
 
