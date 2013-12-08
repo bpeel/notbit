@@ -755,6 +755,7 @@ process_file(struct ntb_store *store,
         const uint8_t *buf_ptr;
         uint32_t length;
         int64_t now;
+        bool read_ret;
         int i;
 
         p = filename + store->directory_len + 8;
@@ -794,10 +795,12 @@ process_file(struct ntb_store *store,
          * 64-bit nonce and then either a 32-bit or 64-bit timestamp.
          * We only need the type and timestamp so we don't need to
          * read the rest */
-        if (!read_all(filename, buf, sizeof buf, file))
-                return;
+        read_ret = read_all(filename, buf, sizeof buf, file);
 
         fclose(file);
+
+        if (!read_ret)
+                return;
 
         now = ntb_main_context_get_wall_clock(NULL);
 
