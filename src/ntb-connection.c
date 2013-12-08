@@ -1175,8 +1175,18 @@ ntb_connection_send_verack(struct ntb_connection *conn)
 void
 ntb_connection_send_version(struct ntb_connection *conn,
                             uint64_t nonce,
-                            const struct ntb_netaddress *local_address)
+                            uint16_t local_port)
 {
+        struct ntb_netaddress local_address;
+
+        /* The address part of the local address is ignored by the
+         * peers because they can just use the public-facing remote
+         * peer address instead. In order to avoid giving away
+         * unnecessary information about the local network we'll send
+         * zeroes here instead */
+        memset(local_address.host, 0, sizeof(local_address.host));
+        local_address.port = local_port;
+
         ntb_proto_add_command(&conn->out_buf,
                               "version",
 
@@ -1196,7 +1206,7 @@ ntb_connection_send_version(struct ntb_connection *conn,
                               NTB_PROTO_ARGUMENT_64,
                               NTB_PROTO_SERVICES,
                               NTB_PROTO_ARGUMENT_NETADDRESS,
-                              local_address,
+                              &local_address,
 
                               NTB_PROTO_ARGUMENT_64,
                               nonce,

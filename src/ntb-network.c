@@ -358,21 +358,20 @@ static void
 send_version_to_peer(struct ntb_network *nw,
                      struct ntb_network_peer *peer)
 {
-        static const struct ntb_netaddress dummy_local_address;
-        const struct ntb_netaddress *local_address;
+        uint16_t local_port;
         struct ntb_network_listen_socket *listen_socket;
 
         if (ntb_list_empty(&nw->listen_sockets)) {
-                local_address = &dummy_local_address;
+                local_port = NTB_PROTO_DEFAULT_PORT;
         } else {
                 listen_socket =
                         ntb_container_of(nw->listen_sockets.next,
                                          listen_socket,
                                          link);
-                local_address = &listen_socket->address;
+                local_port = listen_socket->address.port;
         }
 
-        ntb_connection_send_version(peer->connection, nw->nonce, local_address);
+        ntb_connection_send_version(peer->connection, nw->nonce, local_port);
 }
 
 static struct ntb_network_peer *
