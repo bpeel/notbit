@@ -56,4 +56,7 @@ bool
 ntb_netaddress_from_string(struct ntb_netaddress *address,
                            const char *str);
 
+bool
+ntb_netaddress_is_allowed(const struct ntb_netaddress *address);
+
 #endif /* NTB_NETADDRESS_H */

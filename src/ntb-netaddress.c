@@ -35,6 +35,14 @@ ipv4_magic[12] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff
 };
 
+static const uint8_t
+ipv6_localhost[16] = {
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01
+};
+
 static void
 ntb_netaddress_to_native_ipv4(const struct ntb_netaddress *address,
                               struct sockaddr_in *native)
@@ -216,4 +224,41 @@ out:
         ntb_buffer_destroy(&buffer);
 
         return ret;
+}
+
+bool
+ntb_netaddress_is_allowed(const struct ntb_netaddress *address)
+{
+        const uint8_t *host;
+
+        if (memcmp(address->host, ipv4_magic, sizeof ipv4_magic)) {
+                /* IPv6 */
+                /* Ignore localhost */
+                if (!memcmp(address->host,
+                            ipv6_localhost,
+                            sizeof ipv6_localhost))
+                        return false;
+                /* Ignore unique local addresses */
+                if (address->host[0] == 0xfe &&
+                    (address->host[1] & 0xc0) == 0x80)
+                        return false;
+                /* Ignore unique local addresses */
+                if ((address->host[0] & 0xfe) == 0xfc)
+                        return false;
+        } else {
+                /* IPv4 */
+                host = address->host + sizeof ipv4_magic;
+                /* Ignore localhost */
+                if (host[0] == 127)
+                        return false;
+                /* Ignore addresses in the private range */
+                if (host[0] == 10)
+                        return false;
+                if (host[0] == 172 && host[1] >= 16 && host[1] <= 31)
+                        return false;
+                if (host[0] == 192 && host[1] == 168)
+                        return false;
+        }
+
+        return true;
 }

@@ -873,11 +873,13 @@ handle_addr(struct ntb_network *nw,
             struct ntb_network_peer *peer,
             struct ntb_connection_addr_message *message)
 {
-        add_addr(nw,
-                 message->timestamp,
-                 message->stream,
-                 message->services,
-                 &message->address);
+        if (ntb_netaddress_is_allowed(&message->address)) {
+                add_addr(nw,
+                         message->timestamp,
+                         message->stream,
+                         message->services,
+                         &message->address);
+        }
 
         return true;
 }
