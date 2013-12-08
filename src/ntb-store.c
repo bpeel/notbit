@@ -843,7 +843,7 @@ ntb_store_for_each_blob(struct ntb_store *store,
         dir = opendir((char *) store->filename_buf.data);
         if (dir == NULL) {
                 ntb_log("Error listing %s: %s",
-                        (char *) store->tmp_buf.data,
+                        (char *) store->filename_buf.data,
                         strerror(errno));
                 return;
         }
