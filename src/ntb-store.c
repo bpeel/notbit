@@ -743,7 +743,7 @@ is_hex_digit(int ch)
 static void
 process_file(struct ntb_store *store,
              const char *filename,
-             ntb_store_for_each_func func,
+             ntb_store_for_each_blob_func func,
              void *user_data)
 {
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
@@ -818,9 +818,9 @@ process_file(struct ntb_store *store,
 }
 
 void
-ntb_store_for_each(struct ntb_store *store,
-                   ntb_store_for_each_func func,
-                   void *user_data)
+ntb_store_for_each_blob(struct ntb_store *store,
+                        ntb_store_for_each_blob_func func,
+                        void *user_data)
 {
         DIR *dir;
         struct dirent *dirent;
@@ -860,6 +860,81 @@ ntb_store_for_each(struct ntb_store *store,
         closedir(dir);
 
         ntb_log("Finished loading object store");
+}
+
+static void
+process_addr_line(struct ntb_store *store,
+                  char *line,
+                  ntb_store_for_each_addr_func func,
+                  void *user_data)
+{
+        struct ntb_store_addr addr;
+        int address_length;
+        char *tail;
+
+        addr.timestamp = strtoll(line, &tail, 10);
+
+        if (tail == line || *tail != ',')
+                return;
+
+        line = tail + 1;
+        addr.stream = strtoul(line, &tail, 10);
+
+        if (tail == line || *tail != ',')
+                return;
+
+        line = tail + 1;
+        addr.services = strtoull(line, &tail, 10);
+
+        if (tail == line || *tail != ',')
+                return;
+
+        line = tail + 1;
+        address_length = strlen(line);
+
+        if (address_length > 0 && line[address_length - 1] == '\n')
+                line[--address_length] = '\0';
+
+        if (!ntb_netaddress_from_string(&addr.address, line))
+                return;
+
+        func(&addr, user_data);
+}
+
+void
+ntb_store_for_each_addr(struct ntb_store *store,
+                        ntb_store_for_each_addr_func func,
+                        void *user_data)
+{
+        FILE *file;
+        char line[1024];
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        /* This function runs synchronously but it should only be
+         * called once at startup before connecting to any peers so it
+         * shouldn't really matter */
+
+        ntb_log("Loading saved address list");
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "addr-list.txt");
+
+        file = fopen((char *) store->filename_buf.data, "r");
+
+        if (file == NULL) {
+                if (errno != ENOENT)
+                        ntb_log("Error opening %s: %s",
+                                (char *) store->filename_buf.data,
+                                strerror(errno));
+                return;
+        }
+
+        while(fgets(line, sizeof line, file))
+                process_addr_line(store, line, func, user_data);
+
+        fclose(file);
 }
 
 struct ntb_store_cookie *

@@ -41,10 +41,20 @@ enum ntb_store_error {
 
 struct ntb_store_cookie;
 
-typedef void (* ntb_store_for_each_func)(enum ntb_proto_inv_type type,
-                                         const uint8_t *hash,
-                                         int64_t timestamp,
-                                         void *user_data);
+struct ntb_store_addr {
+        int64_t timestamp;
+        uint32_t stream;
+        uint64_t services;
+        struct ntb_netaddress address;
+};
+
+typedef void (* ntb_store_for_each_blob_func)(enum ntb_proto_inv_type type,
+                                              const uint8_t *hash,
+                                              int64_t timestamp,
+                                              void *user_data);
+
+typedef void (* ntb_store_for_each_addr_func)(const struct ntb_store_addr *addr,
+                                              void *user_data);
 
 /* This is called when a load is complete. If the load succeeded then
  * blob will point to the contents. If it failed the callback will
@@ -53,13 +63,6 @@ typedef void (* ntb_store_for_each_func)(enum ntb_proto_inv_type type,
  * invoked from an idle handler in the main thread */
 typedef void (* ntb_store_load_callback)(struct ntb_blob *blob,
                                          void *user_data);
-
-struct ntb_store_addr {
-        int64_t timestamp;
-        uint32_t stream;
-        uint64_t services;
-        struct ntb_netaddress address;
-};
 
 struct ntb_store *
 ntb_store_new(const char *store_directory,
@@ -90,9 +93,14 @@ ntb_store_save_addr_list(struct ntb_store *store,
                          int n_addrs);
 
 void
-ntb_store_for_each(struct ntb_store *store,
-                   ntb_store_for_each_func func,
-                   void *user_data);
+ntb_store_for_each_blob(struct ntb_store *store,
+                        ntb_store_for_each_blob_func func,
+                        void *user_data);
+
+void
+ntb_store_for_each_addr(struct ntb_store *store,
+                        ntb_store_for_each_addr_func func,
+                        void *user_data);
 
 struct ntb_store_cookie *
 ntb_store_load_blob(struct ntb_store *store,

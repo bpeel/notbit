@@ -1102,10 +1102,10 @@ gc_timeout_cb(struct ntb_main_context_source *source,
 }
 
 static void
-store_for_each_cb(enum ntb_proto_inv_type type,
-                  const uint8_t *hash,
-                  int64_t timestamp,
-                  void *user_data)
+store_for_each_blob_cb(enum ntb_proto_inv_type type,
+                       const uint8_t *hash,
+                       int64_t timestamp,
+                       void *user_data)
 {
         struct ntb_network *nw = user_data;
         struct ntb_network_inventory *inv;
@@ -1128,10 +1128,24 @@ store_for_each_cb(enum ntb_proto_inv_type type,
         inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
 }
 
+static void
+store_for_each_addr_cb(const struct ntb_store_addr *addr,
+                       void *user_data)
+{
+        struct ntb_network *nw = user_data;
+
+        add_addr(nw,
+                 addr->timestamp,
+                 addr->stream,
+                 addr->services,
+                 &addr->address);
+}
+
 void
 ntb_network_load_store(struct ntb_network *nw)
 {
-        ntb_store_for_each(NULL, store_for_each_cb, nw);
+        ntb_store_for_each_blob(NULL, store_for_each_blob_cb, nw);
+        ntb_store_for_each_addr(NULL, store_for_each_addr_cb, nw);
 }
 
 static void
