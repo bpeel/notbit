@@ -714,7 +714,9 @@ process_message(struct ntb_connection *conn,
         if (memcmp(hash, data + 20, 4)) {
                 get_hex_string(data + 20, 4, hex_a);
                 get_hex_string(hash, 4, hex_b);
-                ntb_log("Invalid checksum received from %s (%s != %s)",
+                ntb_log("Invalid checksum for %s command "
+                        "received from %s (%s != %s)",
+                        data + 4,
                         conn->remote_address_string,
                         hex_a,
                         hex_b);
