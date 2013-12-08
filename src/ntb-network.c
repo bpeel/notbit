@@ -678,9 +678,28 @@ handle_version(struct ntb_network *nw,
                 ntb_connection_get_remote_address_string(peer->connection);
         struct ntb_network_addr *addr;
         struct ntb_netaddress remote_address;
+        char user_agent_buf[64];
         uint64_t stream = 1;
         const uint8_t *p;
         uint32_t length;
+        int i;
+
+        /* Sanitize the user agent by stripping dodgy-looking
+         * characters and cropping to a maximum length */
+        for (i = 0;
+             i < MIN(message->user_agent.length, sizeof user_agent_buf - 1);
+             i++) {
+                if (message->user_agent.data[i] < ' ' ||
+                    message->user_agent.data[i] > 0x7f)
+                        user_agent_buf[i] = '?';
+                else
+                        user_agent_buf[i] = message->user_agent.data[i];
+        }
+        user_agent_buf[i] = '\0';
+
+        ntb_log("Received version command from %s with user agent %s",
+                remote_address_string,
+                user_agent_buf);
 
         if (message->nonce == nw->nonce) {
                 ntb_log("Connected to self from %s", remote_address_string);
