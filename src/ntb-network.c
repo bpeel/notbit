@@ -206,7 +206,6 @@ NTB_SLICE_ALLOCATOR(struct ntb_network_addr,
 
 static const char *
 default_addrs[] = {
-#if 0
         /* These are the addresses from the official Python client */
         "176.31.246.114:8444",
         "109.229.197.133:8444",
@@ -217,10 +216,7 @@ default_addrs[] = {
         "5.145.140.218:8444",
         "5.19.255.216:8444",
         "193.159.162.189:8444",
-        "86.26.15.171:8444",
-#endif
-        /* For testing, it'll only connect to localhost */
-        "127.0.0.1:8444"
+        "86.26.15.171:8444"
 };
 
 static void
