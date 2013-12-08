@@ -18,6 +18,7 @@
 /src/Makefile
 /src/Makefile.in
 /src/notbit
+/src/dump-store
 
 *.o
 .deps

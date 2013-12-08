@@ -1,5 +1,7 @@
 bin_PROGRAMS = notbit
 
+noinst_PROGRAMS = dump-store
+
 AM_CPPFLAGS = \
 	$(LIBCRYPTO_CFLAGS) \
 	$(NOTBIT_EXTRA_CFLAGS) \
@@ -44,5 +46,17 @@ notbit_SOURCES = \
 
 notbit_LDFLAGS = \
 	$(LIBCRYPTO_LIBS) \
+	-pthread \
+	$(NULL)
+
+dump_store_SOURCES = \
+	ntb-buffer.c \
+	ntb-buffer.h \
+	ntb-util.c \
+	ntb-util.h \
+	dump-store.c \
+	$(NULL)
+
+dump_store_LDFLAGS = \
 	-pthread \
 	$(NULL)
