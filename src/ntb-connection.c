@@ -1200,7 +1200,7 @@ ntb_connection_send_version(struct ntb_connection *conn,
                               nonce,
 
                               NTB_PROTO_ARGUMENT_VAR_STR,
-                              "notbit " VERSION,
+                              "/notbit:" VERSION "/",
 
                               /* Number of streams */
                               NTB_PROTO_ARGUMENT_VAR_INT,
