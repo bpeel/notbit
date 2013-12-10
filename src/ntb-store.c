@@ -601,6 +601,7 @@ ntb_store_new(const char *store_directory,
 
         ntb_list_init(&store->queue);
         store->quit = false;
+        store->started = false;
 
         ntb_buffer_init(&store->filename_buf);
 
