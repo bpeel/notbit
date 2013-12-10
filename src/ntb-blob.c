@@ -32,12 +32,9 @@ ntb_blob_new(enum ntb_proto_inv_type type,
                 ntb_alloc(NTB_STRUCT_OFFSET(struct ntb_blob, data) + size);
 
         blob->type = type;
-        blob->ref_count = 1;
         blob->size = size;
 
-#ifndef HAVE_SYNC_REF_COUNT
-        pthread_mutex_init(&blob->ref_count_mutex, NULL);
-#endif
+        ntb_ref_count_init(&blob->ref_count);
 
         if (data)
                 memcpy(blob->data, data, size);
@@ -48,13 +45,7 @@ ntb_blob_new(enum ntb_proto_inv_type type,
 struct ntb_blob *
 ntb_blob_ref(struct ntb_blob *blob)
 {
-#ifdef HAVE_SYNC_REF_COUNT
-        __sync_fetch_and_add(&blob->ref_count, 1);
-#else
-        pthread_mutex_lock(&blob->ref_count_mutex);
-        blob->ref_count++;
-        pthread_mutex_unlock(&blob->ref_count_mutex);
-#endif
+        ntb_ref_count_ref(&blob->ref_count);
 
         return blob;
 }
@@ -62,21 +53,8 @@ ntb_blob_ref(struct ntb_blob *blob)
 void
 ntb_blob_unref(struct ntb_blob *blob)
 {
-        int old_value;
-
-#ifdef HAVE_SYNC_REF_COUNT
-        old_value = __sync_fetch_and_sub(&blob->ref_count, 1);
-#else
-        pthread_mutex_lock(&blob->ref_count_mutex);
-        old_value = blob->ref_count--;
-        pthread_mutex_unlock(&blob->ref_count_mutex);
-#endif
-
-        if (old_value <= 1) {
-#ifndef HAVE_SYNC_REF_COUNT
-                pthread_mutex_destroy(&blob->ref_count_mutex);
-#endif
-
+        if (ntb_ref_count_unref(&blob->ref_count) <= 1) {
+                ntb_ref_count_destroy(&blob->ref_count);
                 ntb_free(blob);
         }
 }

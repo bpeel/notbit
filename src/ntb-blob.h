@@ -19,14 +19,11 @@
 #ifndef NTB_BLOB_H
 #define NTB_BLOB_H
 
-#ifndef HAVE_SYNC_REF_COUNT
-#include <pthread.h>
-#endif /* HAVE_SYNC_REF_COUNT */
-
 #include <stdint.h>
 #include <stddef.h>
 
 #include "ntb-proto.h"
+#include "ntb-ref-count.h"
 
 /* A blob represents a ref-counted immutable chunk of data. This will
  * be used to hold all inventory objects from the network such as
@@ -37,11 +34,7 @@
 struct ntb_blob {
         enum ntb_proto_inv_type type;
 
-#ifndef HAVE_SYNC_REF_COUNT
-        pthread_mutex_t ref_count_mutex;
-#endif /* HAVE_SYNC_REF_COUNT */
-
-        int ref_count;
+        struct ntb_ref_count ref_count;
 
         size_t size;
 
