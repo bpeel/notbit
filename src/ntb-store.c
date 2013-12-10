@@ -344,7 +344,7 @@ static void
 handle_load_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
-        struct ntb_blob *blob;
+        struct ntb_blob *blob = NULL;
         FILE *file;
 
         /* As a special case this the lock is still held when this
