@@ -45,7 +45,7 @@ enum ntb_arguments_error {
 };
 
 struct address {
-        const char *address;
+        char *address;
         struct address *next;
 };
 
@@ -58,7 +58,7 @@ static char *option_group = NULL;
 static char *option_store_directory = NULL;
 static bool option_only_explicit_addresses = false;
 
-static const char options[] = "-a:l:du:g:D:p:eh";
+static const char options[] = "-a:l:du:g:D:p:eP:h";
 
 static void
 add_address(struct address **list,
@@ -67,7 +67,19 @@ add_address(struct address **list,
         struct address *listen_address;
 
         listen_address = ntb_alloc(sizeof (struct address));
-        listen_address->address = address;
+        listen_address->address = ntb_strdup(address);
+        listen_address->next = *list;
+        *list = listen_address;
+}
+
+static void
+add_port(struct address **list,
+         const char *port_string)
+{
+        struct address *listen_address;
+
+        listen_address = ntb_alloc(sizeof (struct address));
+        listen_address->address = ntb_strconcat("[::]:", port_string, NULL);
         listen_address->next = *list;
         *list = listen_address;
 }
@@ -81,6 +93,7 @@ free_addresses(struct address *list)
              address;
              address = next) {
                 next = address->next;
+                ntb_free(address->address);
                 ntb_free(address);
         }
 }
@@ -91,14 +104,16 @@ usage(void)
         printf("Notbit - a Bitmessage ↔ maildir daemon\n"
                "usage: notbit [options]...\n"
                " -h                    Show this help message\n"
+               " -p <port>             Specifies a port to listen on.\n"
+               "                       Equivalent to -a [::]:port.\n"
                " -a <address[:port]>   Add an address to listen on. Can be\n"
                "                       specified multiple times. Defaults to\n"
                "                       [::] to listen on port "
                NTB_STRINGIFY(NTB_PROTO_DEFAULT_PORT) "\n"
-               " -p <address[:port]>   Add to the list of initial peers that\n"
+               " -P <address[:port]>   Add to the list of initial peers that\n"
                "                       might be connected to.\n"
                " -e                    Only connect to peers specified by "
-               ""                      "-p\n"
+               ""                      "-P\n"
                " -l <file>             Specify the pathname for the log file\n"
                "                       Defaults to stdout.\n"
                " -d                    Fork and detach from terminal after\n"
@@ -143,6 +158,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                         break;
 
                 case 'p':
+                        add_port(&option_listen_addresses, optarg);
+                        break;
+
+                case 'P':
                         add_address(&option_peer_addresses, optarg);
                         break;
 
