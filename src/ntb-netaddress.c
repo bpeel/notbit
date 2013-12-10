@@ -61,6 +61,7 @@ ntb_netaddress_to_native_ipv6(const struct ntb_netaddress *address,
         native->sin6_family = AF_INET6;
         memcpy(&native->sin6_addr, address->host, sizeof address->host);
         native->sin6_flowinfo = 0;
+        native->sin6_scope_id = 0;
         native->sin6_port = htons(address->port);
 }
 
