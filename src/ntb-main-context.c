@@ -748,6 +748,9 @@ ntb_main_context_free(struct ntb_main_context *mc)
         ntb_free(mc->events);
         pthread_mutex_destroy(&mc->idle_mutex);
         ntb_close(mc->epoll_fd);
+
+        ntb_slice_allocator_destroy(&mc->source_allocator);
+
         ntb_free(mc);
 
         if (mc == ntb_main_context_default)
