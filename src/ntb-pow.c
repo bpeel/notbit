@@ -63,8 +63,21 @@ struct ntb_pow_cookie {
 };
 
 /* Each thread will only try to check whether another thread has
- * already solved the POW once per this many nonces */
-#define NTB_POW_NONCES_PER_CHECK 256
+ * already solved the POW once per this many nonces. Having a lower
+ * number will slow down the search because it will lock the mutex and
+ * flush caches more often. However a higher number will cause the
+ * thread to take longer to notice that another thread has already
+ * found the solution */
+
+/* Finding a solution that got to nonce 84450795 on my 4-core CPU took
+ * 31.183 seconds. So one core can do 21112698.75 attempts per 31.183
+ * seconds, which is 677058 attempts per second. We probably don't
+ * want to wait for more than about 10ms for a thread to notice that
+ * it should it stop which means we can do up to 6770 attempts before
+ * we check. Making this a nice power of two and leaving some room for
+ * slower CPUs gives 4096 */
+
+#define NTB_POW_NONCES_PER_CHECK 4096
 
 static void
 unref_cookie(struct ntb_pow_cookie *cookie)
