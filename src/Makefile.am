@@ -14,6 +14,8 @@ notbit_SOURCES = \
 	ntb-buffer.h \
 	ntb-connection.c \
 	ntb-connection.h \
+	ntb-cpus.c \
+	ntb-cpus.h \
 	ntb-error.c \
 	ntb-error.h \
 	ntb-file-error.c \
