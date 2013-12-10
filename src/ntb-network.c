@@ -40,6 +40,7 @@
 #include "ntb-pow.h"
 #include "ntb-store.h"
 #include "ntb-file-error.h"
+#include "ntb-socket.h"
 
 struct ntb_error_domain
 ntb_network_error;
@@ -1318,6 +1319,9 @@ ntb_network_add_listen_address(struct ntb_network *nw,
         setsockopt(sock,
                    SOL_SOCKET, SO_REUSEADDR,
                    &true_value, sizeof true_value);
+
+        if (!ntb_socket_set_nonblock(sock, error))
+                goto error;
 
         if (bind(sock, &native_address.sockaddr, native_address.length) == -1) {
                 ntb_file_error_set(error,

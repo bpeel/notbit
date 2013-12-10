@@ -38,6 +38,7 @@
 #include "ntb-log.h"
 #include "ntb-store.h"
 #include "ntb-file-error.h"
+#include "ntb-socket.h"
 
 #define NTB_CONNECTION_MAX_MESSAGE_SIZE (128 * 1024 * 1024)
 
@@ -1045,25 +1046,6 @@ ntb_connection_new_for_socket(int sock,
         return conn;
 }
 
-static bool
-set_nonblock(int sock,
-             struct ntb_error **error)
-{
-        int flags;
-
-        flags = fcntl(sock, F_GETFL, 0);
-
-        if (flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1) {
-                ntb_file_error_set(error,
-                                   errno,
-                                   "Error setting non-blocking mode: %s",
-                                   strerror(errno));
-                return false;
-        }
-
-        return true;
-}
-
 struct ntb_signal *
 ntb_connection_get_message_signal(struct ntb_connection *conn)
 {
@@ -1104,7 +1086,7 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                 return NULL;
         }
 
-        if (!set_nonblock(sock, error)) {
+        if (!ntb_socket_set_nonblock(sock, error)) {
                 ntb_close(sock);
                 return NULL;
         }
@@ -1152,7 +1134,7 @@ ntb_connection_accept(int server_sock,
                 return NULL;
         }
 
-        if (!set_nonblock(sock, error)) {
+        if (!ntb_socket_set_nonblock(sock, error)) {
                 ntb_close(sock);
                 return NULL;
         }

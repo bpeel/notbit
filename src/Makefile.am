@@ -39,6 +39,8 @@ notbit_SOURCES = \
 	ntb-slab.h \
 	ntb-slice.c \
 	ntb-slice.h \
+	ntb-socket.c \
+	ntb-socket.h \
 	ntb-store.c \
 	ntb-store.h \
 	ntb-util.c \
