@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "ntb-util.h"
 
@@ -81,4 +82,60 @@ ntb_free(void *ptr)
 {
         if (ptr)
                 free(ptr);
+}
+
+char *
+ntb_strdup(const char *str)
+{
+        return ntb_memdup(str, strlen(str) + 1);
+}
+
+void *
+ntb_memdup(const void *data, size_t size)
+{
+        void *ret;
+
+        ret = ntb_alloc(size);
+        memcpy(ret, data, size);
+
+        return ret;
+}
+
+char *
+ntb_strconcat(const char *string1, ...)
+{
+        size_t string1_length;
+        size_t total_length;
+        size_t str_length;
+        va_list ap, apcopy;
+        const char *str;
+        char *result, *p;
+
+        if (string1 == NULL)
+                return ntb_strdup("");
+
+        total_length = string1_length = strlen(string1);
+
+        va_start(ap, string1);
+        va_copy(apcopy, ap);
+
+        while ((str = va_arg(ap, const char *)))
+                total_length += strlen(str);
+
+        va_end(ap);
+
+        result = ntb_alloc(total_length + 1);
+        memcpy(result, string1, string1_length);
+        p = result + string1_length;
+
+        while ((str = va_arg(apcopy, const char *))) {
+                str_length = strlen(str);
+                memcpy(p, str, str_length);
+                p += str_length;
+        }
+        *p = '\0';
+
+        va_end(apcopy);
+
+        return result;
 }

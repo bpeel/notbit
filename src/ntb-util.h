@@ -26,9 +26,11 @@
 #define NTB_NO_RETURN __attribute__((noreturn))
 #define NTB_PRINTF_FORMAT(string_index, first_to_check) \
   __attribute__((format(printf, string_index, first_to_check)))
+#define NTB_NULL_TERMINATED __attribute__((sentinel))
 #else
 #define NTB_NO_RETURN
 #define NTB_PRINTF_FORMAT(string_index, first_to_check)
+#define NTB_NULL_TERMINATED
 #endif
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -102,6 +104,15 @@ ntb_realloc(void *ptr, size_t size);
 
 void
 ntb_free(void *ptr);
+
+char *
+ntb_strdup(const char *str);
+
+void *
+ntb_memdup(const void *data, size_t size);
+
+NTB_NULL_TERMINATED char *
+ntb_strconcat(const char *string1, ...);
 
 NTB_NO_RETURN NTB_PRINTF_FORMAT(1, 2) void
 ntb_fatal(const char *format, ...);
