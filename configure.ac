@@ -6,6 +6,15 @@ AC_CONFIG_SRCDIR([src/main.c])
 AM_CONFIG_HEADER([config.h])
 AC_GNU_SOURCE
 
+AC_PROG_CC
+
+AM_INIT_AUTOMAKE([1.9 foreign no-dist-gzip dist-xz tar-ustar])
+
+m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+
+NOTBIT_EXTRA_CFLAGS=""
+NOTBIT_EXTRA_LIBS=""
+
 AC_C_BIGENDIAN([AC_DEFINE([HAVE_BIG_ENDIAN], [1], [System is big-endian])],
                [AC_DEFINE([HAVE_LITTLE_ENDIAN], [1],
                           [System is little-endian])])
@@ -45,9 +54,12 @@ AS_IF([test "x$have_sync_ref_count" = "xyes"],
       [AC_DEFINE([HAVE_SYNC_REF_COUNT], [1],
                  [GCC extensions for atomic ref-counting are available])])
 
-AM_INIT_AUTOMAKE([1.9 foreign no-dist-gzip dist-xz tar-ustar])
-
-m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+have_clock_gettime=no
+AC_CHECK_FUNC([clock_gettime], [have_clock_gettime=yes])
+AS_IF([test "x$have_clock_gettime" = "xno"],
+      [AC_CHECK_LIB([rt], [clock_gettime],
+                    [NOTBIT_EXTRA_LIBS="$NOTBIT_EXTRA_LIBS -lrt"],
+                    [clock_gettime required but not found])])
 
 dnl     ============================================================
 dnl     Enable strict compiler flags
@@ -91,11 +103,10 @@ AS_CASE(
 # strip leading spaces
 NOTBIT_EXTRA_CFLAGS="$NOTBIT_EXTRA_CFLAGS ${MAINTAINER_CFLAGS#*  }"
 
-AC_PROG_CC
-
 PKG_CHECK_MODULES(LIBCRYPTO, [libcrypto])
 
 AC_SUBST(NOTBIT_EXTRA_CFLAGS)
+AC_SUBST(NOTBIT_EXTRA_LIBS)
 
 AC_CONFIG_FILES([
         Makefile

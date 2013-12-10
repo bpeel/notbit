@@ -52,6 +52,7 @@ notbit_SOURCES = \
 
 notbit_LDFLAGS = \
 	$(LIBCRYPTO_LIBS) \
+	$(NOTBIT_EXTRA_LIBS) \
 	-pthread \
 	$(NULL)
 
