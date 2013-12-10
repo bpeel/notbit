@@ -336,18 +336,24 @@ calculate_target(size_t length,
                  int payload_extra_bytes,
                  int average_trials_per_byte)
 {
-        uint64_t divisor, high, low;
+        const uint64_t two_63 = UINT64_C(0x8000000000000000);
+        uint64_t divisor;
+        uint64_t target;
 
         divisor = ((length + (uint64_t) payload_extra_bytes) *
                    average_trials_per_byte);
 
-        /* We need to divide 2⁶⁴ by divisor. We obviously can't do
-         * that with a simple division with a 64-bit representation.
-         * This tries to do it in a couple of steps */
-        high = (UINT64_C(1) << 32) / divisor;
-        low = (((UINT64_C(1) << 32) % divisor) << 32) / divisor;
+        /* We need to divide 2⁶⁴ by divisor. We can't represent 2⁶⁴ in
+         * a 64-bit variable so instead we divide 2⁶³ by the divisor
+         * twice and add the result */
+        target = two_63 / divisor * 2;
+        /* If the fractional part of the result would be greater than
+         * or equal to a half then we would get an extra 1 when we
+         * multiply by two */
+        if ((two_63 % divisor) * 2 >= divisor)
+                target++;
 
-        return (high << 32) | low;
+        return target;
 }
 
 struct ntb_pow_cookie *
