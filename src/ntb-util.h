@@ -120,6 +120,9 @@ ntb_fatal(const char *format, ...);
 NTB_PRINTF_FORMAT(1, 2) void
 ntb_warning(const char *format, ...);
 
+int
+ntb_close(int fd);
+
 #define ntb_return_if_fail(condition)                           \
         NTB_STMT_START {                                        \
                 if (!(condition)) {                             \

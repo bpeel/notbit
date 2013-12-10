@@ -1170,7 +1170,7 @@ remove_listen_socket(struct ntb_network_listen_socket *listen_socket)
 {
         ntb_main_context_remove_source(listen_socket->source);
         ntb_list_remove(&listen_socket->link);
-        close(listen_socket->sock);
+        ntb_close(listen_socket->sock);
         free(listen_socket);
 }
 
@@ -1189,9 +1189,12 @@ listen_socket_source_cb(struct ntb_main_context_source *source,
         conn = ntb_connection_accept(fd, &error);
 
         if (conn == NULL) {
-                ntb_log("%s", error->message);
+                if (error->domain != &ntb_file_error ||
+                    error->code != NTB_FILE_ERROR_AGAIN) {
+                        ntb_log("%s", error->message);
+                        remove_listen_socket(listen_socket);
+                }
                 ntb_error_free(error);
-                remove_listen_socket(listen_socket);
                 return;
         }
 
@@ -1349,7 +1352,7 @@ ntb_network_add_listen_address(struct ntb_network *nw,
         return true;
 
 error:
-        close(sock);
+        ntb_close(sock);
         return false;
 }
 

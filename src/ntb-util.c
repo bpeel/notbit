@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <errno.h>
+#include <unistd.h>
 
 #include "ntb-util.h"
 
@@ -138,4 +140,16 @@ ntb_strconcat(const char *string1, ...)
         va_end(apcopy);
 
         return result;
+}
+
+int
+ntb_close(int fd)
+{
+        int ret;
+
+        do {
+                ret = close(fd);
+        } while (ret == -1 && errno == EINTR);
+
+        return ret;
 }

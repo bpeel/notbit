@@ -783,19 +783,23 @@ handle_read(struct ntb_connection *conn)
         ntb_buffer_ensure_size(&conn->in_buf,
                                conn->in_buf.length + 1024);
 
-        got = read(conn->sock,
-                   conn->in_buf.data + conn->in_buf.length,
-                   conn->in_buf.size - conn->in_buf.length);
+        do {
+                got = read(conn->sock,
+                           conn->in_buf.data + conn->in_buf.length,
+                           conn->in_buf.size - conn->in_buf.length);
+        } while (got == -1 && errno == EINTR);
 
         if (got == 0) {
                 ntb_log("Connection closed for %s",
                         conn->remote_address_string);
                 set_error_state(conn);
         } else if (got == -1) {
-                ntb_log("Error reading from socket for %s: %s",
-                        conn->remote_address_string,
-                        strerror(errno));
-                set_error_state(conn);
+                if (ntb_file_error_from_errno(errno) != NTB_FILE_ERROR_AGAIN) {
+                        ntb_log("Error reading from socket for %s: %s",
+                                conn->remote_address_string,
+                                strerror(errno));
+                        set_error_state(conn);
+                }
         } else {
                 conn->in_buf.length += got;
                 process_messages(conn);
@@ -933,15 +937,19 @@ handle_write(struct ntb_connection *conn)
 
         add_ready_objects(conn);
 
-        wrote = write(conn->sock,
-                      conn->out_buf.data,
-                      conn->out_buf.length);
+        do {
+                wrote = write(conn->sock,
+                              conn->out_buf.data,
+                              conn->out_buf.length);
+        } while (wrote == -1 && errno == EINTR);
 
         if (wrote == -1) {
-                ntb_log("Error writing to socket for %s: %s",
-                        conn->remote_address_string,
-                        strerror(errno));
-                set_error_state(conn);
+                if (ntb_file_error_from_errno(errno) != NTB_FILE_ERROR_AGAIN) {
+                        ntb_log("Error writing to socket for %s: %s",
+                                conn->remote_address_string,
+                                strerror(errno));
+                        set_error_state(conn);
+                }
         } else {
                 memmove(conn->out_buf.data,
                         conn->out_buf.data + wrote,
@@ -1001,7 +1009,7 @@ ntb_connection_free(struct ntb_connection *conn)
         ntb_free(conn->remote_address_string);
         ntb_buffer_destroy(&conn->in_buf);
         ntb_buffer_destroy(&conn->out_buf);
-        close(conn->sock);
+        ntb_close(conn->sock);
 
         ntb_slice_free(&ntb_connection_allocator, conn);
 }
@@ -1097,7 +1105,7 @@ ntb_connection_connect(const struct ntb_netaddress *address,
         }
 
         if (!set_nonblock(sock, error)) {
-                close(sock);
+                ntb_close(sock);
                 return NULL;
         }
 
@@ -1112,7 +1120,7 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                                    address_string,
                                    strerror(errno));
                 ntb_free(address_string);
-                close(sock);
+                ntb_close(sock);
                 return NULL;
         }
 
@@ -1130,9 +1138,11 @@ ntb_connection_accept(int server_sock,
 
         native_address.length = sizeof native_address.sockaddr_in6;
 
-        sock = accept(server_sock,
-                      &native_address.sockaddr,
-                      &native_address.length);
+        do {
+                sock = accept(server_sock,
+                              &native_address.sockaddr,
+                              &native_address.length);
+        } while (sock == -1 && errno == EINTR);
 
         if (sock == -1) {
                 ntb_file_error_set(error,
@@ -1143,7 +1153,7 @@ ntb_connection_accept(int server_sock,
         }
 
         if (!set_nonblock(sock, error)) {
-                close(sock);
+                ntb_close(sock);
                 return NULL;
         }
 

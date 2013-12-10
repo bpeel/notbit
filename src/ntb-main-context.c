@@ -738,8 +738,8 @@ ntb_main_context_free(struct ntb_main_context *mc)
         signal(SIGINT, mc->old_int_handler);
         signal(SIGTERM, mc->old_term_handler);
         ntb_main_context_remove_source(mc->async_pipe_source);
-        close(mc->async_pipe[0]);
-        close(mc->async_pipe[1]);
+        ntb_close(mc->async_pipe[0]);
+        ntb_close(mc->async_pipe[1]);
 
         if (mc->n_sources > 0)
                 ntb_warning("Sources still remain on a main context "
@@ -747,7 +747,7 @@ ntb_main_context_free(struct ntb_main_context *mc)
 
         ntb_free(mc->events);
         pthread_mutex_destroy(&mc->idle_mutex);
-        close(mc->epoll_fd);
+        ntb_close(mc->epoll_fd);
         ntb_free(mc);
 
         if (mc == ntb_main_context_default)
