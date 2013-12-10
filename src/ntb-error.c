@@ -32,14 +32,14 @@ ntb_error_new(int buf_size)
 }
 
 void
-ntb_set_error(struct ntb_error **error_out,
-              struct ntb_error_domain *domain,
-              int code,
-              const char *format,
-              ...)
+ntb_set_error_va_list(struct ntb_error **error_out,
+                      struct ntb_error_domain *domain,
+                      int code,
+                      const char *format,
+                      va_list ap)
 {
         struct ntb_error *error;
-        va_list ap, apcopy;
+        va_list apcopy;
         size_t buf_size, required_size;
 
         if (error_out == NULL)
@@ -56,10 +56,8 @@ ntb_set_error(struct ntb_error **error_out,
 
         error = ntb_error_new(buf_size);
 
-        va_start(ap, format);
         va_copy(apcopy, ap);
         required_size = vsnprintf(error->message, buf_size, format, ap);
-        va_end(ap);
 
         if (required_size >= buf_size) {
                 ntb_free(error);
@@ -73,6 +71,20 @@ ntb_set_error(struct ntb_error **error_out,
         error->domain = domain;
         error->code = code;
         *error_out = error;
+}
+
+void
+ntb_set_error(struct ntb_error **error_out,
+              struct ntb_error_domain *domain,
+              int code,
+              const char *format,
+              ...)
+{
+        va_list ap;
+
+        va_start(ap, format);
+        ntb_set_error_va_list(error_out, domain, code, format, ap);
+        va_end(ap);
 }
 
 void

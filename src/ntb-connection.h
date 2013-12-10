@@ -30,15 +30,6 @@
 #include "ntb-proto.h"
 #include "ntb-blob.h"
 
-extern struct ntb_error_domain
-ntb_connection_error;
-
-enum ntb_connection_error {
-        NTB_CONNECTION_ERROR_SOCKET,
-        NTB_CONNECTION_ERROR_CONNECT,
-        NTB_CONNECTION_ERROR_ACCEPT
-};
-
 enum ntb_connection_message_type {
         NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
         NTB_CONNECTION_MESSAGE_ERROR,

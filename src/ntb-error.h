@@ -19,6 +19,8 @@
 #ifndef NTB_ERROR_H
 #define NTB_ERROR_H
 
+#include <stdarg.h>
+
 #include "ntb-util.h"
 
 /* Exception handling mechanism inspired by glib's GError */
@@ -32,6 +34,13 @@ struct ntb_error {
         int code;
         char message[1];
 };
+
+void
+ntb_set_error_va_list(struct ntb_error **error_out,
+                      struct ntb_error_domain *domain,
+                      int code,
+                      const char *format,
+                      va_list ap);
 
 NTB_PRINTF_FORMAT(4, 5) void
 ntb_set_error(struct ntb_error **error,

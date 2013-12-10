@@ -38,6 +38,7 @@
 #include "ntb-slice.h"
 #include "ntb-proto.h"
 #include "ntb-main-context.h"
+#include "ntb-file-error.h"
 
 struct ntb_error_domain
 ntb_store_error;
@@ -147,11 +148,10 @@ static bool
 try_mkdir(const char *name, struct ntb_error **error)
 {
         if (mkdir(name, S_IRWXU | S_IRWXG | S_IRWXO) == -1 && errno != EEXIST) {
-                ntb_set_error(error,
-                              &ntb_store_error,
-                              NTB_STORE_ERROR_CREATING_DIRECTORY,
-                              "Error creating store directory: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Error creating store directory: %s",
+                                   strerror(errno));
                 return false;
         }
 
@@ -627,17 +627,19 @@ bool
 ntb_store_start(struct ntb_store *store,
                 struct ntb_error **error)
 {
+        int thread_result;
+
         if (store->started)
                 return true;
 
-        if (pthread_create(&store->thread,
-                           NULL, /* attr */
-                           store_thread_func,
-                           store)) {
-                ntb_set_error(error,
-                              &ntb_store_error,
-                              NTB_STORE_ERROR_THREAD,
-                              "Error starting store thread");
+        thread_result = pthread_create(&store->thread,
+                                       NULL, /* attr */
+                                       store_thread_func,
+                                       store);
+        if (thread_result) {
+                ntb_file_error_set(error,
+                                   thread_result,
+                                   "Error starting store thread");
                 return false;
         }
 

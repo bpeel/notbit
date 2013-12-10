@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2011, 2013  Neil Roberts
+ * Copyright (C) 2013  Neil Roberts
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,29 +16,35 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __NTB_LOG_H__
-#define __NTB_LOG_H__
+#ifndef NTB_FILE_ERROR_H
+#define NTB_FILE_ERROR_H
 
-#include <stdbool.h>
-
-#include "ntb-util.h"
-#include "ntb-log.h"
 #include "ntb-error.h"
 
-bool
-ntb_log_available (void);
+extern struct ntb_error_domain
+ntb_file_error;
 
-NTB_PRINTF_FORMAT(1, 2) void
-ntb_log (const char *format, ...);
+enum ntb_file_error {
+  NTB_FILE_ERROR_EXIST,
+  NTB_FILE_ERROR_ISDIR,
+  NTB_FILE_ERROR_ACCES,
+  NTB_FILE_ERROR_NAMETOOLONG,
+  NTB_FILE_ERROR_NOENT,
+  NTB_FILE_ERROR_NOTDIR,
+  NTB_FILE_ERROR_AGAIN,
+  NTB_FILE_ERROR_INTR,
+  NTB_FILE_ERROR_PERM,
 
-bool
-ntb_log_set_file (const char *filename,
-                  struct ntb_error **error);
+  NTB_FILE_ERROR_OTHER
+};
 
-bool
-ntb_log_start (struct ntb_error **error);
+enum ntb_file_error
+ntb_file_error_from_errno(int errnum);
 
-void
-ntb_log_close (void);
+NTB_PRINTF_FORMAT(3, 4) void
+ntb_file_error_set(struct ntb_error **error,
+                   int errnum,
+                   const char *format,
+                   ...);
 
-#endif /* __NTB_LOG_H__ */
+#endif /* NTB_FILE_ERROR_H */

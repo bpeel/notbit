@@ -39,6 +39,7 @@
 #include "ntb-hash-table.h"
 #include "ntb-pow.h"
 #include "ntb-store.h"
+#include "ntb-file-error.h"
 
 struct ntb_error_domain
 ntb_network_error;
@@ -1304,11 +1305,10 @@ ntb_network_add_listen_address(struct ntb_network *nw,
         sock = socket(native_address.sockaddr.sa_family == AF_INET6 ?
                       PF_INET6 : PF_INET, SOCK_STREAM, 0);
         if (sock == -1) {
-                ntb_set_error(error,
-                              &ntb_network_error,
-                              NTB_NETWORK_ERROR_SOCKET,
-                              "Failed to create socket: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Failed to create socket: %s",
+                                   strerror(errno));
                 return false;
         }
 
@@ -1317,20 +1317,18 @@ ntb_network_add_listen_address(struct ntb_network *nw,
                    &true_value, sizeof true_value);
 
         if (bind(sock, &native_address.sockaddr, native_address.length) == -1) {
-                ntb_set_error(error,
-                              &ntb_network_error,
-                              NTB_NETWORK_ERROR_SOCKET,
-                              "Failed to bind socket: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Failed to bind socket: %s",
+                                   strerror(errno));
                 goto error;
         }
 
         if (listen(sock, 10) == -1) {
-                ntb_set_error(error,
-                              &ntb_network_error,
-                              NTB_NETWORK_ERROR_SOCKET,
-                              "Failed to make socket listen: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Failed to make socket listen: %s",
+                                   strerror(errno));
                 goto error;
         }
 

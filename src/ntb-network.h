@@ -27,7 +27,6 @@ extern struct ntb_error_domain
 ntb_network_error;
 
 enum ntb_network_error {
-        NTB_NETWORK_ERROR_SOCKET,
         NTB_NETWORK_ERROR_INVALID_ADDRESS
 };
 

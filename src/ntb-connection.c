@@ -37,11 +37,9 @@
 #include "ntb-buffer.h"
 #include "ntb-log.h"
 #include "ntb-store.h"
+#include "ntb-file-error.h"
 
 #define NTB_CONNECTION_MAX_MESSAGE_SIZE (128 * 1024 * 1024)
-
-struct ntb_error_domain
-ntb_connection_error;
 
 struct ntb_connection {
         struct ntb_netaddress remote_address;
@@ -1048,11 +1046,10 @@ set_nonblock(int sock,
         flags = fcntl(sock, F_GETFL, 0);
 
         if (flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1) {
-                ntb_set_error(error,
-                              &ntb_connection_error,
-                              NTB_CONNECTION_ERROR_SOCKET,
-                              "Error setting non-blocking mode: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Error setting non-blocking mode: %s",
+                                   strerror(errno));
                 return false;
         }
 
@@ -1092,11 +1089,10 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                       SOCK_STREAM,
                       0);
         if (sock == -1) {
-                ntb_set_error(error,
-                              &ntb_connection_error,
-                              NTB_CONNECTION_ERROR_SOCKET,
-                              "Failed to create socket: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Failed to create socket: %s",
+                                   strerror(errno));
                 return NULL;
         }
 
@@ -1110,12 +1106,11 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                     native_address.length) == -1 &&
             errno != EINPROGRESS) {
                 address_string = ntb_netaddress_to_string(address);
-                ntb_set_error(error,
-                              &ntb_connection_error,
-                              NTB_CONNECTION_ERROR_CONNECT,
-                              "Failed to connect to %s: %s",
-                              address_string,
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Failed to connect to %s: %s",
+                                   address_string,
+                                   strerror(errno));
                 ntb_free(address_string);
                 close(sock);
                 return NULL;
@@ -1140,11 +1135,10 @@ ntb_connection_accept(int server_sock,
                       &native_address.length);
 
         if (sock == -1) {
-                ntb_set_error(error,
-                              &ntb_connection_error,
-                              NTB_CONNECTION_ERROR_ACCEPT,
-                              "Error accepting connection: %s",
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Error accepting connection: %s",
+                                   strerror(errno));
                 return NULL;
         }
 

@@ -29,6 +29,7 @@
 
 #include "ntb-log.h"
 #include "ntb-buffer.h"
+#include "ntb-file-error.h"
 
 static FILE *ntb_log_file = NULL;
 static struct ntb_buffer ntb_log_buffer = NTB_BUFFER_STATIC_INIT;
@@ -160,12 +161,11 @@ ntb_log_set_file(const char *filename, struct ntb_error **error)
         file = fopen(filename, "a");
 
         if (file == NULL) {
-                ntb_set_error(error,
-                              &ntb_log_error,
-                              NTB_LOG_ERROR_FILE,
-                              "%s: %s",
-                              filename,
-                              strerror(errno));
+                ntb_file_error_set(error,
+                                   errno,
+                                   "%s: %s",
+                                   filename,
+                                   strerror(errno));
                 return false;
         }
 
@@ -190,11 +190,10 @@ ntb_log_start(struct ntb_error **error)
                                 ntb_log_thread_func,
                                 NULL /* thread func arg */);
         if (result) {
-                ntb_set_error(error,
-                              &ntb_log_error,
-                              NTB_LOG_ERROR_THREAD,
-                              "Error starting log thread: %s",
-                              strerror(result));
+                ntb_file_error_set(error,
+                                   result,
+                                   "Error starting log thread: %s",
+                                   strerror(result));
                 return false;
         }
 

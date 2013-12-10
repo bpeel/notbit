@@ -34,8 +34,6 @@ extern struct ntb_error_domain
 ntb_store_error;
 
 enum ntb_store_error {
-        NTB_STORE_ERROR_THREAD,
-        NTB_STORE_ERROR_CREATING_DIRECTORY,
         NTB_STORE_ERROR_INVALID_STORE_DIRECTORY
 };
 

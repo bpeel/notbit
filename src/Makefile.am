@@ -16,6 +16,8 @@ notbit_SOURCES = \
 	ntb-connection.h \
 	ntb-error.c \
 	ntb-error.h \
+	ntb-file-error.c \
+	ntb-file-error.h \
 	ntb-hash-table.c \
 	ntb-hash-table.h \
 	ntb-list.c \
