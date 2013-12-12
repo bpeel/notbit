@@ -75,6 +75,10 @@ ntb_network_error;
  * same as the GC timeout so that it will use the same bucket */
 #define NTB_NETWORK_SAVE_ADDR_LIST_TIMEOUT NTB_NETWORK_GC_TIMEOUT
 
+/* If we end up with this many connections then we'll stop accepting
+ * new ones */
+#define NTB_NETWORK_MAX_CONNECTIONS 128
+
 enum ntb_network_peer_state {
         /* If we initiated the connection then we will go through these
          * two steps before the connection is considered established.
@@ -224,6 +228,9 @@ default_addrs[] = {
 static void
 maybe_queue_connect(struct ntb_network *nw, bool use_idle);
 
+static void
+update_all_listen_socket_sources(struct ntb_network *nw);
+
 static bool
 connection_message_cb(struct ntb_listener *listener,
                       void *data);
@@ -312,6 +319,7 @@ remove_peer(struct ntb_network *nw,
         ntb_slice_free(&ntb_network_peer_allocator, peer);
 
         maybe_queue_connect(nw, true /* use_idle */);
+        update_all_listen_socket_sources(nw);
 }
 
 static void
@@ -400,6 +408,8 @@ add_peer(struct ntb_network *nw,
         ntb_list_init(&peer->requested_inventories);
 
         ntb_list_insert(&nw->peers, &peer->link);
+
+        update_all_listen_socket_sources(nw);
 
         return peer;
 }
@@ -1169,7 +1179,8 @@ ntb_network_load_store(struct ntb_network *nw)
 static void
 remove_listen_socket(struct ntb_network_listen_socket *listen_socket)
 {
-        ntb_main_context_remove_source(listen_socket->source);
+        if (listen_socket->source)
+                ntb_main_context_remove_source(listen_socket->source);
         ntb_list_remove(&listen_socket->link);
         ntb_close(listen_socket->sock);
         free(listen_socket);
@@ -1204,6 +1215,34 @@ listen_socket_source_cb(struct ntb_main_context_source *source,
 
         peer = add_peer(nw, conn);
         peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN;
+}
+
+static void
+update_listen_socket_source(struct ntb_network *nw,
+                            struct ntb_network_listen_socket *listen_socket)
+{
+        if (nw->n_peers >= NTB_NETWORK_MAX_CONNECTIONS) {
+                if (listen_socket->source) {
+                        ntb_main_context_remove_source(listen_socket->source);
+                        listen_socket->source = NULL;
+                }
+        } else if (listen_socket->source == NULL) {
+                listen_socket->source =
+                        ntb_main_context_add_poll(NULL,
+                                                  listen_socket->sock,
+                                                  NTB_MAIN_CONTEXT_POLL_IN,
+                                                  listen_socket_source_cb,
+                                                  listen_socket);
+        }
+}
+
+static void
+update_all_listen_socket_sources(struct ntb_network *nw)
+{
+        struct ntb_network_listen_socket *listen_socket;
+
+        ntb_list_for_each(listen_socket, &nw->listen_sockets, link)
+                update_listen_socket_source(nw, listen_socket);
 }
 
 static struct ntb_network_addr *
@@ -1346,12 +1385,9 @@ ntb_network_add_listen_address(struct ntb_network *nw,
 
         ntb_netaddress_from_native(&listen_socket->address, &native_address);
 
-        listen_socket->source =
-                ntb_main_context_add_poll(NULL,
-                                          sock,
-                                          NTB_MAIN_CONTEXT_POLL_IN,
-                                          listen_socket_source_cb,
-                                          listen_socket);
+        listen_socket->source = NULL;
+
+        update_listen_socket_source(nw, listen_socket);
 
         return true;
 
