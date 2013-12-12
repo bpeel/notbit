@@ -42,10 +42,29 @@
 
 #define NTB_CONNECTION_MAX_MESSAGE_SIZE (128 * 1024 * 1024)
 
+/* Time in minutes between each check for whether we should send a pong
+ * command and whether the remote end has gone silent */
+#define NTB_CONNECTION_PONG_CHECK_INTERVAL 3
+
+/* Minimum time in seconds between sending each pong command if no
+ * other data has been sent */
+#define NTB_CONNECTION_PONG_INTERVAL (5 * 60)
+
+/* Time in seconds after which we will consider a remote connection to
+ * be dead if we don't receive any data */
+#define NTB_CONNECTION_TIMEOUT (10 * 60)
+
+/* If this assert fails then notbit clients won't recognise the pongs
+ * from each other correctly */
+_Static_assert(NTB_CONNECTION_PONG_CHECK_INTERVAL * 60 +
+               NTB_CONNECTION_PONG_INTERVAL < NTB_CONNECTION_TIMEOUT,
+               "The pong check and timeout values aren't going to work");
+
 struct ntb_connection {
         struct ntb_netaddress remote_address;
         char *remote_address_string;
-        struct ntb_main_context_source *source;
+        struct ntb_main_context_source *socket_source;
+        struct ntb_main_context_source *timer_source;
         int sock;
 
         struct ntb_buffer in_buf;
@@ -68,6 +87,14 @@ struct ntb_connection {
          * write */
         struct ntb_list ready_objects;
         struct ntb_list objects_to_load;
+
+        /* The last time we wrote anything to the socket. This is used
+         * to determine when we need to send a pong event to keep the
+         * connection alive */
+        uint64_t last_write_time;
+        /* Similarly for the last time we received anything. This is
+         * used to detect peers that have gone silent */
+        uint64_t last_read_time;
 };
 
 struct ntb_connection_queue_entry {
@@ -92,15 +119,25 @@ emit_message(struct ntb_connection *conn,
 }
 
 static void
+remove_sources(struct ntb_connection *conn)
+{
+        if (conn->socket_source) {
+                ntb_main_context_remove_source(conn->socket_source);
+                conn->socket_source = NULL;
+        }
+        if (conn->timer_source) {
+                ntb_main_context_remove_source(conn->timer_source);
+                conn->timer_source = NULL;
+        }
+}
+
+static void
 set_error_state(struct ntb_connection *conn)
 {
         struct ntb_connection_message message;
 
         /* Stop polling for further events */
-        if (conn->source) {
-                ntb_main_context_remove_source(conn->source);
-                conn->source = NULL;
-        }
+        remove_sources(conn);
 
         emit_message(conn,
                      conn->connect_succeeded ?
@@ -146,6 +183,24 @@ get_hex_string(const uint8_t *data,
 
         for (i = 0; i < length; i++)
                 snprintf(string + i * 2, 3, "%02x", data[i]);
+}
+
+static bool
+connection_is_ready_to_write(struct ntb_connection *conn)
+{
+        return (conn->out_buf.length > 0 ||
+                !ntb_list_empty(&conn->ready_objects));
+}
+
+static void
+update_poll_flags(struct ntb_connection *conn)
+{
+        enum ntb_main_context_poll_flags flags = NTB_MAIN_CONTEXT_POLL_IN;
+
+        if (connection_is_ready_to_write(conn))
+                flags |= NTB_MAIN_CONTEXT_POLL_OUT;
+
+        ntb_main_context_modify_poll(conn->socket_source, flags);
 }
 
 static bool
@@ -666,6 +721,23 @@ inv_command_handler(struct ntb_connection *conn,
                             &message.base);
 }
 
+static void
+send_pong(struct ntb_connection *conn)
+{
+        ntb_proto_add_command(&conn->out_buf, "pong", NTB_PROTO_ARGUMENT_END);
+        update_poll_flags(conn);
+}
+
+static bool
+ping_command_handler(struct ntb_connection *conn,
+                     const uint8_t *data,
+                     uint32_t message_length)
+{
+        send_pong(conn);
+
+        return true;
+}
+
 static const struct {
         const char *command_name;
         bool (* func)(struct ntb_connection *conn,
@@ -680,7 +752,8 @@ static const struct {
         { "version", version_command_handler },
         { "addr", addr_command_handler },
         { "getdata", getdata_command_handler },
-        { "verack", verack_command_handler }
+        { "verack", verack_command_handler },
+        { "ping", ping_command_handler }
 };
 
 static bool
@@ -802,21 +875,11 @@ handle_read(struct ntb_connection *conn)
                         set_error_state(conn);
                 }
         } else {
+                conn->last_read_time =
+                        ntb_main_context_get_monotonic_clock(NULL);
                 conn->in_buf.length += got;
                 process_messages(conn);
         }
-}
-
-static void
-update_poll_flags(struct ntb_connection *conn)
-{
-        enum ntb_main_context_poll_flags flags = NTB_MAIN_CONTEXT_POLL_IN;
-
-        if (conn->out_buf.length > 0 ||
-            !ntb_list_empty(&conn->ready_objects))
-                flags |= NTB_MAIN_CONTEXT_POLL_OUT;
-
-        ntb_main_context_modify_poll(conn->source, flags);
 }
 
 static void
@@ -957,6 +1020,9 @@ handle_write(struct ntb_connection *conn)
                         conn->out_buf.length - wrote);
                 conn->out_buf.length -= wrote;
 
+                conn->last_write_time =
+                        ntb_main_context_get_monotonic_clock(NULL);
+
                 update_poll_flags(conn);
         }
 }
@@ -987,6 +1053,28 @@ connection_poll_cb(struct ntb_main_context_source *source,
 }
 
 static void
+pong_check_cb(struct ntb_main_context_source *source,
+              void *user_data)
+{
+        struct ntb_connection *conn = user_data;
+        uint64_t now = ntb_main_context_get_monotonic_clock(NULL);
+
+        if ((now - conn->last_read_time) / 1000000 >= NTB_CONNECTION_TIMEOUT) {
+                ntb_log("No data received from %s for %" PRIu64 " seconds. "
+                        "Closing connection",
+                        conn->remote_address_string,
+                        (now - conn->last_read_time) / 1000000);
+                set_error_state(conn);
+                return;
+        }
+
+        if ((now - conn->last_write_time) / 1000000 >=
+            NTB_CONNECTION_PONG_INTERVAL &&
+            !connection_is_ready_to_write(conn))
+                send_pong(conn);
+}
+
+static void
 free_queue_entry_list(struct ntb_list *list)
 {
         struct ntb_connection_queue_entry *entry, *tmp;
@@ -998,8 +1086,7 @@ free_queue_entry_list(struct ntb_list *list)
 void
 ntb_connection_free(struct ntb_connection *conn)
 {
-        if (conn->source)
-                ntb_main_context_remove_source(conn->source);
+        remove_sources(conn);
 
         free_queue_entry_list(&conn->ready_objects);
         free_queue_entry_list(&conn->objects_to_load);
@@ -1030,11 +1117,17 @@ ntb_connection_new_for_socket(int sock,
 
         ntb_signal_init(&conn->message_signal);
 
-        conn->source = ntb_main_context_add_poll(NULL, /* context */
-                                                 sock,
-                                                 NTB_MAIN_CONTEXT_POLL_IN,
-                                                 connection_poll_cb,
-                                                 conn);
+        conn->socket_source =
+                ntb_main_context_add_poll(NULL, /* context */
+                                          sock,
+                                          NTB_MAIN_CONTEXT_POLL_IN,
+                                          connection_poll_cb,
+                                          conn);
+        conn->timer_source =
+                ntb_main_context_add_timer(NULL,
+                                           NTB_CONNECTION_PONG_CHECK_INTERVAL,
+                                           pong_check_cb,
+                                           conn);
 
         ntb_buffer_init(&conn->in_buf);
         ntb_buffer_init(&conn->out_buf);
@@ -1042,6 +1135,9 @@ ntb_connection_new_for_socket(int sock,
         ntb_list_init(&conn->objects_to_load);
         ntb_list_init(&conn->ready_objects);
         conn->load_cookie = NULL;
+
+        conn->last_write_time = ntb_main_context_get_monotonic_clock(NULL);
+        conn->last_read_time = conn->last_write_time;
 
         return conn;
 }
