@@ -35,6 +35,7 @@
 #include "ntb-network.h"
 #include "ntb-store.h"
 #include "ntb-proto.h"
+#include "ntb-file-error.h"
 
 static struct ntb_error_domain
 arguments_error;
@@ -45,7 +46,11 @@ enum ntb_arguments_error {
 };
 
 struct address {
-        char *address;
+        /* Only one of these will be set depending on whether the user
+         * specified a full address or just a port */
+        const char *address;
+        const char *port;
+
         struct address *next;
 };
 
@@ -67,7 +72,8 @@ add_address(struct address **list,
         struct address *listen_address;
 
         listen_address = ntb_alloc(sizeof (struct address));
-        listen_address->address = ntb_strdup(address);
+        listen_address->address = address;
+        listen_address->port = NULL;
         listen_address->next = *list;
         *list = listen_address;
 }
@@ -79,7 +85,8 @@ add_port(struct address **list,
         struct address *listen_address;
 
         listen_address = ntb_alloc(sizeof (struct address));
-        listen_address->address = ntb_strconcat("[::]:", port_string, NULL);
+        listen_address->address = NULL;
+        listen_address->port = port_string;
         listen_address->next = *list;
         *list = listen_address;
 }
@@ -93,7 +100,6 @@ free_addresses(struct address *list)
              address;
              address = next) {
                 next = address->next;
-                ntb_free(address->address);
                 ntb_free(address);
         }
 }
@@ -205,7 +211,8 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
         }
 
         if (option_listen_addresses == NULL)
-                add_address(&option_listen_addresses, "[::]");
+                add_port(&option_listen_addresses,
+                         NTB_STRINGIFY(NTB_PROTO_DEFAULT_PORT));
 
         return true;
 
@@ -302,6 +309,48 @@ quit_cb(struct ntb_main_context_source *source,
 }
 
 static bool
+add_listen_address_to_network(struct ntb_network *nw,
+                              struct address *address,
+                              struct ntb_error **error)
+{
+        struct ntb_error *local_error = NULL;
+        char *full_address;
+        bool res;
+
+        if (address->address)
+                return ntb_network_add_listen_address(nw,
+                                                      address->address,
+                                                      error);
+
+        /* If just the port is specified then we'll first try
+         * listening on an IPv6 address. Listening on IPv6 should
+         * accept IPv4 connections as well. However some servers have
+         * IPv6 disabled so if it doesn't work we'll fall back to
+         * IPv4 */
+        full_address = ntb_strconcat("[::]:", address->port, NULL);
+        res = ntb_network_add_listen_address(nw, full_address, &local_error);
+        ntb_free(full_address);
+
+        if (res)
+                return true;
+
+        if (local_error->domain == &ntb_file_error &&
+            (local_error->code == NTB_FILE_ERROR_PFNOSUPPORT ||
+             local_error->code == NTB_FILE_ERROR_AFNOSUPPORT)) {
+                ntb_error_free(local_error);
+        } else {
+                ntb_error_propagate(error, local_error);
+                return false;
+        }
+
+        full_address = ntb_strconcat("0.0.0.0:", address->port, NULL);
+        res = ntb_network_add_listen_address(nw, full_address, error);
+        ntb_free(full_address);
+
+        return res;
+}
+
+static bool
 add_addresses(struct ntb_network *nw,
               struct ntb_error **error)
 {
@@ -310,9 +359,9 @@ add_addresses(struct ntb_network *nw,
         for (address = option_listen_addresses;
              address;
              address = address->next) {
-                if (!ntb_network_add_listen_address(nw,
-                                                    address->address,
-                                                    error))
+                if (!add_listen_address_to_network(nw,
+                                                   address,
+                                                   error))
                         return false;
         }
 

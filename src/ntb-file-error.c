@@ -50,6 +50,10 @@ ntb_file_error_from_errno(int errnum)
                 return NTB_FILE_ERROR_INTR;
         case EPERM:
                 return NTB_FILE_ERROR_PERM;
+        case EPFNOSUPPORT:
+                return NTB_FILE_ERROR_PFNOSUPPORT;
+        case EAFNOSUPPORT:
+                return NTB_FILE_ERROR_AFNOSUPPORT;
         }
 
         return NTB_FILE_ERROR_OTHER;
