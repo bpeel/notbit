@@ -376,7 +376,7 @@ ntb_pow_calculate(struct ntb_pow *pow,
 
         pthread_mutex_lock(&pow->mutex);
 
-        /* Once reference is for the caller and one is for being in the queue */
+        /* One reference is for the caller and one is for being in the queue */
         cookie->ref_count = 2;
         cookie->pow = pow;
         cookie->next_nonce_offset = 0;

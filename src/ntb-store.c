@@ -651,7 +651,7 @@ ntb_store_start(struct ntb_store *store,
 
 static struct ntb_store_task *
 new_task(struct ntb_store *store,
-          enum ntb_store_task_type type)
+         enum ntb_store_task_type type)
 {
         struct ntb_store_task *task;
 

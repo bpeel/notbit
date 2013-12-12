@@ -26,19 +26,19 @@
 #include "ntb-error.h"
 
 bool
-ntb_log_available (void);
+ntb_log_available(void);
 
 NTB_PRINTF_FORMAT(1, 2) void
-ntb_log (const char *format, ...);
+ntb_log(const char *format, ...);
 
 bool
-ntb_log_set_file (const char *filename,
-                  struct ntb_error **error);
+ntb_log_set_file(const char *filename,
+                 struct ntb_error **error);
 
 bool
-ntb_log_start (struct ntb_error **error);
+ntb_log_start(struct ntb_error **error);
 
 void
-ntb_log_close (void);
+ntb_log_close(void);
 
 #endif /* __NTB_LOG_H__ */
