@@ -16,12 +16,16 @@ notbit_SOURCES = \
 	ntb-connection.h \
 	ntb-cpus.c \
 	ntb-cpus.h \
+	ntb-crypto.c \
+	ntb-crypto.h \
 	ntb-error.c \
 	ntb-error.h \
 	ntb-file-error.c \
 	ntb-file-error.h \
 	ntb-hash-table.c \
 	ntb-hash-table.h \
+	ntb-key.c \
+	ntb-key.h \
 	ntb-list.c \
 	ntb-list.h \
 	ntb-log.c \
