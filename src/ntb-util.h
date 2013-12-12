@@ -21,6 +21,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #ifdef __GNUC__
 #define NTB_NO_RETURN __attribute__((noreturn))
@@ -122,6 +123,10 @@ ntb_warning(const char *format, ...);
 
 int
 ntb_close(int fd);
+
+pthread_t
+ntb_create_thread(void *(* thread_func)(void *),
+                  void *user_data);
 
 #define ntb_return_if_fail(condition)                           \
         NTB_STMT_START {                                        \

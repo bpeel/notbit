@@ -624,29 +624,14 @@ error:
         return NULL;
 }
 
-bool
-ntb_store_start(struct ntb_store *store,
-                struct ntb_error **error)
+void
+ntb_store_start(struct ntb_store *store)
 {
-        int thread_result;
-
         if (store->started)
-                return true;
+                return;
 
-        thread_result = pthread_create(&store->thread,
-                                       NULL, /* attr */
-                                       store_thread_func,
-                                       store);
-        if (thread_result) {
-                ntb_file_error_set(error,
-                                   thread_result,
-                                   "Error starting store thread");
-                return false;
-        }
-
+        store->thread = ntb_create_thread(store_thread_func, store);
         store->started = true;
-
-        return true;
 }
 
 static struct ntb_store_task *

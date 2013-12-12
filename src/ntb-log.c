@@ -177,29 +177,15 @@ ntb_log_set_file(const char *filename, struct ntb_error **error)
         return true;
 }
 
-bool
-ntb_log_start(struct ntb_error **error)
+void
+ntb_log_start(void)
 {
-        int result;
-
         if (!ntb_log_available() || ntb_log_has_thread)
-                return true;
+                return;
 
-        result = pthread_create(&ntb_log_thread,
-                                NULL, /* attr */
-                                ntb_log_thread_func,
-                                NULL /* thread func arg */);
-        if (result) {
-                ntb_file_error_set(error,
-                                   result,
-                                   "Error starting log thread: %s",
-                                   strerror(result));
-                return false;
-        }
-
+        ntb_log_thread = ntb_create_thread(ntb_log_thread_func,
+                                           NULL /* thread func arg */);
         ntb_log_has_thread = true;
-
-        return true;
 }
 
 void

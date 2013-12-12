@@ -295,15 +295,14 @@ ntb_pow_cancel(struct ntb_pow_cookie *cookie)
 }
 
 struct ntb_pow *
-ntb_pow_new(struct ntb_error **error)
+ntb_pow_new(void)
 {
         struct ntb_pow *pow;
-        int thread_ret;
-        int n_cpus;
+        int i;
 
         pow = ntb_alloc(sizeof *pow);
 
-        n_cpus = ntb_cpus_count();
+        pow->n_threads = ntb_cpus_count();
 
         pthread_mutex_init(&pow->mutex, NULL);
         pthread_cond_init(&pow->cond, NULL);
@@ -311,22 +310,10 @@ ntb_pow_new(struct ntb_error **error)
         ntb_list_init(&pow->queue);
         pow->quit = false;
 
-        pow->threads = ntb_alloc(sizeof (pthread_t) * n_cpus);
+        pow->threads = ntb_alloc(sizeof (pthread_t) * pow->n_threads);
 
-        for (pow->n_threads = 0; pow->n_threads < n_cpus; pow->n_threads++) {
-                thread_ret = pthread_create(pow->threads + pow->n_threads,
-                                            NULL /* attr */,
-                                            thread_func,
-                                            pow);
-                if (thread_ret) {
-                        ntb_file_error_set(error,
-                                           thread_ret,
-                                           "Error creating POW thread: %s",
-                                           strerror(thread_ret));
-                        ntb_pow_free(pow);
-                        return NULL;
-                }
-        }
+        for (i = 0; i < pow->n_threads; i++)
+                pow->threads[i] = ntb_create_thread(thread_func, pow);
 
         return pow;
 }

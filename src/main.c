@@ -365,36 +365,22 @@ run_network(void)
                         if (option_daemonize)
                                 daemonize();
 
-                        if (!ntb_store_start(store, &error)) {
-                                /* This probably shouldn't happen. By
-                                   the time we get here may have
-                                   daemonized so we can't really print
-                                   anything but let's do it anyway. */
-                                ntb_warning("%s\n", error->message);
-                                ntb_error_clear(&error);
-                        } else if (!ntb_log_start(&error)) {
-                                /* This probably shouldn't happen. By the time
-                                   we get here may have daemonized so we can't
-                                   really print anything but let's do it
-                                   anyway. */
-                                ntb_warning("Error starting log file: %s\n",
-                                            error->message);
-                                ntb_error_clear(&error);
-                        } else {
-                                ntb_network_load_store(nw);
+                        ntb_store_start(store);
+                        ntb_log_start();
 
-                                quit_source = ntb_main_context_add_quit(NULL,
-                                                                        quit_cb,
-                                                                        &quit);
+                        ntb_network_load_store(nw);
 
-                                do
-                                        ntb_main_context_poll(NULL);
-                                while(!quit);
+                        quit_source = ntb_main_context_add_quit(NULL,
+                                                                quit_cb,
+                                                                &quit);
 
-                                ntb_log("Exiting...");
+                        do
+                                ntb_main_context_poll(NULL);
+                        while(!quit);
 
-                                ntb_main_context_remove_source(quit_source);
-                        }
+                        ntb_log("Exiting...");
+
+                        ntb_main_context_remove_source(quit_source);
                 }
         }
 

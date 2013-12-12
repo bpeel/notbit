@@ -32,7 +32,7 @@ typedef void (* ntb_pow_calculate_func)(uint64_t nonce,
                                         void *user_data);
 
 struct ntb_pow *
-ntb_pow_new(struct ntb_error **error);
+ntb_pow_new(void);
 
 struct ntb_pow_cookie *
 ntb_pow_calculate(struct ntb_pow *pow,

@@ -66,9 +66,8 @@ struct ntb_store *
 ntb_store_new(const char *store_directory,
               struct ntb_error **error);
 
-bool
-ntb_store_start(struct ntb_store *store,
-                struct ntb_error **error);
+void
+ntb_store_start(struct ntb_store *store);
 
 struct ntb_store *
 ntb_store_get_default(void);

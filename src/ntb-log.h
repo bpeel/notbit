@@ -35,8 +35,8 @@ bool
 ntb_log_set_file(const char *filename,
                  struct ntb_error **error);
 
-bool
-ntb_log_start(struct ntb_error **error);
+void
+ntb_log_start(void);
 
 void
 ntb_log_close(void);
