@@ -55,4 +55,8 @@ ntb_error_free(struct ntb_error *error);
 void
 ntb_error_clear(struct ntb_error **error);
 
+void
+ntb_error_propagate(struct ntb_error **error,
+                    struct ntb_error *other);
+
 #endif /* NTB_ERROR_H */

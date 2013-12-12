@@ -99,3 +99,15 @@ ntb_error_clear(struct ntb_error **error)
         ntb_error_free(*error);
         *error = NULL;
 }
+
+void
+ntb_error_propagate(struct ntb_error **error,
+                    struct ntb_error *other)
+{
+        ntb_return_if_fail(other != NULL);
+
+        if (error)
+                *error = other;
+        else
+                ntb_error_free(other);
+}
