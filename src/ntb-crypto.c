@@ -93,6 +93,7 @@ new_cookie(struct ntb_crypto *crypto,
         /* One ref for the caller and one ref for being in the queue */
         cookie->ref_count = 2;
         cookie->type = type;
+        cookie->cancelled = false;
         cookie->func = func;
         cookie->user_data = user_data;
         cookie->idle_source = NULL;
