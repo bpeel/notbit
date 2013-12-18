@@ -67,3 +67,64 @@ ntb_base58_encode(const uint8_t *input,
 
         return p - output;
 }
+
+static int
+get_digit_value(char digit)
+{
+        int min, max, mid;
+
+        min = 0;
+        max = sizeof alphabet - 1;
+
+        while (max > min) {
+                mid = (min + max) / 2;
+
+                if (alphabet[mid] < digit)
+                        min = mid + 1;
+                else
+                        max = mid;
+        }
+
+        if (alphabet[min] == digit)
+                return min;
+
+        return -1;
+}
+
+ssize_t
+ntb_base58_decode(const char *input,
+                  size_t input_length,
+                  uint8_t *output,
+                  size_t output_length)
+{
+        BIGNUM val;
+        int bn_result;
+        int digit_value;
+        int n_bytes;
+        size_t i;
+
+        BN_init(&val);
+
+        for (i = 0; i < input_length; i++) {
+                digit_value = get_digit_value(input[i]);
+                if (digit_value == -1)
+                        return -1;
+
+                bn_result = BN_mul_word(&val, 58);
+                assert(bn_result);
+
+                bn_result = BN_add_word(&val, digit_value);
+                assert(bn_result);
+        }
+
+        n_bytes = BN_num_bytes(&val);
+
+        if (n_bytes > output_length)
+                return -1;
+
+        BN_bn2bin(&val, output);
+
+        BN_free(&val);
+
+        return n_bytes;
+}
