@@ -34,6 +34,8 @@ notbit_SOURCES = \
 	ntb-keyring.h \
 	ntb-list.c \
 	ntb-list.h \
+	ntb-load-keys.c \
+	ntb-load-keys.h \
 	ntb-log.c \
 	ntb-log.h \
 	ntb-main-context.c \

@@ -41,6 +41,7 @@
 #include "ntb-file-error.h"
 #include "ntb-base58.h"
 #include "ntb-address.h"
+#include "ntb-load-keys.h"
 
 struct ntb_error_domain
 ntb_store_error;
@@ -1081,6 +1082,38 @@ ntb_store_for_each_addr(struct ntb_store *store,
 
         while(fgets(line, sizeof line, file))
                 process_addr_line(store, line, func, user_data);
+
+        fclose(file);
+}
+
+void
+ntb_store_for_each_key(struct ntb_store *store,
+                       ntb_store_for_each_key_func func,
+                       void *user_data)
+{
+        FILE *file;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        /* This function runs synchronously but it should only be
+         * called once at startup before connecting to any peers so it
+         * shouldn't really matter */
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "keys.dat");
+
+        file = fopen((char *) store->filename_buf.data, "r");
+
+        if (file == NULL) {
+                if (errno != ENOENT)
+                        ntb_log("Error opening %s: %s",
+                                (char *) store->filename_buf.data,
+                                strerror(errno));
+                return;
+        }
+
+        ntb_load_keys(file, (ntb_store_for_each_key_func) func, user_data);
 
         fclose(file);
 }

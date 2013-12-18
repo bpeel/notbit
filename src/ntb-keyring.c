@@ -87,8 +87,15 @@ add_key(struct ntb_keyring *keyring,
         kr_key->key = ntb_key_ref(key);
 
         ntb_list_insert(&keyring->keys, &kr_key->link);
+}
 
-        save_keyring(keyring);
+static void
+for_each_key_cb(struct ntb_key *key,
+                void *user_data)
+{
+        struct ntb_keyring *keyring = user_data;
+
+        add_key(keyring, key);
 }
 
 struct ntb_keyring *
@@ -102,6 +109,10 @@ ntb_keyring_new(struct ntb_network *nw)
         keyring->crypto = ntb_crypto_new();
         ntb_list_init(&keyring->keys);
 
+        ntb_store_for_each_key(NULL, /* default store */
+                               for_each_key_cb,
+                               keyring);
+
         return keyring;
 }
 
@@ -113,6 +124,7 @@ create_key_cb(struct ntb_key *key,
         struct ntb_keyring *keyring = cookie->keyring;
 
         add_key(keyring, key);
+        save_keyring(keyring);
 
         if (cookie->func)
                 cookie->func(key, cookie->user_data);

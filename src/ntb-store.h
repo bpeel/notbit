@@ -55,6 +55,9 @@ typedef void (* ntb_store_for_each_blob_func)(enum ntb_proto_inv_type type,
 typedef void (* ntb_store_for_each_addr_func)(const struct ntb_store_addr *addr,
                                               void *user_data);
 
+typedef void (* ntb_store_for_each_key_func)(struct ntb_key *key,
+                                             void *user_data);
+
 /* This is called when a load is complete. If the load succeeded then
  * blob will point to the contents. If it failed the callback will
  * still be called but blob will be NULL. The callback won't be called
@@ -104,6 +107,11 @@ void
 ntb_store_for_each_addr(struct ntb_store *store,
                         ntb_store_for_each_addr_func func,
                         void *user_data);
+
+void
+ntb_store_for_each_key(struct ntb_store *store,
+                       ntb_store_for_each_key_func func,
+                       void *user_data);
 
 struct ntb_store_cookie *
 ntb_store_load_blob(struct ntb_store *store,
