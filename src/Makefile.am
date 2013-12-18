@@ -30,6 +30,8 @@ notbit_SOURCES = \
 	ntb-hash-table.h \
 	ntb-key.c \
 	ntb-key.h \
+	ntb-keyring.c \
+	ntb-keyring.h \
 	ntb-list.c \
 	ntb-list.h \
 	ntb-log.c \

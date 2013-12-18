@@ -36,7 +36,7 @@
 #include "ntb-store.h"
 #include "ntb-proto.h"
 #include "ntb-file-error.h"
-#include "ntb-crypto.h"
+#include "ntb-keyring.h"
 
 static struct ntb_error_domain
 arguments_error;
@@ -386,7 +386,7 @@ run_network(void)
 {
         struct ntb_store *store = NULL;
         struct ntb_network *nw;
-        struct ntb_crypto *crypto;
+        struct ntb_keyring *keyring;
         int ret = EXIT_SUCCESS;
         struct ntb_error *error = NULL;
         struct ntb_main_context_source *quit_source;
@@ -419,9 +419,9 @@ run_network(void)
                         ntb_store_start(store);
                         ntb_log_start();
 
-                        crypto = ntb_crypto_new();
-
                         ntb_network_load_store(nw);
+
+                        keyring = ntb_keyring_new(nw);
 
                         quit_source = ntb_main_context_add_quit(NULL,
                                                                 quit_cb,
@@ -435,7 +435,7 @@ run_network(void)
 
                         ntb_main_context_remove_source(quit_source);
 
-                        ntb_crypto_free(crypto);
+                        ntb_keyring_free(keyring);
                 }
         }
 
