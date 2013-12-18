@@ -45,20 +45,14 @@ ntb_base58_encode(const uint8_t *input,
                   size_t length,
                   char *output)
 {
-        BN_CTX *ctx;
         BIGNUM val;
         BN_ULONG part;
         char *p = output;
 
-        ctx = BN_CTX_new();
-
-        if (ctx == NULL)
-                goto error;
-
         BN_init(&val);
 
         if (BN_bin2bn(input, length, &val) == NULL)
-                goto error;
+                ntb_fatal("A big number operation failed");
 
         while (!BN_is_zero(&val)) {
                 part = BN_div_word(&val, 58);
@@ -66,13 +60,8 @@ ntb_base58_encode(const uint8_t *input,
                 *(p++) = alphabet[part];
         }
 
-        BN_CTX_free(ctx);
-
         /* Make it big-endian */
         reverse_bytes(output, p - output);
 
         return p - output;
-
-error:
-        ntb_fatal("A big number operation failed");
 }
