@@ -74,6 +74,7 @@ struct ntb_crypto_cookie {
         union {
                 struct {
                         struct ntb_key *key;
+                        char *label;
                         int leading_zeroes;
                 } create_key;
         };
@@ -116,6 +117,7 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                 case NTB_CRYPTO_COOKIE_CREATE_KEY:
                         if (cookie->create_key.key)
                                 ntb_key_unref(cookie->create_key.key);
+                        ntb_free(cookie->create_key.label);
                         break;
                 }
 
@@ -214,7 +216,8 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                 address);
 
         cookie->create_key.key =
-                ntb_key_new(ripemd_hash,
+                ntb_key_new(cookie->create_key.label,
+                            ripemd_hash,
                             private_signing_key,
                             pub_signing_key + 1,
                             private_encryption_key,
@@ -335,6 +338,7 @@ ntb_crypto_new(void)
 
 struct ntb_crypto_cookie *
 ntb_crypto_create_key(struct ntb_crypto *crypto,
+                      const char *label,
                       int leading_zeroes,
                       ntb_crypto_create_key_func callback,
                       void *user_data)
@@ -347,6 +351,7 @@ ntb_crypto_create_key(struct ntb_crypto *crypto,
                             NTB_CRYPTO_COOKIE_CREATE_KEY,
                             callback,
                             user_data);
+        cookie->create_key.label = ntb_strdup(label);
         cookie->create_key.leading_zeroes = leading_zeroes;
 
         pthread_mutex_unlock(&crypto->mutex);

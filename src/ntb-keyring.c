@@ -122,6 +122,7 @@ create_key_cb(struct ntb_key *key,
 
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,
+                       const char *label,
                        int leading_zeroes,
                        ntb_keyring_create_key_func func,
                        void *user_data)
@@ -134,6 +135,7 @@ ntb_keyring_create_key(struct ntb_keyring *keyring,
         cookie->user_data = user_data;
 
         cookie->crypto_cookie = ntb_crypto_create_key(keyring->crypto,
+                                                      label,
                                                       leading_zeroes,
                                                       create_key_cb,
                                                       cookie);

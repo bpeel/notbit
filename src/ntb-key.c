@@ -24,7 +24,8 @@
 #include "ntb-util.h"
 
 struct ntb_key *
-ntb_key_new(const uint8_t *address,
+ntb_key_new(const char *label,
+            const uint8_t *address,
             const uint8_t *private_signing_key,
             const uint8_t *public_signing_key,
             const uint8_t *private_encryption_key,
@@ -33,6 +34,15 @@ ntb_key_new(const uint8_t *address,
         struct ntb_key *key = ntb_alloc(sizeof *key);
 
         ntb_ref_count_init(&key->ref_count);
+
+        key->label = ntb_strdup(label);
+        key->version = 4;
+        key->stream = 1;
+        key->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+        key->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+        key->last_pubkey_send_time = 0;
+        key->enabled = true;
+        key->decoy = false;
 
         memcpy(key->address, address, RIPEMD160_DIGEST_LENGTH);
 
@@ -66,6 +76,7 @@ ntb_key_unref(struct ntb_key *key)
 {
         if (ntb_ref_count_unref(&key->ref_count) <= 1) {
                 ntb_ref_count_destroy(&key->ref_count);
+                ntb_free(key->label);
                 ntb_free(key);
         }
 }

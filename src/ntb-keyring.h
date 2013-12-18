@@ -38,6 +38,7 @@ ntb_keyring_new(struct ntb_network *nw);
 
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,
+                       const char *label,
                        int leading_zeroes,
                        ntb_keyring_create_key_func func,
                        void *user_data);
