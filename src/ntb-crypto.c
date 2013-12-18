@@ -22,7 +22,6 @@
 #include <string.h>
 #include <openssl/ripemd.h>
 #include <openssl/sha.h>
-#include <openssl/ecdsa.h>
 #include <openssl/rand.h>
 #include <assert.h>
 
@@ -33,6 +32,7 @@
 #include "ntb-main-context.h"
 #include "ntb-log.h"
 #include "ntb-address.h"
+#include "ntb-pub-key-maker.h"
 
 struct ntb_crypto {
         pthread_mutex_t mutex;
@@ -44,10 +44,7 @@ struct ntb_crypto {
 
         struct ntb_list queue;
 
-        BN_CTX *bn_ctx;
-        BIGNUM bn;
-        EC_GROUP *group;
-        EC_POINT *pub_key_point;
+        struct ntb_pub_key_maker *pub_key_maker;
 };
 
 enum ntb_crypto_cookie_type {
@@ -130,33 +127,12 @@ create_key(struct ntb_crypto *crypto,
            uint8_t *private_key,
            uint8_t *public_key)
 {
-        BIGNUM *bn_result;
         int result;
-        size_t oct_size;
 
         result = RAND_bytes(private_key, NTB_KEY_PRIVATE_SIZE);
         assert(result);
 
-        bn_result = BN_bin2bn(private_key,
-                              NTB_KEY_PRIVATE_SIZE,
-                              &crypto->bn);
-        assert(bn_result);
-
-        result = EC_POINT_mul(crypto->group,
-                              crypto->pub_key_point,
-                              &crypto->bn,
-                              NULL,
-                              NULL,
-                              crypto->bn_ctx);
-        assert(result);
-
-        oct_size = EC_POINT_point2oct(crypto->group,
-                                      crypto->pub_key_point,
-                                      POINT_CONVERSION_UNCOMPRESSED,
-                                      public_key,
-                                      NTB_KEY_PUBLIC_SIZE + 1, /* len */
-                                      crypto->bn_ctx);
-        assert(oct_size == NTB_KEY_PUBLIC_SIZE + 1);
+        ntb_pub_key_maker_make(crypto->pub_key_maker, private_key, public_key);
 }
 
 static int
@@ -321,17 +297,7 @@ ntb_crypto_new(void)
         pthread_mutex_init(&crypto->mutex, NULL);
         crypto->thread = ntb_create_thread(thread_func, crypto);
 
-        crypto->bn_ctx = BN_CTX_new();
-        BN_init(&crypto->bn);
-
-        if (crypto->bn_ctx == NULL)
-                ntb_fatal("Error creating BN_CTX");
-
-        crypto->group = EC_GROUP_new_by_curve_name(NID_secp256k1);
-        crypto->pub_key_point = EC_POINT_new(crypto->group);
-
-        if (crypto->group == NULL)
-                ntb_fatal("Error creating EC_GROUP");
+        crypto->pub_key_maker = ntb_pub_key_maker_new();
 
         return crypto;
 }
@@ -397,10 +363,7 @@ ntb_crypto_free(struct ntb_crypto *crypto)
 
         ntb_slice_allocator_destroy(&crypto->cookie_allocator);
 
-        BN_free(&crypto->bn);
-        BN_CTX_free(crypto->bn_ctx);
-        EC_POINT_free(crypto->pub_key_point);
-        EC_GROUP_free(crypto->group);
+        ntb_pub_key_maker_free(crypto->pub_key_maker);
 
         ntb_free(crypto);
 }

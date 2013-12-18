@@ -16,37 +16,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef NTB_CRYPTO_H
-#define NTB_CRYPTO_H
+#ifndef NTB_PUB_KEY_MAKER_H
+#define NTB_PUB_KEY_MAKER_H
 
-#include <stdbool.h>
-#include <stdint.h>
+struct ntb_pub_key_maker;
 
-#include "ntb-error.h"
-#include "ntb-key.h"
+struct ntb_pub_key_maker *
+ntb_pub_key_maker_new(void);
 
-struct ntb_crypto;
-
-struct ntb_crypto_cookie;
-
-typedef void
-(* ntb_crypto_create_key_func)(struct ntb_key *key,
-                               void *user_data);
-
-struct ntb_crypto *
-ntb_crypto_new(void);
-
-struct ntb_crypto_cookie *
-ntb_crypto_create_key(struct ntb_crypto *crypto,
-                      const char *label,
-                      int leading_zeroes,
-                      ntb_crypto_create_key_func callback,
-                      void *user_data);
+/* Converts a private key into a public key. The public key data
+ * includes the 0x04 prefix so the buffer must be
+ * NTB_KEY_PUBLIC_SIZE+1 */
 
 void
-ntb_crypto_cancel_task(struct ntb_crypto_cookie *cookie);
+ntb_pub_key_maker_make(struct ntb_pub_key_maker *maker,
+                       const uint8_t *private_key,
+                       uint8_t *public_key);
 
 void
-ntb_crypto_free(struct ntb_crypto *crypto);
+ntb_pub_key_maker_free(struct ntb_pub_key_maker *maker);
 
-#endif /* NTB_CRYPTO_H */
+#endif /* NTB_PUB_KEY_MAKER_H */

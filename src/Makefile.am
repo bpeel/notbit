@@ -46,6 +46,8 @@ notbit_SOURCES = \
 	ntb-pow.h \
 	ntb-proto.c \
 	ntb-proto.h \
+	ntb-pub-key-maker.c \
+	ntb-pub-key-maker.h \
 	ntb-ref-count.h \
 	ntb-signal.h \
 	ntb-slab.c \
