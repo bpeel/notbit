@@ -321,7 +321,7 @@ ntb_crypto_new(void)
         BN_init(&crypto->bn);
 
         if (crypto->bn_ctx == NULL)
-                ntb_fatal("Error creating BTN_CTX");
+                ntb_fatal("Error creating BN_CTX");
 
         crypto->group = EC_GROUP_new_by_curve_name(NID_secp256k1);
         crypto->pub_key_point = EC_POINT_new(crypto->group);
