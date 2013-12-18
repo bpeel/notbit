@@ -32,6 +32,7 @@
 #include "ntb-list.h"
 #include "ntb-main-context.h"
 #include "ntb-log.h"
+#include "ntb-address.h"
 
 struct ntb_crypto {
         pthread_mutex_t mutex;
@@ -176,6 +177,7 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         uint8_t pub_encryption_key[NTB_KEY_PUBLIC_SIZE + 1];
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
         uint8_t ripemd_hash[RIPEMD160_DIGEST_LENGTH];
+        char address[NTB_ADDRESS_MAX_LENGTH + 1];
         SHA512_CTX sha_ctx;
         int attempts = 0;
 
@@ -203,9 +205,12 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         } while (count_leading_zeroes(ripemd_hash) <
                  cookie->create_key.leading_zeroes);
 
-        ntb_log("Key pair generated after %i attempt%s",
+        ntb_address_encode(4, 1, ripemd_hash, address);
+
+        ntb_log("Key pair generated after %i attempt%s. Address is %s",
                 attempts,
-                attempts == 1 ? "" : "s");
+                attempts == 1 ? "" : "s",
+                address);
 
         cookie->create_key.key =
                 ntb_key_new(ripemd_hash,
