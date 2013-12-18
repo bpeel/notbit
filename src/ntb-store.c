@@ -39,6 +39,8 @@
 #include "ntb-proto.h"
 #include "ntb-main-context.h"
 #include "ntb-file-error.h"
+#include "ntb-base58.h"
+#include "ntb-address.h"
 
 struct ntb_error_domain
 ntb_store_error;
@@ -114,6 +116,10 @@ struct ntb_store_cookie {
 /* The cookies are only allocated and destroyed in the main thread so
  * we don't need to have a per-store allocator */
 NTB_SLICE_ALLOCATOR(struct ntb_store_cookie, ntb_store_cookie_allocator);
+
+/* ceil(log₅₈(2 ** ((private_key_size + 4 + 1) × 8))) */
+/* The added four is for the checksum, and the 1 for the 0x80 prefix */
+#define NTB_STORE_MAX_WIF_LENGTH 51
 
 static struct ntb_store *ntb_store_default = NULL;
 
@@ -527,21 +533,72 @@ handle_save_addr_list(struct ntb_store *store,
 }
 
 static void
-write_hex(FILE *out,
-          const uint8_t *data,
-          size_t length)
+encode_wif(const uint8_t *key,
+           char *wif)
 {
-        size_t i;
+        uint8_t hash1[SHA256_DIGEST_LENGTH];
+        uint8_t hash2[SHA256_DIGEST_LENGTH];
+        uint8_t address_bytes[NTB_KEY_PRIVATE_SIZE + 4 + 1];
+        size_t wif_length;
 
-        for (i = 0; i < length; i++)
-                fprintf(out, "%02x", data[i]);
+        address_bytes[0] = 0x80;
+        memcpy(address_bytes + 1, key, NTB_KEY_PRIVATE_SIZE);
+
+        SHA256(address_bytes, NTB_KEY_PRIVATE_SIZE + 1, hash1);
+        SHA256(hash1, SHA256_DIGEST_LENGTH, hash2);
+
+        memcpy(address_bytes + NTB_KEY_PRIVATE_SIZE + 1, hash2, 4);
+
+        wif_length = ntb_base58_encode(address_bytes,
+                                       sizeof address_bytes,
+                                       wif);
+        assert(wif_length <= NTB_STORE_MAX_WIF_LENGTH);
+
+        wif[wif_length] = '\0';
+}
+
+static void
+write_key(struct ntb_key *key,
+          FILE *out)
+{
+        char address[NTB_ADDRESS_MAX_LENGTH + 1];
+        char signing_key_wif[NTB_STORE_MAX_WIF_LENGTH + 1];
+        char encryption_key_wif[NTB_STORE_MAX_WIF_LENGTH + 1];
+
+        ntb_address_encode(key->version,
+                           key->stream,
+                           key->address,
+                           address);
+
+        encode_wif(key->private_signing_key, signing_key_wif);
+        encode_wif(key->private_encryption_key, encryption_key_wif);
+
+        fprintf(out,
+                "[%s]\n"
+                "label = %s\n"
+                "enabled = %s\n"
+                "decoy = %s\n"
+                "noncetrialsperbyte = %i\n"
+                "payloadlengthextrabytes = %i\n"
+                "privsigningkey = %s\n"
+                "privencryptionkey = %s\n"
+                "lastpubkeysendtime = %" PRIi64 "\n"
+                "\n",
+                address,
+                key->label,
+                key->enabled ? "true" : "false",
+                key->decoy ? "true" : "false",
+                key->nonce_trials_per_byte,
+                key->payload_length_extra_bytes,
+                signing_key_wif,
+                encryption_key_wif,
+                key->last_pubkey_send_time);
 }
 
 static void
 handle_save_keys(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
-        struct ntb_key *key;
         FILE *out;
         int i;
 
@@ -549,7 +606,7 @@ handle_save_keys(struct ntb_store *store,
 
         store->filename_buf.length = store->directory_len;
         ntb_buffer_append_string(&store->filename_buf,
-                                 "private-keys.txt.tmp");
+                                 "keys.dat.tmp");
 
         out = fopen((char *) store->filename_buf.data, "w");
 
@@ -560,18 +617,8 @@ handle_save_keys(struct ntb_store *store,
                 return;
         }
 
-        for (i = 0; i < task->save_keys.n_keys; i++) {
-                key = task->save_keys.keys[i];
-
-                write_hex(out,
-                          key->private_signing_key,
-                          NTB_KEY_PRIVATE_SIZE);
-                fputc(',', out);
-                write_hex(out,
-                          key->private_encryption_key,
-                          NTB_KEY_PRIVATE_SIZE);
-                fputc('\n', out);
-        }
+        for (i = 0; i < task->save_keys.n_keys; i++)
+                write_key(task->save_keys.keys[i], out);
 
         if (fclose(out) == EOF) {
                 ntb_log("Error writing to %s: %s",
