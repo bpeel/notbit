@@ -60,6 +60,8 @@ ntb_base58_encode(const uint8_t *input,
                 *(p++) = alphabet[part];
         }
 
+        BN_free(&val);
+
         /* Make it big-endian */
         reverse_bytes(output, p - output);
 
