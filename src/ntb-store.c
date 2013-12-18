@@ -67,6 +67,7 @@ enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_SAVE_BLOB,
         NTB_STORE_TASK_TYPE_LOAD_BLOB,
         NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST,
+        NTB_STORE_TASK_TYPE_SAVE_KEYS,
         NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
 
@@ -89,6 +90,11 @@ struct ntb_store_task {
                         struct ntb_store_addr *addrs;
                         int n_addrs;
                 } save_addr_list;
+
+                struct {
+                        struct ntb_key **keys;
+                        int n_keys;
+                } save_keys;
 
                 struct {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
@@ -521,9 +527,80 @@ handle_save_addr_list(struct ntb_store *store,
 }
 
 static void
+write_hex(FILE *out,
+          const uint8_t *data,
+          size_t length)
+{
+        size_t i;
+
+        for (i = 0; i < length; i++)
+                fprintf(out, "%02x", data[i]);
+}
+
+static void
+handle_save_keys(struct ntb_store *store,
+                 struct ntb_store_task *task)
+{
+        struct ntb_key *key;
+        FILE *out;
+        int i;
+
+        ntb_log("Saving private keys");
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf,
+                                 "private-keys.txt.tmp");
+
+        out = fopen((char *) store->filename_buf.data, "w");
+
+        if (out == NULL) {
+                ntb_log("Error opening %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        for (i = 0; i < task->save_keys.n_keys; i++) {
+                key = task->save_keys.keys[i];
+
+                write_hex(out,
+                          key->private_signing_key,
+                          NTB_KEY_PRIVATE_SIZE);
+                fputc(',', out);
+                write_hex(out,
+                          key->private_encryption_key,
+                          NTB_KEY_PRIVATE_SIZE);
+                fputc('\n', out);
+        }
+
+        if (fclose(out) == EOF) {
+                ntb_log("Error writing to %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        store->tmp_buf.length = 0;
+        ntb_buffer_append(&store->tmp_buf,
+                          store->filename_buf.data,
+                          store->filename_buf.length - 4);
+        ntb_buffer_append_c(&store->tmp_buf, '\0');
+
+        if (rename((char *) store->filename_buf.data,
+                   (char *) store->tmp_buf.data) == -1) {
+                ntb_log("Error renaming %s to %s: %s",
+                        (char *) store->filename_buf.data,
+                        (char *) store->tmp_buf.data,
+                        strerror(errno));
+        }
+}
+
+static void
 free_task(struct ntb_store *store,
           struct ntb_store_task *task)
 {
+        int i;
+
         /* This must be called with the lock */
 
         switch (task->type) {
@@ -535,6 +612,11 @@ free_task(struct ntb_store *store,
                 break;
         case NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST:
                 ntb_free(task->save_addr_list.addrs);
+                break;
+        case NTB_STORE_TASK_TYPE_SAVE_KEYS:
+                for (i = 0; i < task->save_keys.n_keys; i++)
+                        ntb_key_unref(task->save_keys.keys[i]);
+                ntb_free(task->save_keys.keys);
                 break;
         }
 
@@ -576,6 +658,9 @@ store_thread_func(void *user_data)
                                 break;
                         case NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST:
                                 handle_save_addr_list(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_SAVE_KEYS:
+                                handle_save_keys(store, task);
                                 break;
                         case NTB_STORE_TASK_TYPE_LOAD_BLOB:
                                 assert(false);
@@ -705,6 +790,31 @@ ntb_store_save_addr_list(struct ntb_store *store,
 
         task->save_addr_list.addrs = addrs;
         task->save_addr_list.n_addrs = n_addrs;
+
+        pthread_mutex_unlock(&store->mutex);
+}
+
+void
+ntb_store_save_keys(struct ntb_store *store,
+                    struct ntb_key * const *keys,
+                    int n_keys)
+{
+        struct ntb_store_task *task;
+        int i;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_KEYS);
+
+        task->save_keys.keys = ntb_alloc(sizeof (struct ntb_key *) * n_keys);
+
+        for (i = 0; i < n_keys; i++)
+                task->save_keys.keys[i] = ntb_key_ref(keys[i]);
+
+        task->save_keys.n_keys = n_keys;
 
         pthread_mutex_unlock(&store->mutex);
 }

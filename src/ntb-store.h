@@ -24,6 +24,7 @@
 #include "ntb-blob.h"
 #include "ntb-error.h"
 #include "ntb-netaddress.h"
+#include "ntb-key.h"
 
 /* The store is used to do all of the disk I/O. The actions are stored
  * in a queue and then executed in a separate thread */
@@ -88,6 +89,11 @@ void
 ntb_store_save_addr_list(struct ntb_store *store,
                          struct ntb_store_addr *addrs,
                          int n_addrs);
+
+void
+ntb_store_save_keys(struct ntb_store *store,
+                    struct ntb_key * const *keys,
+                    int n_keys);
 
 void
 ntb_store_for_each_blob(struct ntb_store *store,
