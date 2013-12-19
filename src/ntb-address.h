@@ -40,4 +40,10 @@ ntb_address_encode(uint8_t version,
                    const uint8_t *ripe,
                    char *output);
 
+bool
+ntb_address_decode(const char *address,
+                   int *version,
+                   int *stream,
+                   uint8_t *ripe);
+
 #endif /* NTB_ADDRESS_H */

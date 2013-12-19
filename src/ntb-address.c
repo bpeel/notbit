@@ -26,20 +26,42 @@
 #include "ntb-address.h"
 #include "ntb-base58.h"
 
+static void
+calc_checksum(uint8_t version,
+              uint8_t stream,
+              const uint8_t *ripe,
+              size_t ripe_length,
+              uint8_t *output)
+{
+        SHA512_CTX sha_ctx;
+        uint8_t hash1[SHA512_DIGEST_LENGTH];
+        uint8_t hash2[SHA512_DIGEST_LENGTH];
+
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, &version, 1);
+        SHA512_Update(&sha_ctx, &stream, 1);
+        SHA512_Update(&sha_ctx, ripe, ripe_length);
+        SHA512_Final(hash1, &sha_ctx);
+
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, hash1, SHA512_DIGEST_LENGTH);
+        SHA512_Final(hash2, &sha_ctx);
+
+        memcpy(output, hash2, 4);
+}
+
 void
 ntb_address_encode(uint8_t version,
                    uint8_t stream,
                    const uint8_t *ripe,
                    char *output)
 {
-        SHA512_CTX sha_ctx;
-        uint8_t hash1[SHA512_DIGEST_LENGTH];
-        uint8_t hash2[SHA512_DIGEST_LENGTH];
         uint8_t bin_address[1 + 1 + RIPEMD160_DIGEST_LENGTH + 4];
         uint8_t *p;
         int ripe_length;
         int max_trim;
         size_t address_length;
+        uint8_t checksum[4];
         int i;
 
         ripe_length = RIPEMD160_DIGEST_LENGTH;
@@ -54,22 +76,14 @@ ntb_address_encode(uint8_t version,
                 ripe_length--;
         }
 
-        SHA512_Init(&sha_ctx);
-        SHA512_Update(&sha_ctx, &version, 1);
-        SHA512_Update(&sha_ctx, &stream, 1);
-        SHA512_Update(&sha_ctx, ripe, ripe_length);
-        SHA512_Final(hash1, &sha_ctx);
-
-        SHA512_Init(&sha_ctx);
-        SHA512_Update(&sha_ctx, hash1, SHA512_DIGEST_LENGTH);
-        SHA512_Final(hash2, &sha_ctx);
+        calc_checksum(version, stream, ripe, ripe_length, checksum);
 
         p = bin_address;
         *(p++) = version;
         *(p++) = stream;
         memcpy(p, ripe, ripe_length);
         p += ripe_length;
-        memcpy(p, hash2, 4);
+        memcpy(p, checksum, sizeof checksum);
         p += 4;
 
         assert(p - bin_address <= sizeof bin_address);
@@ -79,4 +93,49 @@ ntb_address_encode(uint8_t version,
                                            p - bin_address,
                                            output + 3);
         output[address_length + 3] = '\0';
+}
+
+bool
+ntb_address_decode(const char *address,
+                   int *version,
+                   int *stream,
+                   uint8_t *ripe)
+{
+        uint8_t bin_address[1 + 1 + RIPEMD160_DIGEST_LENGTH + 4];
+        uint8_t checksum[4];
+        ssize_t bin_address_length;
+        const uint8_t *ripe_start = bin_address + 1 + 1;
+        ssize_t ripe_length;
+
+        if (!strncmp(address, "BM-", 3))
+                address += 3;
+
+        bin_address_length = ntb_base58_decode(address,
+                                               strlen(address),
+                                               bin_address,
+                                               sizeof bin_address);
+        if (bin_address_length == -1)
+                return false;
+
+        ripe_length = bin_address_length - 1 - 1 - 4;
+
+        if (ripe_length < 0)
+                return false;
+
+        calc_checksum(bin_address[0],
+                      bin_address[1],
+                      ripe_start, ripe_length,
+                      checksum);
+
+        if (memcmp(checksum, ripe_start + ripe_length, 4))
+                return false;
+
+        memset(ripe, 0, RIPEMD160_DIGEST_LENGTH - ripe_length);
+        memcpy(ripe + RIPEMD160_DIGEST_LENGTH - ripe_length,
+               ripe_start,
+               ripe_length);
+        *version = bin_address[0];
+        *stream = bin_address[1];
+
+        return true;
 }
