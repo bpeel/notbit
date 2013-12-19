@@ -22,6 +22,7 @@
 #include <stdbool.h>
 
 #include "ntb-error.h"
+#include "ntb-signal.h"
 
 extern struct ntb_error_domain
 ntb_network_error;

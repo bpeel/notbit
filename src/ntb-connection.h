@@ -30,25 +30,25 @@
 #include "ntb-proto.h"
 #include "ntb-blob.h"
 
-enum ntb_connection_message_type {
-        NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
-        NTB_CONNECTION_MESSAGE_ERROR,
+enum ntb_connection_event_type {
+        NTB_CONNECTION_EVENT_CONNECT_FAILED,
+        NTB_CONNECTION_EVENT_ERROR,
 
-        NTB_CONNECTION_MESSAGE_VERSION,
-        NTB_CONNECTION_MESSAGE_INV,
-        NTB_CONNECTION_MESSAGE_ADDR,
-        NTB_CONNECTION_MESSAGE_OBJECT,
-        NTB_CONNECTION_MESSAGE_GETDATA,
-        NTB_CONNECTION_MESSAGE_VERACK
+        NTB_CONNECTION_EVENT_VERSION,
+        NTB_CONNECTION_EVENT_INV,
+        NTB_CONNECTION_EVENT_ADDR,
+        NTB_CONNECTION_EVENT_OBJECT,
+        NTB_CONNECTION_EVENT_GETDATA,
+        NTB_CONNECTION_EVENT_VERACK
 };
 
-struct ntb_connection_message {
-        enum ntb_connection_message_type type;
+struct ntb_connection_event {
+        enum ntb_connection_event_type type;
         struct ntb_connection *connection;
 };
 
-struct ntb_connection_version_message {
-        struct ntb_connection_message base;
+struct ntb_connection_version_event {
+        struct ntb_connection_event base;
 
         uint32_t version;
         uint64_t services;
@@ -62,8 +62,8 @@ struct ntb_connection_version_message {
         struct ntb_proto_var_int_list stream_numbers;
 };
 
-struct ntb_connection_object_message {
-        struct ntb_connection_message base;
+struct ntb_connection_object_event {
+        struct ntb_connection_event base;
 
         enum ntb_proto_inv_type type;
 
@@ -75,15 +75,15 @@ struct ntb_connection_object_message {
         size_t object_data_length;
 };
 
-struct ntb_connection_inv_message {
-        struct ntb_connection_message base;
+struct ntb_connection_inv_event {
+        struct ntb_connection_event base;
 
         uint64_t n_inventories;
         const uint8_t *inventories;
 };
 
-struct ntb_connection_addr_message {
-        struct ntb_connection_message base;
+struct ntb_connection_addr_event {
+        struct ntb_connection_event base;
 
         int64_t timestamp;
         uint32_t stream;
@@ -91,8 +91,8 @@ struct ntb_connection_addr_message {
         struct ntb_netaddress address;
 };
 
-struct ntb_connection_getdata_message {
-        struct ntb_connection_message base;
+struct ntb_connection_getdata_event {
+        struct ntb_connection_event base;
 
         uint64_t n_hashes;
         const uint8_t *hashes;
@@ -112,7 +112,7 @@ void
 ntb_connection_free(struct ntb_connection *conn);
 
 struct ntb_signal *
-ntb_connection_get_message_signal(struct ntb_connection *conn);
+ntb_connection_get_event_signal(struct ntb_connection *conn);
 
 const char *
 ntb_connection_get_remote_address_string(struct ntb_connection *conn);

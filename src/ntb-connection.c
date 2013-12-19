@@ -70,7 +70,7 @@ struct ntb_connection {
         struct ntb_buffer in_buf;
         struct ntb_buffer out_buf;
 
-        struct ntb_signal message_signal;
+        struct ntb_signal event_signal;
 
         bool connect_succeeded;
 
@@ -109,13 +109,13 @@ NTB_SLICE_ALLOCATOR(struct ntb_connection_queue_entry,
                     ntb_connection_queue_entry_allocator);
 
 static bool
-emit_message(struct ntb_connection *conn,
-             enum ntb_connection_message_type type,
-             struct ntb_connection_message *message)
+emit_event(struct ntb_connection *conn,
+           enum ntb_connection_event_type type,
+           struct ntb_connection_event *event)
 {
-        message->type = type;
-        message->connection = conn;
-        return ntb_signal_emit(&conn->message_signal, message);
+        event->type = type;
+        event->connection = conn;
+        return ntb_signal_emit(&conn->event_signal, event);
 }
 
 static void
@@ -134,16 +134,16 @@ remove_sources(struct ntb_connection *conn)
 static void
 set_error_state(struct ntb_connection *conn)
 {
-        struct ntb_connection_message message;
+        struct ntb_connection_event event;
 
         /* Stop polling for further events */
         remove_sources(conn);
 
-        emit_message(conn,
-                     conn->connect_succeeded ?
-                     NTB_CONNECTION_MESSAGE_ERROR :
-                     NTB_CONNECTION_MESSAGE_CONNECT_FAILED,
-                     &message);
+        emit_event(conn,
+                   conn->connect_succeeded ?
+                   NTB_CONNECTION_EVENT_ERROR :
+                   NTB_CONNECTION_EVENT_CONNECT_FAILED,
+                   &event);
 }
 
 static void
@@ -226,50 +226,50 @@ check_command_string(const uint8_t *command_string)
 static bool
 addr_command_handler(struct ntb_connection *conn,
                      const uint8_t *data,
-                     uint32_t message_length)
+                     uint32_t command_length)
 {
-        struct ntb_connection_addr_message message;
+        struct ntb_connection_addr_event event;
         uint64_t n_addresses;
         ssize_t addr_length;
 
-        if (!ntb_proto_get_var_int(&data, &message_length, &n_addresses))
+        if (!ntb_proto_get_var_int(&data, &command_length, &n_addresses))
                 goto error;
 
         while (n_addresses--) {
                 addr_length =
-                        ntb_proto_get_message(data,
-                                              message_length,
+                        ntb_proto_get_command(data,
+                                              command_length,
 
                                               NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &message.timestamp,
+                                              &event.timestamp,
 
                                               NTB_PROTO_ARGUMENT_32,
-                                              &message.stream,
+                                              &event.stream,
 
                                               NTB_PROTO_ARGUMENT_64,
-                                              &message.services,
+                                              &event.services,
 
                                               NTB_PROTO_ARGUMENT_NETADDRESS,
-                                              &message.address,
+                                              &event.address,
 
                                               NTB_PROTO_ARGUMENT_END);
 
                 if (addr_length == -1)
                         goto error;
 
-                message_length -= addr_length;
+                command_length -= addr_length;
                 data += addr_length;
 
-                if (!emit_message(conn,
-                                  NTB_CONNECTION_MESSAGE_ADDR,
-                                  &message.base))
+                if (!emit_event(conn,
+                                NTB_CONNECTION_EVENT_ADDR,
+                                &event.base))
                         return false;
         }
 
         return true;
 
 error:
-        ntb_log("Invalid addr message received from %s",
+        ntb_log("Invalid addr command received from %s",
                 conn->remote_address_string);
         set_error_state(conn);
         return false;
@@ -278,26 +278,26 @@ error:
 static bool
 getdata_command_handler(struct ntb_connection *conn,
                         const uint8_t *data,
-                        uint32_t message_length)
+                        uint32_t command_length)
 {
-        struct ntb_connection_getdata_message message;
+        struct ntb_connection_getdata_event event;
 
-        if (!ntb_proto_get_var_int(&data, &message_length, &message.n_hashes))
+        if (!ntb_proto_get_var_int(&data, &command_length, &event.n_hashes))
                 goto error;
 
-        if (message_length < message.n_hashes * NTB_PROTO_HASH_LENGTH)
+        if (command_length < event.n_hashes * NTB_PROTO_HASH_LENGTH)
                 goto error;
 
-        message.hashes = data;
+        event.hashes = data;
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_GETDATA,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_GETDATA,
+                          &event.base);
 
         return true;
 
 error:
-        ntb_log("Invalid addr message received from %s",
+        ntb_log("Invalid addr command received from %s",
                 conn->remote_address_string);
         set_error_state(conn);
         return false;
@@ -306,250 +306,250 @@ error:
 static bool
 version_command_handler(struct ntb_connection *conn,
                         const uint8_t *data,
-                        uint32_t message_length)
+                        uint32_t command_length)
 {
-        struct ntb_connection_version_message message;
+        struct ntb_connection_version_event event;
         uint64_t dummy_64;
 
-        if (ntb_proto_get_message(data,
-                                  message_length,
+        if (ntb_proto_get_command(data,
+                                  command_length,
 
                                   NTB_PROTO_ARGUMENT_32,
-                                  &message.version,
+                                  &event.version,
 
                                   NTB_PROTO_ARGUMENT_64,
-                                  &message.services,
+                                  &event.services,
 
                                   NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                  &message.timestamp,
+                                  &event.timestamp,
 
                                   NTB_PROTO_ARGUMENT_64,
                                   &dummy_64,
                                   NTB_PROTO_ARGUMENT_NETADDRESS,
-                                  &message.addr_recv,
+                                  &event.addr_recv,
 
                                   NTB_PROTO_ARGUMENT_64,
                                   &dummy_64,
                                   NTB_PROTO_ARGUMENT_NETADDRESS,
-                                  &message.addr_from,
+                                  &event.addr_from,
 
                                   NTB_PROTO_ARGUMENT_64,
-                                  &message.nonce,
+                                  &event.nonce,
 
                                   NTB_PROTO_ARGUMENT_VAR_STR,
-                                  &message.user_agent,
+                                  &event.user_agent,
 
                                   NTB_PROTO_ARGUMENT_VAR_INT_LIST,
-                                  &message.stream_numbers,
+                                  &event.stream_numbers,
 
                                   NTB_PROTO_ARGUMENT_END) == -1) {
-                ntb_log("Invalid version message received from %s",
+                ntb_log("Invalid version command received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
                 return false;
         }
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_VERSION,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_VERSION,
+                          &event.base);
 }
 
 static bool
 verack_command_handler(struct ntb_connection *conn,
                        const uint8_t *data,
-                       uint32_t message_length)
+                       uint32_t command_length)
 {
-        struct ntb_connection_message message;
+        struct ntb_connection_event event;
 
-        return emit_message(conn, NTB_CONNECTION_MESSAGE_VERACK, &message);
+        return emit_event(conn, NTB_CONNECTION_EVENT_VERACK, &event);
 }
 
 static bool
 getpubkey_command_handler(struct ntb_connection *conn,
                           const uint8_t *data,
-                          uint32_t message_length)
+                          uint32_t command_length)
 {
-        struct ntb_connection_object_message message;
+        struct ntb_connection_object_event event;
         ssize_t header_length;
         uint64_t address_version;
 
-        message.type = NTB_PROTO_INV_TYPE_GETPUBKEY;
-        message.object_data_length = message_length;
-        message.object_data = data;
+        event.type = NTB_PROTO_INV_TYPE_GETPUBKEY;
+        event.object_data_length = command_length;
+        event.object_data = data;
 
-        header_length = ntb_proto_get_message(data,
-                                              message_length,
+        header_length = ntb_proto_get_command(data,
+                                              command_length,
 
                                               NTB_PROTO_ARGUMENT_64,
-                                              &message.nonce,
+                                              &event.nonce,
 
                                               NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &message.timestamp,
+                                              &event.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
                                               &address_version,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.stream_number,
+                                              &event.stream_number,
 
                                               NTB_PROTO_ARGUMENT_END);
 
         if (header_length == -1) {
-                ntb_log("Invalid getpubkey message received from %s",
+                ntb_log("Invalid getpubkey command received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
                 return false;
         }
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_OBJECT,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_OBJECT,
+                          &event.base);
 }
 
 static bool
 pubkey_command_handler(struct ntb_connection *conn,
                        const uint8_t *data,
-                       uint32_t message_length)
+                       uint32_t command_length)
 {
-        struct ntb_connection_object_message message;
+        struct ntb_connection_object_event event;
         ssize_t header_length;
         uint64_t address_version;
 
-        message.type = NTB_PROTO_INV_TYPE_PUBKEY;
-        message.object_data_length = message_length;
-        message.object_data = data;
+        event.type = NTB_PROTO_INV_TYPE_PUBKEY;
+        event.object_data_length = command_length;
+        event.object_data = data;
 
-        header_length = ntb_proto_get_message(data,
-                                              message_length,
+        header_length = ntb_proto_get_command(data,
+                                              command_length,
 
                                               NTB_PROTO_ARGUMENT_64,
-                                              &message.nonce,
+                                              &event.nonce,
 
                                               NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &message.timestamp,
+                                              &event.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
                                               &address_version,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.stream_number,
+                                              &event.stream_number,
 
                                               NTB_PROTO_ARGUMENT_END);
 
         if (header_length == -1) {
-                ntb_log("Invalid pubkey message received from %s",
+                ntb_log("Invalid pubkey command received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
                 return false;
         }
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_OBJECT,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_OBJECT,
+                          &event.base);
 }
 
 static bool
 msg_command_handler(struct ntb_connection *conn,
                     const uint8_t *data,
-                    uint32_t message_length)
+                    uint32_t command_length)
 {
-        struct ntb_connection_object_message message;
+        struct ntb_connection_object_event event;
         ssize_t header_length;
 
-        message.type = NTB_PROTO_INV_TYPE_MSG;
-        message.object_data_length = message_length;
-        message.object_data = data;
+        event.type = NTB_PROTO_INV_TYPE_MSG;
+        event.object_data_length = command_length;
+        event.object_data = data;
 
-        header_length = ntb_proto_get_message(data,
-                                              message_length,
+        header_length = ntb_proto_get_command(data,
+                                              command_length,
 
                                               NTB_PROTO_ARGUMENT_64,
-                                              &message.nonce,
+                                              &event.nonce,
 
                                               NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &message.timestamp,
+                                              &event.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.stream_number,
+                                              &event.stream_number,
 
                                               NTB_PROTO_ARGUMENT_END);
 
         if (header_length == -1) {
-                ntb_log("Invalid msg message received from %s",
+                ntb_log("Invalid msg command received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
                 return false;
         }
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_OBJECT,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_OBJECT,
+                          &event.base);
 }
 
 static bool
 broadcast_command_handler(struct ntb_connection *conn,
                           const uint8_t *data,
-                          uint32_t message_length)
+                          uint32_t command_length)
 {
-        struct ntb_connection_object_message message;
+        struct ntb_connection_object_event event;
         ssize_t header_length;
         uint64_t broadcast_version;
 
-        message.type = NTB_PROTO_INV_TYPE_BROADCAST;
-        message.object_data_length = message_length;
-        message.object_data = data;
+        event.type = NTB_PROTO_INV_TYPE_BROADCAST;
+        event.object_data_length = command_length;
+        event.object_data = data;
 
-        header_length = ntb_proto_get_message(data,
-                                              message_length,
+        header_length = ntb_proto_get_command(data,
+                                              command_length,
 
                                               NTB_PROTO_ARGUMENT_64,
-                                              &message.nonce,
+                                              &event.nonce,
 
                                               NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &message.timestamp,
+                                              &event.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
                                               &broadcast_version,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.stream_number,
+                                              &event.stream_number,
 
                                               NTB_PROTO_ARGUMENT_END);
 
         if (header_length == -1) {
-                ntb_log("Invalid msg message received from %s",
+                ntb_log("Invalid msg command received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
                 return false;
         }
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_OBJECT,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_OBJECT,
+                          &event.base);
 }
 
 static bool
 inv_command_handler(struct ntb_connection *conn,
                     const uint8_t *data,
-                    uint32_t message_length)
+                    uint32_t command_length)
 {
-        struct ntb_connection_inv_message message;
+        struct ntb_connection_inv_event event;
 
         if (!ntb_proto_get_var_int(&data,
-                                   &message_length,
-                                   &message.n_inventories) ||
-            message_length < message.n_inventories * NTB_PROTO_HASH_LENGTH) {
-                ntb_log("Invalid inv message received from %s",
+                                   &command_length,
+                                   &event.n_inventories) ||
+            command_length < event.n_inventories * NTB_PROTO_HASH_LENGTH) {
+                ntb_log("Invalid inv command received from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
                 return false;
         }
 
-        message.inventories = data;
+        event.inventories = data;
 
-        return emit_message(conn,
-                            NTB_CONNECTION_MESSAGE_INV,
-                            &message.base);
+        return emit_event(conn,
+                          NTB_CONNECTION_EVENT_INV,
+                          &event.base);
 }
 
 static void
@@ -562,7 +562,7 @@ send_pong(struct ntb_connection *conn)
 static bool
 ping_command_handler(struct ntb_connection *conn,
                      const uint8_t *data,
-                     uint32_t message_length)
+                     uint32_t command_length)
 {
         send_pong(conn);
 
@@ -573,8 +573,8 @@ static const struct {
         const char *command_name;
         bool (* func)(struct ntb_connection *conn,
                       const uint8_t *data,
-                      uint32_t message_length);
-} message_handlers[] = {
+                      uint32_t command_length);
+} command_handlers[] = {
         { "getpubkey", getpubkey_command_handler },
         { "pubkey", pubkey_command_handler },
         { "msg", msg_command_handler },
@@ -588,9 +588,9 @@ static const struct {
 };
 
 static bool
-process_message(struct ntb_connection *conn,
+process_command(struct ntb_connection *conn,
                 const uint8_t *data,
-                uint32_t message_length)
+                uint32_t command_length)
 {
         char hex_a[9], hex_b[9];
         uint8_t hash[SHA512_DIGEST_LENGTH];
@@ -598,7 +598,7 @@ process_message(struct ntb_connection *conn,
 
         if (memcmp(data, ntb_proto_magic, sizeof ntb_proto_magic)) {
                 get_hex_string(data, sizeof ntb_proto_magic, hex_a);
-                ntb_log("Invalid message magic from %s (%s)",
+                ntb_log("Invalid command magic from %s (%s)",
                         conn->remote_address_string, hex_a);
                 set_error_state(conn);
                 return false;
@@ -611,7 +611,7 @@ process_message(struct ntb_connection *conn,
                 return false;
         }
 
-        SHA512(data + NTB_PROTO_HEADER_SIZE, message_length, hash);
+        SHA512(data + NTB_PROTO_HEADER_SIZE, command_length, hash);
 
         /* Compare the checksum */
         if (memcmp(hash, data + 20, 4)) {
@@ -627,23 +627,23 @@ process_message(struct ntb_connection *conn,
                 return false;
         }
 
-        for (i = 0; i < NTB_N_ELEMENTS(message_handlers); i++) {
+        for (i = 0; i < NTB_N_ELEMENTS(command_handlers); i++) {
                 if (!strcmp((const char *) data + 4,
-                            message_handlers[i].command_name))
-                        return message_handlers[i].func(conn,
+                            command_handlers[i].command_name))
+                        return command_handlers[i].func(conn,
                                                         data +
                                                         NTB_PROTO_HEADER_SIZE,
-                                                        message_length);
+                                                        command_length);
         }
 
-        /* Unknown message which we'll just ignore */
+        /* Unknown command which we'll just ignore */
         return true;
 }
 
 static void
-process_messages(struct ntb_connection *conn)
+process_commands(struct ntb_connection *conn)
 {
-        uint32_t message_length;
+        uint32_t command_length;
         uint8_t *data = conn->in_buf.data;
         size_t length = conn->in_buf.length;
 
@@ -651,29 +651,29 @@ process_messages(struct ntb_connection *conn)
                 if (length < NTB_PROTO_HEADER_SIZE)
                         break;
 
-                message_length = ntb_proto_get_32(data + 16);
+                command_length = ntb_proto_get_32(data + 16);
 
-                /* Limit the length of a message or the client would
+                /* Limit the length of a command or the client would
                  * be able to pretend it's going to send a really long
                  * message and we'd just keep growing the buffer
                  * until we run out of memory and abort */
-                if (message_length > NTB_CONNECTION_MAX_MESSAGE_SIZE) {
-                        ntb_log("Client %s sent a message that is too long "
+                if (command_length > NTB_CONNECTION_MAX_MESSAGE_SIZE) {
+                        ntb_log("Client %s sent a command that is too long "
                                 "(%" PRIu32 ")",
                                 conn->remote_address_string,
-                                message_length);
+                                command_length);
                         set_error_state(conn);
                         return;
                 }
 
-                if (length < NTB_PROTO_HEADER_SIZE + message_length)
+                if (length < NTB_PROTO_HEADER_SIZE + command_length)
                         break;
 
-                if (!process_message(conn, data, message_length))
+                if (!process_command(conn, data, command_length))
                         return;
 
-                data += message_length + NTB_PROTO_HEADER_SIZE;
-                length -= message_length + NTB_PROTO_HEADER_SIZE;
+                data += command_length + NTB_PROTO_HEADER_SIZE;
+                length -= command_length + NTB_PROTO_HEADER_SIZE;
         }
 
         memmove(conn->in_buf.data, data, length);
@@ -709,7 +709,7 @@ handle_read(struct ntb_connection *conn)
                 conn->last_read_time =
                         ntb_main_context_get_monotonic_clock(NULL);
                 conn->in_buf.length += got;
-                process_messages(conn);
+                process_commands(conn);
         }
 }
 
@@ -946,7 +946,7 @@ ntb_connection_new_for_socket(int sock,
         conn->remote_address_string = ntb_netaddress_to_string(remote_address);
         conn->connect_succeeded = false;
 
-        ntb_signal_init(&conn->message_signal);
+        ntb_signal_init(&conn->event_signal);
 
         conn->socket_source =
                 ntb_main_context_add_poll(NULL, /* context */
@@ -974,9 +974,9 @@ ntb_connection_new_for_socket(int sock,
 }
 
 struct ntb_signal *
-ntb_connection_get_message_signal(struct ntb_connection *conn)
+ntb_connection_get_event_signal(struct ntb_connection *conn)
 {
-        return &conn->message_signal;
+        return &conn->event_signal;
 }
 
 const char *

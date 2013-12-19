@@ -234,7 +234,7 @@ ntb_proto_get_var_int_list(const uint8_t **p_ptr,
 }
 
 ssize_t
-ntb_proto_get_message_va_list(const uint8_t *data_start,
+ntb_proto_get_command_va_list(const uint8_t *data_start,
                               uint32_t length,
                               va_list ap)
 {
@@ -326,7 +326,7 @@ ntb_proto_get_message_va_list(const uint8_t *data_start,
 }
 
 ssize_t
-ntb_proto_get_message(const uint8_t *data,
+ntb_proto_get_command(const uint8_t *data,
                       uint32_t length,
                       ...)
 {
@@ -334,7 +334,7 @@ ntb_proto_get_message(const uint8_t *data,
         va_list ap;
 
         va_start(ap, length);
-        result = ntb_proto_get_message_va_list(data, length, ap);
+        result = ntb_proto_get_command_va_list(data, length, ap);
         va_end(ap);
 
         return result;

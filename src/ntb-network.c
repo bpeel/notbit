@@ -117,7 +117,7 @@ struct ntb_network_peer {
         struct ntb_list link;
         struct ntb_connection *connection;
         struct ntb_network_addr *addr;
-        struct ntb_listener message_listener;
+        struct ntb_listener event_listener;
         struct ntb_network *network;
 
         struct ntb_list requested_inventories;
@@ -232,8 +232,8 @@ static void
 update_all_listen_socket_sources(struct ntb_network *nw);
 
 static bool
-connection_message_cb(struct ntb_listener *listener,
-                      void *data);
+connection_event_cb(struct ntb_listener *listener,
+                    void *data);
 
 static void
 save_addr_list_cb(struct ntb_main_context_source *source,
@@ -389,7 +389,7 @@ add_peer(struct ntb_network *nw,
          struct ntb_connection *conn)
 {
         struct ntb_network_peer *peer;
-        struct ntb_signal *message_signal;
+        struct ntb_signal *command_signal;
 
         peer = ntb_slice_alloc(&ntb_network_peer_allocator);
 
@@ -397,10 +397,10 @@ add_peer(struct ntb_network *nw,
 
         peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERACK_OUT;
 
-        message_signal = ntb_connection_get_message_signal(conn);
-        ntb_signal_add(message_signal, &peer->message_listener);
+        command_signal = ntb_connection_get_event_signal(conn);
+        ntb_signal_add(command_signal, &peer->event_listener);
 
-        peer->message_listener.notify = connection_message_cb;
+        peer->event_listener.notify = connection_event_cb;
         peer->network = nw;
         peer->addr = NULL;
         peer->connection = conn;
@@ -683,7 +683,7 @@ connection_established(struct ntb_network *nw,
 static bool
 handle_version(struct ntb_network *nw,
                struct ntb_network_peer *peer,
-               struct ntb_connection_version_message *message)
+               struct ntb_connection_version_event *event)
 {
         const char *remote_address_string =
                 ntb_connection_get_remote_address_string(peer->connection);
@@ -698,13 +698,13 @@ handle_version(struct ntb_network *nw,
         /* Sanitize the user agent by stripping dodgy-looking
          * characters and cropping to a maximum length */
         for (i = 0;
-             i < MIN(message->user_agent.length, sizeof user_agent_buf - 1);
+             i < MIN(event->user_agent.length, sizeof user_agent_buf - 1);
              i++) {
-                if (message->user_agent.data[i] < ' ' ||
-                    message->user_agent.data[i] > 0x7f)
+                if (event->user_agent.data[i] < ' ' ||
+                    event->user_agent.data[i] > 0x7f)
                         user_agent_buf[i] = '?';
                 else
-                        user_agent_buf[i] = message->user_agent.data[i];
+                        user_agent_buf[i] = event->user_agent.data[i];
         }
         user_agent_buf[i] = '\0';
 
@@ -712,33 +712,33 @@ handle_version(struct ntb_network *nw,
                 remote_address_string,
                 user_agent_buf);
 
-        if (message->nonce == nw->nonce) {
+        if (event->nonce == nw->nonce) {
                 ntb_log("Connected to self from %s", remote_address_string);
                 remove_peer(nw, peer);
                 return false;
         }
 
-        if (message->version != NTB_PROTO_VERSION) {
+        if (event->version != NTB_PROTO_VERSION) {
                 ntb_log("Client %s is using unsupported protocol version "
                         "%" PRIu32,
                         remote_address_string,
-                        message->version);
+                        event->version);
                 remove_peer_and_addr(nw, peer);
                 return false;
         }
 
-        if (message->stream_numbers.n_ints >= 1) {
-                p = message->stream_numbers.values;
+        if (event->stream_numbers.n_ints >= 1) {
+                p = event->stream_numbers.values;
                 length = 16;
                 ntb_proto_get_var_int(&p, &length, &stream);
         }
 
         remote_address = *ntb_connection_get_remote_address(peer->connection);
-        remote_address.port = message->addr_from.port;
+        remote_address.port = event->addr_from.port;
         addr = add_addr(nw,
-                        message->timestamp,
+                        event->timestamp,
                         stream,
-                        message->services,
+                        event->services,
                         &remote_address);
 
         if (addr && peer->addr == NULL && !addr->connected) {
@@ -814,7 +814,7 @@ request_inventory(struct ntb_network *nw,
 static bool
 handle_inv(struct ntb_network *nw,
            struct ntb_network_peer *peer,
-           struct ntb_connection_inv_message *message)
+           struct ntb_connection_inv_event *event)
 {
         struct ntb_network_inventory *inv;
         const uint8_t *hash;
@@ -822,8 +822,8 @@ handle_inv(struct ntb_network *nw,
 
         ntb_connection_begin_getdata(peer->connection);
 
-        for (i = 0; i < message->n_inventories; i++) {
-                hash = message->inventories + i * NTB_PROTO_HASH_LENGTH;
+        for (i = 0; i < event->n_inventories; i++) {
+                hash = event->inventories + i * NTB_PROTO_HASH_LENGTH;
                 inv = ntb_hash_table_get(nw->inventory_hash, hash);
 
                 if (inv == NULL)
@@ -883,14 +883,14 @@ should_reject(struct ntb_network_peer *peer,
 static bool
 handle_addr(struct ntb_network *nw,
             struct ntb_network_peer *peer,
-            struct ntb_connection_addr_message *message)
+            struct ntb_connection_addr_event *event)
 {
-        if (ntb_netaddress_is_allowed(&message->address)) {
+        if (ntb_netaddress_is_allowed(&event->address)) {
                 add_addr(nw,
-                         message->timestamp,
-                         message->stream,
-                         message->services,
-                         &message->address);
+                         event->timestamp,
+                         event->stream,
+                         event->services,
+                         &event->address);
         }
 
         return true;
@@ -899,14 +899,14 @@ handle_addr(struct ntb_network *nw,
 static bool
 handle_getdata(struct ntb_network *nw,
                struct ntb_network_peer *peer,
-               struct ntb_connection_getdata_message *message)
+               struct ntb_connection_getdata_event *event)
 {
         struct ntb_network_inventory *inv;
         uint64_t i;
 
-        for (i = 0; i < message->n_hashes; i++) {
+        for (i = 0; i < event->n_hashes; i++) {
                 inv = ntb_hash_table_get(nw->inventory_hash,
-                                         message->hashes + i *
+                                         event->hashes + i *
                                          NTB_PROTO_HASH_LENGTH);
                 if (inv && inv->state != NTB_NETWORK_INV_STATE_REJECTED) {
                         ntb_connection_send_blob(peer->connection,
@@ -936,14 +936,14 @@ broadcast_inv(struct ntb_network *nw,
 static bool
 handle_object(struct ntb_network *nw,
               struct ntb_network_peer *peer,
-              struct ntb_connection_object_message *message)
+              struct ntb_connection_object_event *event)
 {
         struct ntb_network_inventory *inv;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
         int64_t age;
 
-        ntb_proto_double_hash(message->object_data,
-                              message->object_data_length,
+        ntb_proto_double_hash(event->object_data,
+                              event->object_data_length,
                               hash);
 
         inv = ntb_hash_table_get(nw->inventory_hash, hash);
@@ -959,21 +959,21 @@ handle_object(struct ntb_network *nw,
                 return true;
         }
 
-        age = ntb_main_context_get_wall_clock(NULL) - message->timestamp;
+        age = ntb_main_context_get_wall_clock(NULL) - event->timestamp;
 
-        inv->timestamp = message->timestamp;
+        inv->timestamp = event->timestamp;
 
         if (should_reject(peer,
-                          message->type,
-                          message->object_data,
-                          message->object_data_length,
+                          event->type,
+                          event->object_data,
+                          event->object_data_length,
                           age)) {
                 inv->state = NTB_NETWORK_INV_STATE_REJECTED;
                 ntb_list_insert(&nw->rejected_inventories, &inv->link);
         } else {
-                inv->blob = ntb_blob_new(message->type,
-                                         message->object_data,
-                                         message->object_data_length);
+                inv->blob = ntb_blob_new(event->type,
+                                         event->object_data,
+                                         event->object_data_length);
 
                 ntb_store_save_blob(NULL, hash, inv->blob);
 
@@ -988,7 +988,7 @@ handle_object(struct ntb_network *nw,
                 }
 
                 ntb_list_insert(&nw->accepted_inventories, &inv->link);
-                inv->type = message->type;
+                inv->type = event->type;
                 inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
 
                 broadcast_inv(nw, hash);
@@ -998,58 +998,58 @@ handle_object(struct ntb_network *nw,
 }
 
 static bool
-connection_message_cb(struct ntb_listener *listener,
-                      void *data)
+connection_event_cb(struct ntb_listener *listener,
+                    void *data)
 {
-        struct ntb_connection_message *message = data;
+        struct ntb_connection_event *event = data;
         struct ntb_network_peer *peer =
-                ntb_container_of(listener, peer, message_listener);
+                ntb_container_of(listener, peer, event_listener);
         struct ntb_network *nw = peer->network;
 
-        switch (message->type) {
-        case NTB_CONNECTION_MESSAGE_ERROR:
+        switch (event->type) {
+        case NTB_CONNECTION_EVENT_ERROR:
                 remove_peer(nw, peer);
                 return false;
 
-        case NTB_CONNECTION_MESSAGE_CONNECT_FAILED:
+        case NTB_CONNECTION_EVENT_CONNECT_FAILED:
                 /* If we never actually managed to connect to the peer
                  * then we'll assume it's a bad address and we'll stop
                  * trying to connect to it */
                 remove_peer_and_addr(nw, peer);
                 return false;
 
-        case NTB_CONNECTION_MESSAGE_VERSION:
+        case NTB_CONNECTION_EVENT_VERSION:
                 return handle_version(nw,
                                       peer,
-                                      (struct ntb_connection_version_message *)
-                                      message);
+                                      (struct ntb_connection_version_event *)
+                                      event);
 
-        case NTB_CONNECTION_MESSAGE_VERACK:
+        case NTB_CONNECTION_EVENT_VERACK:
                 return handle_verack(nw, peer);
 
-        case NTB_CONNECTION_MESSAGE_INV:
+        case NTB_CONNECTION_EVENT_INV:
                 return handle_inv(nw,
                                   peer,
-                                  (struct ntb_connection_inv_message *)
-                                  message);
+                                  (struct ntb_connection_inv_event *)
+                                  event);
 
-        case NTB_CONNECTION_MESSAGE_ADDR:
+        case NTB_CONNECTION_EVENT_ADDR:
                 return handle_addr(nw,
                                    peer,
-                                   (struct ntb_connection_addr_message *)
-                                   message);
+                                   (struct ntb_connection_addr_event *)
+                                   event);
 
-        case NTB_CONNECTION_MESSAGE_GETDATA:
+        case NTB_CONNECTION_EVENT_GETDATA:
                 return handle_getdata(nw,
                                       peer,
-                                      (struct ntb_connection_getdata_message *)
-                                      message);
+                                      (struct ntb_connection_getdata_event *)
+                                      event);
 
-        case NTB_CONNECTION_MESSAGE_OBJECT:
+        case NTB_CONNECTION_EVENT_OBJECT:
                 return handle_object(nw,
                                      peer,
-                                     (struct ntb_connection_object_message *)
-                                     message);
+                                     (struct ntb_connection_object_event *)
+                                     event);
         }
 
         return true;
