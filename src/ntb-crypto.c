@@ -194,6 +194,8 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         cookie->create_key.key =
                 ntb_key_new(cookie->create_key.label,
                             ripemd_hash,
+                            4, /* version */
+                            1, /* stream */
                             private_signing_key,
                             pub_signing_key + 1,
                             private_encryption_key,

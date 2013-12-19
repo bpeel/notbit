@@ -58,6 +58,8 @@ struct ntb_key {
 struct ntb_key *
 ntb_key_new(const char *label,
             const uint8_t *address,
+            uint64_t version,
+            uint64_t stream,
             const uint8_t *private_signing_key,
             const uint8_t *public_signing_key,
             const uint8_t *private_encryption_key,

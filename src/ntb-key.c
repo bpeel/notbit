@@ -26,6 +26,8 @@
 struct ntb_key *
 ntb_key_new(const char *label,
             const uint8_t *address,
+            uint64_t version,
+            uint64_t stream,
             const uint8_t *private_signing_key,
             const uint8_t *public_signing_key,
             const uint8_t *private_encryption_key,
@@ -36,8 +38,8 @@ ntb_key_new(const char *label,
         ntb_ref_count_init(&key->ref_count);
 
         key->label = ntb_strdup(label);
-        key->version = 4;
-        key->stream = 1;
+        key->version = version;
+        key->stream = stream;
         key->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
         key->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
         key->last_pubkey_send_time = 0;

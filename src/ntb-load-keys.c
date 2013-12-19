@@ -144,13 +144,13 @@ flush_key(struct ntb_load_keys_data *data)
 
         key = ntb_key_new((const char *) data->label.data,
                           address,
+                          version,
+                          stream,
                           data->private_signing_key,
                           public_signing_key + 1,
                           data->private_encryption_key,
                           public_encryption_key + 1);
 
-        key->version = version;
-        key->stream = stream;
         key->nonce_trials_per_byte = data->nonce_trials_per_byte;
         key->payload_length_extra_bytes =
                 data->payload_length_extra_bytes;
