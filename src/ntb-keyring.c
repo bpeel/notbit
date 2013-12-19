@@ -25,18 +25,13 @@
 #include "ntb-crypto.h"
 #include "ntb-key.h"
 #include "ntb-list.h"
-#include "ntb-slice.h"
 #include "ntb-store.h"
+#include "ntb-pointer-list.h"
 
 struct ntb_keyring {
         struct ntb_network *nw;
         struct ntb_crypto *crypto;
         struct ntb_list keys;
-};
-
-struct ntb_keyring_key {
-        struct ntb_key *key;
-        struct ntb_list link;
 };
 
 struct ntb_keyring_cookie {
@@ -46,47 +41,29 @@ struct ntb_keyring_cookie {
         struct ntb_crypto_cookie *crypto_cookie;
 };
 
-NTB_SLICE_ALLOCATOR(struct ntb_keyring_key,
-                    ntb_keyring_key_allocator);
-
 static void
 save_keyring(struct ntb_keyring *keyring)
 {
         struct ntb_key **keys;
-        struct ntb_keyring_key *key;
+        struct ntb_pointer_list *plist;
         int n_keys = 0, i = 0;
 
-        ntb_list_for_each(key, &keyring->keys, link)
+        ntb_list_for_each(plist, &keyring->keys, link)
                 n_keys++;
 
         keys = alloca(sizeof (struct ntb_key *) * n_keys);
 
-        ntb_list_for_each(key, &keyring->keys, link)
-                keys[i++] = key->key;
+        ntb_list_for_each(plist, &keyring->keys, link)
+                keys[i++] = plist->data;
 
         ntb_store_save_keys(NULL /* default store */, keys, n_keys);
-}
-
-static void
-free_key(struct ntb_keyring_key *key)
-{
-        if (key->key)
-                ntb_key_unref(key->key);
-        ntb_list_remove(&key->link);
-
-        ntb_slice_free(&ntb_keyring_key_allocator, key);
 }
 
 static void
 add_key(struct ntb_keyring *keyring,
         struct ntb_key *key)
 {
-        struct ntb_keyring_key *kr_key;
-
-        kr_key = ntb_slice_alloc(&ntb_keyring_key_allocator);
-        kr_key->key = ntb_key_ref(key);
-
-        ntb_list_insert(&keyring->keys, &kr_key->link);
+        ntb_pointer_list_insert(&keyring->keys, ntb_key_ref(key));
 }
 
 static void
@@ -165,11 +142,11 @@ ntb_keyring_cancel_task(struct ntb_keyring_cookie *cookie)
 void
 ntb_keyring_free(struct ntb_keyring *keyring)
 {
-        struct ntb_keyring_key *key;
+        struct ntb_pointer_list *plist, *tmp;
 
-        while (!ntb_list_empty(&keyring->keys)) {
-                key = ntb_container_of(keyring->keys.next, key, link);
-                free_key(key);
+        ntb_list_for_each_safe(plist, tmp, &keyring->keys, link) {
+                ntb_key_unref(plist->data);
+                ntb_pointer_list_free(plist);
         }
 
         ntb_crypto_free(keyring->crypto);
