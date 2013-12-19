@@ -371,6 +371,11 @@ getpubkey_command_handler(struct ntb_connection *conn,
 {
         struct ntb_connection_object_message message;
         ssize_t header_length;
+        uint64_t address_version;
+
+        message.type = NTB_PROTO_INV_TYPE_GETPUBKEY;
+        message.object_data_length = message_length;
+        message.object_data = data;
 
         header_length = ntb_proto_get_message(data,
                                               message_length,
@@ -382,8 +387,7 @@ getpubkey_command_handler(struct ntb_connection *conn,
                                               &message.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.getpubkey.
-                                              address_version,
+                                              &address_version,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
                                               &message.stream_number,
@@ -397,123 +401,9 @@ getpubkey_command_handler(struct ntb_connection *conn,
                 return false;
         }
 
-        if (message.getpubkey.address_version < 2 ||
-            message.getpubkey.address_version > 4) {
-                ntb_log("getpubkey with unsupported address version "
-                        "%" PRIu64 " received from %s",
-                        message.getpubkey.address_version,
-                        conn->remote_address_string);
-                return true;
-        }
-
-        message.type = NTB_PROTO_INV_TYPE_GETPUBKEY;
-        message.object_data_length = message_length;
-        message.object_data = data;
-
-        if (message.getpubkey.address_version < 4) {
-                message.getpubkey.ripe = data + header_length;
-                message.getpubkey.tag = NULL;
-
-                if (message_length - header_length < RIPEMD160_DIGEST_LENGTH) {
-                        ntb_log("Invalid getpubkey message received from %s",
-                                conn->remote_address_string);
-                        set_error_state(conn);
-                        return false;
-                }
-        } else {
-                message.getpubkey.ripe = NULL;
-                message.getpubkey.tag = data + header_length;
-
-                if (message_length - header_length < 32) {
-                        ntb_log("Invalid getpubkey message received from %s",
-                                conn->remote_address_string);
-                        set_error_state(conn);
-                        return false;
-                }
-        }
-
         return emit_message(conn,
                             NTB_CONNECTION_MESSAGE_OBJECT,
                             &message.base);
-}
-
-static bool
-process_v2_pubkey_parts(const uint8_t *data,
-                        uint32_t message_length,
-                        struct ntb_connection_object_message *message)
-{
-        if (message_length < 64 * 2 + 4)
-                return false;
-
-        message->pubkey.behaviours = ntb_proto_get_32(data);
-        message->pubkey.public_signing_key = data + 4;
-        message->pubkey.public_encryption_key = data + 4 + 64;
-
-        message->pubkey.nonce_trials_per_byte =
-                NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
-        message->pubkey.extra_bytes =
-                NTB_PROTO_MIN_EXTRA_BYTES;
-
-        return true;
-}
-
-static bool
-process_v3_pubkey_parts(const uint8_t *data,
-                        uint32_t message_length,
-                        struct ntb_connection_object_message *message)
-{
-        ssize_t header_length;
-
-        if (message_length < 4 + 64 * 2)
-                return false;
-
-        message->pubkey.behaviours = ntb_proto_get_32(data);
-        message->pubkey.public_signing_key = data + 4;
-        message->pubkey.public_encryption_key = data + 4 + 64;
-
-        data += 4 + 64 * 2;
-        message_length -= 4 + 64 * 2;
-
-        header_length =
-                ntb_proto_get_message(data,
-                                      message_length,
-
-                                      NTB_PROTO_ARGUMENT_VAR_INT,
-                                      &message->pubkey.
-                                      nonce_trials_per_byte,
-
-                                      NTB_PROTO_ARGUMENT_VAR_INT,
-                                      &message->pubkey.extra_bytes,
-
-                                      NTB_PROTO_ARGUMENT_VAR_INT,
-                                      &message->pubkey.signature_length,
-
-                                      NTB_PROTO_ARGUMENT_END);
-
-        if (header_length == -1)
-                return false;
-
-        if (message_length < header_length + message->pubkey.signature_length)
-                return false;
-
-        message->pubkey.signature = data + header_length;
-
-        return true;
-}
-
-static bool
-process_v4_pubkey_parts(const uint8_t *data,
-                        uint32_t message_length,
-                        struct ntb_connection_object_message *message)
-{
-        if (message_length < 32)
-                return false;
-
-        message->pubkey.tag = data;
-        message->pubkey.encrypted_data = data + 32;
-        message->pubkey.encrypted_data_length = message_length - 32;
-
-        return true;
 }
 
 static bool
@@ -523,8 +413,7 @@ pubkey_command_handler(struct ntb_connection *conn,
 {
         struct ntb_connection_object_message message;
         ssize_t header_length;
-
-        memset(&message, 0, sizeof message);
+        uint64_t address_version;
 
         message.type = NTB_PROTO_INV_TYPE_PUBKEY;
         message.object_data_length = message_length;
@@ -540,49 +429,23 @@ pubkey_command_handler(struct ntb_connection *conn,
                                               &message.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.pubkey.address_version,
+                                              &address_version,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
                                               &message.stream_number,
 
                                               NTB_PROTO_ARGUMENT_END);
 
-        if (header_length == -1)
-                goto error;
-
-        data += header_length;
-        message_length -= header_length;
-
-        if (message.pubkey.address_version == 2) {
-                if (!process_v2_pubkey_parts(data,
-                                             message_length,
-                                             &message))
-                        goto error;
-        } else if (message.pubkey.address_version == 3) {
-                if (!process_v3_pubkey_parts(data,
-                                             message_length,
-                                             &message))
-                        goto error;
-        } else if (message.pubkey.address_version == 4) {
-                if (!process_v4_pubkey_parts(data,
-                                             message_length,
-                                             &message))
-                        goto error;
-        } else {
-                ntb_log("Unsupported pubkey version %" PRIu64 " from %s",
-                        message.pubkey.address_version,
+        if (header_length == -1) {
+                ntb_log("Invalid pubkey message received from %s",
                         conn->remote_address_string);
-                return true;
+                set_error_state(conn);
+                return false;
         }
 
         return emit_message(conn,
                             NTB_CONNECTION_MESSAGE_OBJECT,
                             &message.base);
-error:
-        ntb_log("Invalid pubkey message received from %s",
-                conn->remote_address_string);
-        set_error_state(conn);
-        return false;
 }
 
 static bool
@@ -592,6 +455,10 @@ msg_command_handler(struct ntb_connection *conn,
 {
         struct ntb_connection_object_message message;
         ssize_t header_length;
+
+        message.type = NTB_PROTO_INV_TYPE_MSG;
+        message.object_data_length = message_length;
+        message.object_data = data;
 
         header_length = ntb_proto_get_message(data,
                                               message_length,
@@ -614,13 +481,6 @@ msg_command_handler(struct ntb_connection *conn,
                 return false;
         }
 
-        message.type = NTB_PROTO_INV_TYPE_MSG;
-        message.object_data_length = message_length;
-        message.object_data = data;
-
-        message.msg.encrypted_data_length = message_length - header_length;
-        message.msg.encrypted_data = data + header_length;
-
         return emit_message(conn,
                             NTB_CONNECTION_MESSAGE_OBJECT,
                             &message.base);
@@ -633,6 +493,7 @@ broadcast_command_handler(struct ntb_connection *conn,
 {
         struct ntb_connection_object_message message;
         ssize_t header_length;
+        uint64_t broadcast_version;
 
         message.type = NTB_PROTO_INV_TYPE_BROADCAST;
         message.object_data_length = message_length;
@@ -648,7 +509,7 @@ broadcast_command_handler(struct ntb_connection *conn,
                                               &message.timestamp,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &message.broadcast.version,
+                                              &broadcast_version,
 
                                               NTB_PROTO_ARGUMENT_VAR_INT,
                                               &message.stream_number,
@@ -661,36 +522,6 @@ broadcast_command_handler(struct ntb_connection *conn,
                 set_error_state(conn);
                 return false;
         }
-
-        if (message.broadcast.version < 2 ||
-            message.broadcast.version > 3) {
-                ntb_log("Received broadcast message with unsupported "
-                        "version %" PRIu64 " from %s",
-                        message.broadcast.version,
-                        connection->remote_address_string);
-                return true;
-        }
-
-        data += header_length;
-        message_length -= header_length;
-
-        if (message.broadcast.version >= 3) {
-                if (message_length < 32) {
-                        ntb_log("Invalid msg message received from %s",
-                                conn->remote_address_string);
-                        set_error_state(conn);
-                        return false;
-                }
-
-                message.broadcast.tag = data;
-                data += 32;
-                message_length -= 32;
-        } else {
-                message.broadcast.tag = NULL;
-        }
-
-        message.broadcast.encrypted_data_length = message_length;
-        message.broadcast.encrypted_data = data;
 
         return emit_message(conn,
                             NTB_CONNECTION_MESSAGE_OBJECT,

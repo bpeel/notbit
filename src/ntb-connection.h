@@ -73,47 +73,6 @@ struct ntb_connection_object_message {
 
         const uint8_t *object_data;
         size_t object_data_length;
-
-        union {
-                struct {
-                        const uint8_t *ripe;
-                        const uint8_t *tag;
-                        uint64_t address_version;
-                } getpubkey;
-
-                struct {
-                        uint64_t address_version;
-                        uint32_t behaviours;
-
-                        const uint8_t *public_signing_key;
-                        const uint8_t *public_encryption_key;
-
-                        uint64_t nonce_trials_per_byte;
-                        uint64_t extra_bytes;
-
-                        uint64_t signature_length;
-                        const uint8_t *signature;
-
-                        const uint8_t *tag;
-
-                        size_t encrypted_data_length;
-                        const uint8_t *encrypted_data;
-                } pubkey;
-
-                struct {
-                        const uint8_t *encrypted_data;
-                        size_t encrypted_data_length;
-                } msg;
-
-                struct {
-                        uint64_t version;
-
-                        const uint8_t *tag;
-
-                        const uint8_t *encrypted_data;
-                        size_t encrypted_data_length;
-                } broadcast;
-        };
 };
 
 struct ntb_connection_inv_message {
