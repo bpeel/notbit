@@ -22,6 +22,36 @@
 
 #include "ntb-key.h"
 #include "ntb-util.h"
+#include "ntb-buffer.h"
+#include "ntb-proto.h"
+
+static void
+generate_tag(struct ntb_key *key)
+{
+        struct ntb_buffer buffer;
+        uint8_t hash1[SHA512_DIGEST_LENGTH];
+        uint8_t hash2[SHA512_DIGEST_LENGTH];
+        SHA512_CTX sha_ctx;
+
+        ntb_buffer_init(&buffer);
+        ntb_proto_add_var_int(&buffer, key->version);
+        ntb_proto_add_var_int(&buffer, key->stream);
+
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, buffer.data, buffer.length);
+
+        ntb_buffer_destroy(&buffer);
+
+        SHA512_Update(&sha_ctx, key->address, RIPEMD160_DIGEST_LENGTH);
+        SHA512_Final(hash1, &sha_ctx);
+
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, hash1, SHA512_DIGEST_LENGTH);
+        SHA512_Final(hash2, &sha_ctx);
+
+        memcpy(key->tag_private_key, hash2, NTB_KEY_PRIVATE_SIZE);
+        memcpy(key->tag, hash2 + NTB_KEY_PRIVATE_SIZE, NTB_KEY_TAG_SIZE);
+}
 
 struct ntb_key *
 ntb_key_new(const char *label,
@@ -61,6 +91,8 @@ ntb_key_new(const char *label,
         memcpy(key->public_encryption_key,
                public_encryption_key,
                NTB_KEY_PUBLIC_SIZE);
+
+        generate_tag(key);
 
         return key;
 }

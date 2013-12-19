@@ -32,11 +32,14 @@
 
 #define NTB_KEY_PRIVATE_SIZE 32
 #define NTB_KEY_PUBLIC_SIZE 64
+#define NTB_KEY_TAG_SIZE 32
 
 struct ntb_key {
         struct ntb_ref_count ref_count;
 
         uint8_t address[RIPEMD160_DIGEST_LENGTH];
+        uint8_t tag[NTB_KEY_TAG_SIZE];
+        uint8_t tag_private_key[NTB_KEY_PRIVATE_SIZE];
 
         char *label;
 
