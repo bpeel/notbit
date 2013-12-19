@@ -66,6 +66,9 @@ ntb_key_new(const char *label,
 struct ntb_key *
 ntb_key_ref(struct ntb_key *blob);
 
+struct ntb_key *
+ntb_key_copy(struct ntb_key *key);
+
 void
 ntb_key_unref(struct ntb_key *blob);
 

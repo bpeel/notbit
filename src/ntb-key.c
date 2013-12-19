@@ -64,6 +64,18 @@ ntb_key_new(const char *label,
 }
 
 struct ntb_key *
+ntb_key_copy(struct ntb_key *key)
+{
+        key = ntb_memdup(key, sizeof *key);
+
+        ntb_ref_count_init(&key->ref_count);
+
+        key->label = ntb_strdup(key->label);
+
+        return key;
+}
+
+struct ntb_key *
 ntb_key_ref(struct ntb_key *key)
 {
         ntb_ref_count_ref(&key->ref_count);
