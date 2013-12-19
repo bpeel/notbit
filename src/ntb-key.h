@@ -66,12 +66,12 @@ ntb_key_new(const char *label,
             const uint8_t *public_encryption_key);
 
 struct ntb_key *
-ntb_key_ref(struct ntb_key *blob);
+ntb_key_ref(struct ntb_key *key);
 
 struct ntb_key *
 ntb_key_copy(struct ntb_key *key);
 
 void
-ntb_key_unref(struct ntb_key *blob);
+ntb_key_unref(struct ntb_key *key);
 
 #endif /* NTB_KEY_H */
