@@ -568,7 +568,7 @@ write_key(struct ntb_key *key,
 
         ntb_address_encode(key->version,
                            key->stream,
-                           key->address,
+                           key->ripe,
                            address);
 
         encode_wif(key->private_signing_key, signing_key_wif);

@@ -42,7 +42,7 @@ generate_tag(struct ntb_key *key)
 
         ntb_buffer_destroy(&buffer);
 
-        SHA512_Update(&sha_ctx, key->address, RIPEMD160_DIGEST_LENGTH);
+        SHA512_Update(&sha_ctx, key->ripe, RIPEMD160_DIGEST_LENGTH);
         SHA512_Final(hash1, &sha_ctx);
 
         SHA512_Init(&sha_ctx);
@@ -55,7 +55,7 @@ generate_tag(struct ntb_key *key)
 
 struct ntb_key *
 ntb_key_new(const char *label,
-            const uint8_t *address,
+            const uint8_t *ripe,
             uint64_t version,
             uint64_t stream,
             const uint8_t *private_signing_key,
@@ -76,7 +76,7 @@ ntb_key_new(const char *label,
         key->enabled = true;
         key->decoy = false;
 
-        memcpy(key->address, address, RIPEMD160_DIGEST_LENGTH);
+        memcpy(key->ripe, ripe, RIPEMD160_DIGEST_LENGTH);
 
         memcpy(key->private_signing_key,
                private_signing_key,

@@ -37,7 +37,7 @@
 struct ntb_key {
         struct ntb_ref_count ref_count;
 
-        uint8_t address[RIPEMD160_DIGEST_LENGTH];
+        uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
         uint8_t tag[NTB_KEY_TAG_SIZE];
         uint8_t tag_private_key[NTB_KEY_PRIVATE_SIZE];
 
@@ -60,7 +60,7 @@ struct ntb_key {
 
 struct ntb_key *
 ntb_key_new(const char *label,
-            const uint8_t *address,
+            const uint8_t *ripe,
             uint64_t version,
             uint64_t stream,
             const uint8_t *private_signing_key,
