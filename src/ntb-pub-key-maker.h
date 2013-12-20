@@ -25,8 +25,7 @@ struct ntb_pub_key_maker *
 ntb_pub_key_maker_new(void);
 
 /* Converts a private key into a public key. The public key data
- * includes the 0x04 prefix so the buffer must be
- * NTB_KEY_PUBLIC_SIZE+1 */
+ * includes the 0x04 prefix */
 
 void
 ntb_pub_key_maker_make(struct ntb_pub_key_maker *maker,

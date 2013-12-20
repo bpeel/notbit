@@ -151,9 +151,9 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_crypto *crypto = cookie->crypto;
         uint8_t private_signing_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t pub_signing_key[NTB_KEY_PUBLIC_SIZE + 1];
+        uint8_t pub_signing_key[NTB_KEY_PUBLIC_SIZE];
         uint8_t private_encryption_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t pub_encryption_key[NTB_KEY_PUBLIC_SIZE + 1];
+        uint8_t pub_encryption_key[NTB_KEY_PUBLIC_SIZE];
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
         uint8_t ripemd_hash[RIPEMD160_DIGEST_LENGTH];
         char address[NTB_ADDRESS_MAX_LENGTH + 1];
@@ -172,10 +172,10 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                 SHA512_Init(&sha_ctx);
                 SHA512_Update(&sha_ctx,
                               pub_signing_key,
-                              NTB_KEY_PUBLIC_SIZE + 1);
+                              NTB_KEY_PUBLIC_SIZE);
                 SHA512_Update(&sha_ctx,
                               pub_encryption_key,
-                              NTB_KEY_PUBLIC_SIZE + 1);
+                              NTB_KEY_PUBLIC_SIZE);
                 SHA512_Final(sha_hash, &sha_ctx);
 
                 RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, ripemd_hash);
@@ -197,9 +197,9 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                             4, /* version */
                             1, /* stream */
                             private_signing_key,
-                            pub_signing_key + 1,
+                            pub_signing_key,
                             private_encryption_key,
-                            pub_encryption_key + 1);
+                            pub_encryption_key);
 }
 
 static void

@@ -94,8 +94,8 @@ flush_key(struct ntb_load_keys_data *data)
         uint8_t address[RIPEMD160_DIGEST_LENGTH];
         uint8_t header_address[RIPEMD160_DIGEST_LENGTH];
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
-        uint8_t public_signing_key[NTB_KEY_PUBLIC_SIZE + 1];
-        uint8_t public_encryption_key[NTB_KEY_PUBLIC_SIZE + 1];
+        uint8_t public_signing_key[NTB_KEY_PUBLIC_SIZE];
+        uint8_t public_encryption_key[NTB_KEY_PUBLIC_SIZE];
         int version, stream;
         SHA512_CTX sha_ctx;
 
@@ -129,10 +129,10 @@ flush_key(struct ntb_load_keys_data *data)
         SHA512_Init(&sha_ctx);
         SHA512_Update(&sha_ctx,
                       public_signing_key,
-                      NTB_KEY_PUBLIC_SIZE + 1);
+                      NTB_KEY_PUBLIC_SIZE);
         SHA512_Update(&sha_ctx,
                       public_encryption_key,
-                      NTB_KEY_PUBLIC_SIZE + 1);
+                      NTB_KEY_PUBLIC_SIZE);
         SHA512_Final(sha_hash, &sha_ctx);
 
         RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address);
@@ -147,9 +147,9 @@ flush_key(struct ntb_load_keys_data *data)
                           version,
                           stream,
                           data->private_signing_key,
-                          public_signing_key + 1,
+                          public_signing_key,
                           data->private_encryption_key,
-                          public_encryption_key + 1);
+                          public_encryption_key);
 
         key->nonce_trials_per_byte = data->nonce_trials_per_byte;
         key->payload_length_extra_bytes =

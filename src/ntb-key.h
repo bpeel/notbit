@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <openssl/ripemd.h>
+#include <openssl/ec.h>
 
 #include "ntb-proto.h"
 #include "ntb-ref-count.h"
@@ -31,7 +32,7 @@
  * to be written to disk. */
 
 #define NTB_KEY_PRIVATE_SIZE 32
-#define NTB_KEY_PUBLIC_SIZE 64
+#define NTB_KEY_PUBLIC_SIZE 65 /* includes the 0x04 prefix */
 #define NTB_KEY_TAG_SIZE 32
 
 struct ntb_key {
@@ -49,10 +50,8 @@ struct ntb_key {
         int payload_length_extra_bytes;
         int64_t last_pubkey_send_time;
 
-        uint8_t private_signing_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t public_signing_key[NTB_KEY_PUBLIC_SIZE];
-        uint8_t private_encryption_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t public_encryption_key[NTB_KEY_PUBLIC_SIZE];
+        EC_KEY *signing_key;
+        EC_KEY *encryption_key;
 
         bool enabled;
         bool decoy;

@@ -534,16 +534,23 @@ handle_save_addr_list(struct ntb_store *store,
 }
 
 static void
-encode_wif(const uint8_t *key,
+encode_wif(const EC_KEY *key,
            char *wif)
 {
+        const BIGNUM *private_key;
         uint8_t hash1[SHA256_DIGEST_LENGTH];
         uint8_t hash2[SHA256_DIGEST_LENGTH];
         uint8_t address_bytes[NTB_KEY_PRIVATE_SIZE + 4 + 1];
         size_t wif_length;
+        int n_bytes;
 
         address_bytes[0] = 0x80;
-        memcpy(address_bytes + 1, key, NTB_KEY_PRIVATE_SIZE);
+
+        private_key = EC_KEY_get0_private_key(key);
+        n_bytes = BN_num_bytes(private_key);
+        BN_bn2bin(private_key,
+                  address_bytes + 1 + NTB_KEY_PRIVATE_SIZE - n_bytes);
+        memset(address_bytes + 1, 0, NTB_KEY_PRIVATE_SIZE - n_bytes);
 
         SHA256(address_bytes, NTB_KEY_PRIVATE_SIZE + 1, hash1);
         SHA256(hash1, SHA256_DIGEST_LENGTH, hash2);
@@ -571,8 +578,8 @@ write_key(struct ntb_key *key,
                            key->ripe,
                            address);
 
-        encode_wif(key->private_signing_key, signing_key_wif);
-        encode_wif(key->private_encryption_key, encryption_key_wif);
+        encode_wif(key->signing_key, signing_key_wif);
+        encode_wif(key->encryption_key, encryption_key_wif);
 
         fprintf(out,
                 "[%s]\n"

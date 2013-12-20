@@ -63,9 +63,9 @@ ntb_pub_key_maker_make(struct ntb_pub_key_maker *maker,
                                       maker->pub_key_point,
                                       POINT_CONVERSION_UNCOMPRESSED,
                                       public_key,
-                                      NTB_KEY_PUBLIC_SIZE + 1, /* len */
+                                      NTB_KEY_PUBLIC_SIZE,
                                       maker->bn_ctx);
-        assert(oct_size == NTB_KEY_PUBLIC_SIZE + 1);
+        assert(oct_size == NTB_KEY_PUBLIC_SIZE);
 }
 
 struct ntb_pub_key_maker *

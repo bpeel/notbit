@@ -19,6 +19,8 @@
 #include "config.h"
 
 #include <string.h>
+#include <openssl/obj_mac.h>
+#include <assert.h>
 
 #include "ntb-key.h"
 #include "ntb-util.h"
@@ -53,6 +55,50 @@ generate_tag(struct ntb_key *key)
         memcpy(key->tag, hash2 + NTB_KEY_PRIVATE_SIZE, NTB_KEY_TAG_SIZE);
 }
 
+static EC_KEY *
+create_ec_key(const uint8_t *private_key,
+              const uint8_t *public_key)
+{
+        EC_KEY *key;
+        BIGNUM bn;
+        BIGNUM *bn_ret;
+        EC_POINT *point;
+        const EC_GROUP *group;
+        int int_ret;
+
+        key = EC_KEY_new_by_curve_name(NID_secp256k1);
+        assert(key);
+
+        group = EC_KEY_get0_group(key);
+
+        BN_init(&bn);
+
+        bn_ret = BN_bin2bn(private_key, NTB_KEY_PRIVATE_SIZE, &bn);
+        assert(bn_ret);
+
+        int_ret = EC_KEY_set_private_key(key, &bn);
+        assert(int_ret);
+
+        BN_free(&bn);
+
+        point = EC_POINT_new(group);
+        assert(point);
+
+        int_ret = EC_POINT_oct2point(group,
+                                     point,
+                                     public_key,
+                                     NTB_KEY_PUBLIC_SIZE,
+                                     NULL /* bignum context */);
+        assert(int_ret);
+
+        int_ret = EC_KEY_set_public_key(key, point);
+        assert(int_ret);
+
+        EC_POINT_free(point);
+
+        return key;
+}
+
 struct ntb_key *
 ntb_key_new(const char *label,
             const uint8_t *ripe,
@@ -78,19 +124,10 @@ ntb_key_new(const char *label,
 
         memcpy(key->ripe, ripe, RIPEMD160_DIGEST_LENGTH);
 
-        memcpy(key->private_signing_key,
-               private_signing_key,
-               NTB_KEY_PRIVATE_SIZE);
-        memcpy(key->public_signing_key,
-               public_signing_key,
-               NTB_KEY_PUBLIC_SIZE);
-
-        memcpy(key->private_encryption_key,
-               private_encryption_key,
-               NTB_KEY_PRIVATE_SIZE);
-        memcpy(key->public_encryption_key,
-               public_encryption_key,
-               NTB_KEY_PUBLIC_SIZE);
+        key->signing_key = create_ec_key(private_signing_key,
+                                         public_signing_key);
+        key->encryption_key = create_ec_key(private_encryption_key,
+                                            public_encryption_key);
 
         generate_tag(key);
 
@@ -105,6 +142,11 @@ ntb_key_copy(struct ntb_key *key)
         ntb_ref_count_init(&key->ref_count);
 
         key->label = ntb_strdup(key->label);
+
+        key->signing_key = EC_KEY_dup(key->signing_key);
+        assert(key->signing_key);
+        key->encryption_key = EC_KEY_dup(key->encryption_key);
+        assert(key->encryption_key);
 
         return key;
 }
@@ -121,6 +163,8 @@ void
 ntb_key_unref(struct ntb_key *key)
 {
         if (ntb_ref_count_unref(&key->ref_count) <= 1) {
+                EC_KEY_free(key->signing_key);
+                EC_KEY_free(key->encryption_key);
                 ntb_ref_count_destroy(&key->ref_count);
                 ntb_free(key->label);
                 ntb_free(key);
