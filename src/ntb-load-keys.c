@@ -119,12 +119,12 @@ flush_key(struct ntb_load_keys_data *data)
         ntb_buffer_ensure_size(&data->label, data->label.length + 1);
         data->label.data[data->label.length] = '\0';
 
-        ntb_pub_key_maker_make(data->pub_key_maker,
-                               data->private_signing_key,
-                               public_signing_key);
-        ntb_pub_key_maker_make(data->pub_key_maker,
-                               data->private_encryption_key,
-                               public_encryption_key);
+        ntb_pub_key_maker_make_bin(data->pub_key_maker,
+                                   data->private_signing_key,
+                                   public_signing_key);
+        ntb_pub_key_maker_make_bin(data->pub_key_maker,
+                                   data->private_encryption_key,
+                                   public_encryption_key);
 
         SHA512_Init(&sha_ctx);
         SHA512_Update(&sha_ctx,

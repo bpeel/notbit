@@ -132,7 +132,9 @@ create_key(struct ntb_crypto *crypto,
         result = RAND_bytes(private_key, NTB_KEY_PRIVATE_SIZE);
         assert(result);
 
-        ntb_pub_key_maker_make(crypto->pub_key_maker, private_key, public_key);
+        ntb_pub_key_maker_make_bin(crypto->pub_key_maker,
+                                   private_key,
+                                   public_key);
 }
 
 static int

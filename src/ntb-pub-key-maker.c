@@ -37,14 +37,13 @@ struct ntb_pub_key_maker {
         EC_POINT *pub_key_point;
 };
 
-void
-ntb_pub_key_maker_make(struct ntb_pub_key_maker *maker,
-                       const uint8_t *private_key,
-                       uint8_t *public_key)
+static void
+make_in_point(struct ntb_pub_key_maker *maker,
+              const uint8_t *private_key,
+              EC_POINT *point)
 {
         BIGNUM *bn_result;
         int result;
-        size_t oct_size;
 
         bn_result = BN_bin2bn(private_key,
                               NTB_KEY_PRIVATE_SIZE,
@@ -52,12 +51,36 @@ ntb_pub_key_maker_make(struct ntb_pub_key_maker *maker,
         assert(bn_result);
 
         result = EC_POINT_mul(maker->group,
-                              maker->pub_key_point,
+                              point,
                               &maker->bn,
                               NULL,
                               NULL,
                               maker->bn_ctx);
         assert(result);
+}
+
+EC_POINT *
+ntb_pub_key_maker_make_point(struct ntb_pub_key_maker *maker,
+                             const uint8_t *private_key)
+{
+        EC_POINT *point;
+
+        point = EC_POINT_new(maker->group);
+        assert(point);
+
+        make_in_point(maker, private_key, point);
+
+        return point;
+}
+
+void
+ntb_pub_key_maker_make_bin(struct ntb_pub_key_maker *maker,
+                           const uint8_t *private_key,
+                           uint8_t *public_key)
+{
+        size_t oct_size;
+
+        make_in_point(maker, private_key, maker->pub_key_point);
 
         oct_size = EC_POINT_point2oct(maker->group,
                                       maker->pub_key_point,

@@ -19,6 +19,9 @@
 #ifndef NTB_PUB_KEY_MAKER_H
 #define NTB_PUB_KEY_MAKER_H
 
+#include <openssl/ecdsa.h>
+#include <stdint.h>
+
 struct ntb_pub_key_maker;
 
 struct ntb_pub_key_maker *
@@ -28,9 +31,13 @@ ntb_pub_key_maker_new(void);
  * includes the 0x04 prefix */
 
 void
-ntb_pub_key_maker_make(struct ntb_pub_key_maker *maker,
-                       const uint8_t *private_key,
-                       uint8_t *public_key);
+ntb_pub_key_maker_make_bin(struct ntb_pub_key_maker *maker,
+                           const uint8_t *private_key,
+                           uint8_t *public_key);
+
+EC_POINT *
+ntb_pub_key_maker_make_point(struct ntb_pub_key_maker *maker,
+                             const uint8_t *private_key);
 
 void
 ntb_pub_key_maker_free(struct ntb_pub_key_maker *maker);
