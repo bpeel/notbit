@@ -26,13 +26,12 @@
 
 #include "ntb-proto.h"
 #include "ntb-ref-count.h"
+#include "ntb-ecc.h"
 
 /* Private keys are immutable and reference counted. The ref-count is
  * thread-safe so that the key can be passed off to the store thread
  * to be written to disk. */
 
-#define NTB_KEY_PRIVATE_SIZE 32
-#define NTB_KEY_PUBLIC_SIZE 65 /* includes the 0x04 prefix */
 #define NTB_KEY_TAG_SIZE 32
 
 struct ntb_key {
@@ -40,7 +39,7 @@ struct ntb_key {
 
         uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
         uint8_t tag[NTB_KEY_TAG_SIZE];
-        uint8_t tag_private_key[NTB_KEY_PRIVATE_SIZE];
+        uint8_t tag_private_key[NTB_ECC_PRIVATE_KEY_SIZE];
 
         char *label;
 
@@ -58,14 +57,23 @@ struct ntb_key {
 };
 
 struct ntb_key *
-ntb_key_new(const char *label,
-            const uint8_t *ripe,
+ntb_key_new(struct ntb_ecc *ecc,
+            const char *label,
             uint64_t version,
             uint64_t stream,
             const uint8_t *private_signing_key,
-            const uint8_t *public_signing_key,
-            const uint8_t *private_encryption_key,
-            const uint8_t *public_encryption_key);
+            const uint8_t *private_encryption_key);
+
+struct ntb_key *
+ntb_key_new_with_public(struct ntb_ecc *ecc,
+                        const char *label,
+                        const uint8_t *ripe,
+                        uint64_t version,
+                        uint64_t stream,
+                        const uint8_t *private_signing_key,
+                        const uint8_t *public_signing_key,
+                        const uint8_t *private_encryption_key,
+                        const uint8_t *public_encryption_key);
 
 struct ntb_key *
 ntb_key_ref(struct ntb_key *key);

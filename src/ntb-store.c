@@ -540,7 +540,7 @@ encode_wif(const EC_KEY *key,
         const BIGNUM *private_key;
         uint8_t hash1[SHA256_DIGEST_LENGTH];
         uint8_t hash2[SHA256_DIGEST_LENGTH];
-        uint8_t address_bytes[NTB_KEY_PRIVATE_SIZE + 4 + 1];
+        uint8_t address_bytes[NTB_ECC_PRIVATE_KEY_SIZE + 4 + 1];
         size_t wif_length;
         int n_bytes;
 
@@ -549,13 +549,13 @@ encode_wif(const EC_KEY *key,
         private_key = EC_KEY_get0_private_key(key);
         n_bytes = BN_num_bytes(private_key);
         BN_bn2bin(private_key,
-                  address_bytes + 1 + NTB_KEY_PRIVATE_SIZE - n_bytes);
-        memset(address_bytes + 1, 0, NTB_KEY_PRIVATE_SIZE - n_bytes);
+                  address_bytes + 1 + NTB_ECC_PRIVATE_KEY_SIZE - n_bytes);
+        memset(address_bytes + 1, 0, NTB_ECC_PRIVATE_KEY_SIZE - n_bytes);
 
-        SHA256(address_bytes, NTB_KEY_PRIVATE_SIZE + 1, hash1);
+        SHA256(address_bytes, NTB_ECC_PRIVATE_KEY_SIZE + 1, hash1);
         SHA256(hash1, SHA256_DIGEST_LENGTH, hash2);
 
-        memcpy(address_bytes + NTB_KEY_PRIVATE_SIZE + 1, hash2, 4);
+        memcpy(address_bytes + NTB_ECC_PRIVATE_KEY_SIZE + 1, hash2, 4);
 
         wif_length = ntb_base58_encode(address_bytes,
                                        sizeof address_bytes,

@@ -32,7 +32,7 @@
 #include "ntb-main-context.h"
 #include "ntb-log.h"
 #include "ntb-address.h"
-#include "ntb-pub-key-maker.h"
+#include "ntb-ecc.h"
 
 struct ntb_crypto {
         pthread_mutex_t mutex;
@@ -44,7 +44,7 @@ struct ntb_crypto {
 
         struct ntb_list queue;
 
-        struct ntb_pub_key_maker *pub_key_maker;
+        struct ntb_ecc *ecc;
 };
 
 enum ntb_crypto_cookie_type {
@@ -129,12 +129,12 @@ create_key(struct ntb_crypto *crypto,
 {
         int result;
 
-        result = RAND_bytes(private_key, NTB_KEY_PRIVATE_SIZE);
+        result = RAND_bytes(private_key, NTB_ECC_PRIVATE_KEY_SIZE);
         assert(result);
 
-        ntb_pub_key_maker_make_bin(crypto->pub_key_maker,
-                                   private_key,
-                                   public_key);
+        ntb_ecc_make_pub_key_bin(crypto->ecc,
+                                 private_key,
+                                 public_key);
 }
 
 static int
@@ -152,10 +152,10 @@ static void
 handle_create_key(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_crypto *crypto = cookie->crypto;
-        uint8_t private_signing_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t pub_signing_key[NTB_KEY_PUBLIC_SIZE];
-        uint8_t private_encryption_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t pub_encryption_key[NTB_KEY_PUBLIC_SIZE];
+        uint8_t private_signing_key[NTB_ECC_PRIVATE_KEY_SIZE];
+        uint8_t pub_signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        uint8_t private_encryption_key[NTB_ECC_PRIVATE_KEY_SIZE];
+        uint8_t pub_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
         uint8_t ripemd_hash[RIPEMD160_DIGEST_LENGTH];
         char address[NTB_ADDRESS_MAX_LENGTH + 1];
@@ -174,10 +174,10 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                 SHA512_Init(&sha_ctx);
                 SHA512_Update(&sha_ctx,
                               pub_signing_key,
-                              NTB_KEY_PUBLIC_SIZE);
+                              NTB_ECC_PUBLIC_KEY_SIZE);
                 SHA512_Update(&sha_ctx,
                               pub_encryption_key,
-                              NTB_KEY_PUBLIC_SIZE);
+                              NTB_ECC_PUBLIC_KEY_SIZE);
                 SHA512_Final(sha_hash, &sha_ctx);
 
                 RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, ripemd_hash);
@@ -194,14 +194,15 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                 address);
 
         cookie->create_key.key =
-                ntb_key_new(cookie->create_key.label,
-                            ripemd_hash,
-                            4, /* version */
-                            1, /* stream */
-                            private_signing_key,
-                            pub_signing_key,
-                            private_encryption_key,
-                            pub_encryption_key);
+                ntb_key_new_with_public(crypto->ecc,
+                                        cookie->create_key.label,
+                                        ripemd_hash,
+                                        4, /* version */
+                                        1, /* stream */
+                                        private_signing_key,
+                                        pub_signing_key,
+                                        private_encryption_key,
+                                        pub_encryption_key);
 }
 
 static void
@@ -301,7 +302,7 @@ ntb_crypto_new(void)
         pthread_mutex_init(&crypto->mutex, NULL);
         crypto->thread = ntb_create_thread(thread_func, crypto);
 
-        crypto->pub_key_maker = ntb_pub_key_maker_new();
+        crypto->ecc = ntb_ecc_new();
 
         return crypto;
 }
@@ -367,7 +368,7 @@ ntb_crypto_free(struct ntb_crypto *crypto)
 
         ntb_slice_allocator_destroy(&crypto->cookie_allocator);
 
-        ntb_pub_key_maker_free(crypto->pub_key_maker);
+        ntb_ecc_free(crypto->ecc);
 
         ntb_free(crypto);
 }

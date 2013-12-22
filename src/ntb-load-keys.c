@@ -29,7 +29,7 @@
 #include "ntb-load-keys.h"
 #include "ntb-buffer.h"
 #include "ntb-proto.h"
-#include "ntb-pub-key-maker.h"
+#include "ntb-ecc.h"
 #include "ntb-log.h"
 #include "ntb-util.h"
 #include "ntb-base58.h"
@@ -64,7 +64,7 @@ struct ntb_load_keys_data {
         enum ntb_load_keys_state state;
         enum ntb_load_keys_field field;
 
-        struct ntb_pub_key_maker *pub_key_maker;
+        struct ntb_ecc *ecc;
 
         ntb_load_keys_func func;
         void *user_data;
@@ -83,21 +83,16 @@ struct ntb_load_keys_data {
         bool has_private_signing_key;
         bool has_private_encryption_key;
 
-        uint8_t private_signing_key[NTB_KEY_PRIVATE_SIZE];
-        uint8_t private_encryption_key[NTB_KEY_PRIVATE_SIZE];
+        uint8_t private_signing_key[NTB_ECC_PRIVATE_KEY_SIZE];
+        uint8_t private_encryption_key[NTB_ECC_PRIVATE_KEY_SIZE];
 };
 
 static void
 flush_key(struct ntb_load_keys_data *data)
 {
         struct ntb_key *key;
-        uint8_t address[RIPEMD160_DIGEST_LENGTH];
         uint8_t header_address[RIPEMD160_DIGEST_LENGTH];
-        uint8_t sha_hash[SHA512_DIGEST_LENGTH];
-        uint8_t public_signing_key[NTB_KEY_PUBLIC_SIZE];
-        uint8_t public_encryption_key[NTB_KEY_PUBLIC_SIZE];
         int version, stream;
-        SHA512_CTX sha_ctx;
 
         if (!data->has_private_signing_key ||
             !data->has_private_encryption_key)
@@ -119,37 +114,17 @@ flush_key(struct ntb_load_keys_data *data)
         ntb_buffer_ensure_size(&data->label, data->label.length + 1);
         data->label.data[data->label.length] = '\0';
 
-        ntb_pub_key_maker_make_bin(data->pub_key_maker,
-                                   data->private_signing_key,
-                                   public_signing_key);
-        ntb_pub_key_maker_make_bin(data->pub_key_maker,
-                                   data->private_encryption_key,
-                                   public_encryption_key);
-
-        SHA512_Init(&sha_ctx);
-        SHA512_Update(&sha_ctx,
-                      public_signing_key,
-                      NTB_KEY_PUBLIC_SIZE);
-        SHA512_Update(&sha_ctx,
-                      public_encryption_key,
-                      NTB_KEY_PUBLIC_SIZE);
-        SHA512_Final(sha_hash, &sha_ctx);
-
-        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address);
-
-        if (memcmp(address, header_address, RIPEMD160_DIGEST_LENGTH)) {
-                ntb_log("Calculated address for %s does not match",
-                        (const char *) data->address.data);
-        }
-
-        key = ntb_key_new((const char *) data->label.data,
-                          address,
+        key = ntb_key_new(data->ecc,
+                          (const char *) data->label.data,
                           version,
                           stream,
                           data->private_signing_key,
-                          public_signing_key,
-                          data->private_encryption_key,
-                          public_encryption_key);
+                          data->private_encryption_key);
+
+        if (memcmp(key->ripe, header_address, RIPEMD160_DIGEST_LENGTH)) {
+                ntb_log("Calculated address for %s does not match",
+                        (const char *) data->address.data);
+        }
 
         key->nonce_trials_per_byte = data->nonce_trials_per_byte;
         key->payload_length_extra_bytes =
@@ -235,7 +210,7 @@ static bool
 parse_key(struct ntb_load_keys_data *data,
           uint8_t *result)
 {
-        uint8_t key_buf[1 + NTB_KEY_PRIVATE_SIZE + 4];
+        uint8_t key_buf[1 + NTB_ECC_PRIVATE_KEY_SIZE + 4];
         uint8_t hash1[SHA256_DIGEST_LENGTH];
         uint8_t hash2[SHA256_DIGEST_LENGTH];
         ssize_t key_length;
@@ -260,16 +235,16 @@ parse_key(struct ntb_load_keys_data *data,
                 return false;
         }
 
-        SHA256(key_buf, NTB_KEY_PRIVATE_SIZE + 1, hash1);
+        SHA256(key_buf, NTB_ECC_PRIVATE_KEY_SIZE + 1, hash1);
         SHA256(hash1, SHA256_DIGEST_LENGTH, hash2);
 
-        if (memcmp(key_buf + 1 + NTB_KEY_PRIVATE_SIZE, hash2, 4)) {
+        if (memcmp(key_buf + 1 + NTB_ECC_PRIVATE_KEY_SIZE, hash2, 4)) {
                 ntb_log("Checksum does not match for private key on line %i",
                         data->line_num);
                 return false;
         }
 
-        memcpy(result, key_buf + 1, NTB_KEY_PRIVATE_SIZE);
+        memcpy(result, key_buf + 1, NTB_ECC_PRIVATE_KEY_SIZE);
 
         return true;
 }
@@ -480,7 +455,7 @@ ntb_load_keys(FILE *file,
 
         data.line_num = 1;
 
-        data.pub_key_maker = ntb_pub_key_maker_new();
+        data.ecc = ntb_ecc_new();
 
         ntb_buffer_init(&data.label);
         ntb_buffer_init(&data.tmp_buf);
@@ -506,7 +481,7 @@ ntb_load_keys(FILE *file,
         ntb_buffer_destroy(&data.tmp_buf);
         ntb_buffer_destroy(&data.address);
 
-        ntb_pub_key_maker_free(data.pub_key_maker);
+        ntb_ecc_free(data.ecc);
 
         ntb_log("Finished loading private keys");
 }

@@ -22,6 +22,8 @@ notbit_SOURCES = \
 	ntb-cpus.h \
 	ntb-crypto.c \
 	ntb-crypto.h \
+	ntb-ecc.c \
+	ntb-ecc.h \
 	ntb-error.c \
 	ntb-error.h \
 	ntb-file-error.c \
@@ -50,8 +52,6 @@ notbit_SOURCES = \
 	ntb-pow.h \
 	ntb-proto.c \
 	ntb-proto.h \
-	ntb-pub-key-maker.c \
-	ntb-pub-key-maker.h \
 	ntb-ref-count.h \
 	ntb-signal.h \
 	ntb-slab.c \

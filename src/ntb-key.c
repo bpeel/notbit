@@ -51,63 +51,16 @@ generate_tag(struct ntb_key *key)
         SHA512_Update(&sha_ctx, hash1, SHA512_DIGEST_LENGTH);
         SHA512_Final(hash2, &sha_ctx);
 
-        memcpy(key->tag_private_key, hash2, NTB_KEY_PRIVATE_SIZE);
-        memcpy(key->tag, hash2 + NTB_KEY_PRIVATE_SIZE, NTB_KEY_TAG_SIZE);
+        memcpy(key->tag_private_key, hash2, NTB_ECC_PRIVATE_KEY_SIZE);
+        memcpy(key->tag, hash2 + NTB_ECC_PRIVATE_KEY_SIZE, NTB_KEY_TAG_SIZE);
 }
 
-static EC_KEY *
-create_ec_key(const uint8_t *private_key,
-              const uint8_t *public_key)
-{
-        EC_KEY *key;
-        BIGNUM bn;
-        BIGNUM *bn_ret;
-        EC_POINT *point;
-        const EC_GROUP *group;
-        int int_ret;
-
-        key = EC_KEY_new_by_curve_name(NID_secp256k1);
-        assert(key);
-
-        group = EC_KEY_get0_group(key);
-
-        BN_init(&bn);
-
-        bn_ret = BN_bin2bn(private_key, NTB_KEY_PRIVATE_SIZE, &bn);
-        assert(bn_ret);
-
-        int_ret = EC_KEY_set_private_key(key, &bn);
-        assert(int_ret);
-
-        BN_free(&bn);
-
-        point = EC_POINT_new(group);
-        assert(point);
-
-        int_ret = EC_POINT_oct2point(group,
-                                     point,
-                                     public_key,
-                                     NTB_KEY_PUBLIC_SIZE,
-                                     NULL /* bignum context */);
-        assert(int_ret);
-
-        int_ret = EC_KEY_set_public_key(key, point);
-        assert(int_ret);
-
-        EC_POINT_free(point);
-
-        return key;
-}
-
-struct ntb_key *
-ntb_key_new(const char *label,
-            const uint8_t *ripe,
-            uint64_t version,
-            uint64_t stream,
-            const uint8_t *private_signing_key,
-            const uint8_t *public_signing_key,
-            const uint8_t *private_encryption_key,
-            const uint8_t *public_encryption_key)
+static struct ntb_key *
+new_key(const char *label,
+        uint64_t version,
+        uint64_t stream,
+        EC_KEY *signing_key,
+        EC_KEY *encryption_key)
 {
         struct ntb_key *key = ntb_alloc(sizeof *key);
 
@@ -122,12 +75,82 @@ ntb_key_new(const char *label,
         key->enabled = true;
         key->decoy = false;
 
+        key->signing_key = signing_key;
+        key->encryption_key = encryption_key;
+
+        return key;
+}
+
+struct ntb_key *
+ntb_key_new_with_public(struct ntb_ecc *ecc,
+                        const char *label,
+                        const uint8_t *ripe,
+                        uint64_t version,
+                        uint64_t stream,
+                        const uint8_t *private_signing_key,
+                        const uint8_t *public_signing_key,
+                        const uint8_t *private_encryption_key,
+                        const uint8_t *public_encryption_key)
+{
+        struct ntb_key *key;
+        EC_KEY *signing_key;
+        EC_KEY *encryption_key;
+
+        signing_key = ntb_ecc_create_key_with_public(ecc,
+                                                     private_signing_key,
+                                                     public_signing_key);
+        encryption_key = ntb_ecc_create_key_with_public(ecc,
+                                                        private_encryption_key,
+                                                        public_encryption_key);
+
+        key = new_key(label,
+                      version,
+                      stream,
+                      signing_key,
+                      encryption_key);
+
         memcpy(key->ripe, ripe, RIPEMD160_DIGEST_LENGTH);
 
-        key->signing_key = create_ec_key(private_signing_key,
-                                         public_signing_key);
-        key->encryption_key = create_ec_key(private_encryption_key,
-                                            public_encryption_key);
+        generate_tag(key);
+
+        return key;
+}
+
+struct ntb_key *
+ntb_key_new(struct ntb_ecc *ecc,
+            const char *label,
+            uint64_t version,
+            uint64_t stream,
+            const uint8_t *private_signing_key,
+            const uint8_t *private_encryption_key)
+{
+        struct ntb_key *key;
+        EC_KEY *signing_key;
+        EC_KEY *encryption_key;
+        SHA512_CTX sha_ctx;
+        uint8_t public_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        uint8_t sha_hash[SHA_DIGEST_LENGTH];
+
+        signing_key = ntb_ecc_create_key(ecc, private_signing_key);
+        encryption_key = ntb_ecc_create_key(ecc, private_encryption_key);
+
+        key = new_key(label,
+                      version,
+                      stream,
+                      signing_key,
+                      encryption_key);
+
+        SHA512_Init(&sha_ctx);
+
+        ntb_ecc_get_pub_key(ecc, signing_key, public_key);
+        SHA512_Update(&sha_ctx, public_key, NTB_ECC_PUBLIC_KEY_SIZE);
+
+        ntb_ecc_get_pub_key(ecc, encryption_key, public_key);
+        SHA512_Update(&sha_ctx, public_key, NTB_ECC_PUBLIC_KEY_SIZE);
+
+        SHA512_Final(sha_hash, &sha_ctx);
+
+        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, key->ripe);
 
         generate_tag(key);
 
