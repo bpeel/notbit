@@ -71,4 +71,11 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
                            size_t data_in_length,
                            struct ntb_buffer *data_out);
 
+bool
+ntb_ecc_decrypt(struct ntb_ecc *ecc,
+                EC_KEY *key,
+                const uint8_t *data_in,
+                size_t data_in_length,
+                struct ntb_buffer *data_out);
+
 #endif /* NTB_ECC_H */

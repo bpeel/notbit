@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 #include "ntb-ecc.h"
-#include "ntb-key.h"
+#include "ntb-proto.h"
 
 struct ntb_ecc {
         BN_CTX *bn_ctx;
@@ -366,4 +366,161 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
         assert(hmac_len == SHA256_DIGEST_LENGTH);
 
         data_out->length += SHA256_DIGEST_LENGTH;
+}
+
+static bool
+decode_big_number(struct ntb_ecc *ecc,
+                  const uint8_t **data_in,
+                  size_t *data_in_length,
+                  BIGNUM *bn)
+{
+        uint16_t num_bytes;
+
+        if (*data_in_length < sizeof (uint16_t))
+                return false;
+
+        num_bytes = ntb_proto_get_16(*data_in);
+
+        bn = BN_bin2bn(*data_in + sizeof (uint16_t), num_bytes, bn);
+        assert(bn);
+
+        *data_in += sizeof (uint16_t) + num_bytes;
+        *data_in_length -= sizeof (uint16_t) + num_bytes;
+
+        return true;
+}
+
+static bool
+decode_pub_key(struct ntb_ecc *ecc,
+               const uint8_t **data_in,
+               size_t *data_in_length,
+               EC_POINT *public_key)
+{
+        int int_result;
+
+        if (*data_in_length < sizeof (uint16_t) * 3)
+                return false;
+
+        /* Check the curve type matches the one we're using */
+        if (ntb_proto_get_16(*data_in) != EC_GROUP_get_curve_name(ecc->group))
+                return false;
+
+        *data_in += sizeof (uint16_t);
+        *data_in_length -= sizeof (uint16_t);
+
+        if (!decode_big_number(ecc, data_in, data_in_length, &ecc->bn) ||
+            !decode_big_number(ecc, data_in, data_in_length, &ecc->bn2))
+                return false;
+
+        int_result = EC_POINT_set_affine_coordinates_GFp(ecc->group,
+                                                         public_key,
+                                                         &ecc->bn,
+                                                         &ecc->bn2,
+                                                         ecc->bn_ctx);
+        assert(int_result);
+
+        return true;
+}
+
+bool
+ntb_ecc_decrypt(struct ntb_ecc *ecc,
+                EC_KEY *key,
+                const uint8_t *data_in,
+                size_t data_in_length,
+                struct ntb_buffer *data_out)
+{
+        uint8_t ecdh_keybuffer[SHA512_DIGEST_LENGTH];
+        uint8_t hmac_buf[SHA256_DIGEST_LENGTH];
+        int ecdh_keylen;
+        const uint8_t *mac, *iv;
+        const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+        EVP_CIPHER_CTX cipher_ctx;
+        int int_result;
+        void *pointer_result;
+        int iv_length;
+        int out_length;
+        unsigned int hmac_len;
+        bool result = true;
+
+        assert(EVP_CIPHER_key_length(cipher) == sizeof ecdh_keybuffer / 2);
+
+        iv_length = EVP_CIPHER_iv_length(cipher);
+        if (data_in_length < iv_length)
+                return false;
+        iv = data_in;
+        data_in += iv_length;
+        data_in_length -= iv_length;
+
+        if (!decode_pub_key(ecc, &data_in, &data_in_length, ecc->pub_key_point))
+                return false;
+
+        ecdh_keylen = ECDH_compute_key(ecdh_keybuffer,
+                                       sizeof ecdh_keybuffer,
+                                       ecc->pub_key_point,
+                                       key,
+                                       kdf_sha512);
+        assert(ecdh_keylen == sizeof ecdh_keybuffer);
+
+        if (data_in_length < SHA256_DIGEST_LENGTH)
+                return false;
+
+        mac = data_in + data_in_length - SHA256_DIGEST_LENGTH;
+        data_in_length -= SHA256_DIGEST_LENGTH;
+
+        /* The second half of the ecdh key is used for the HMAC */
+        hmac_len = sizeof hmac_buf;
+        pointer_result = HMAC(EVP_sha256(),
+                              ecdh_keybuffer + sizeof ecdh_keybuffer / 2,
+                              sizeof ecdh_keybuffer / 2,
+                              data_in,
+                              data_in_length,
+                              hmac_buf,
+                              &hmac_len);
+        assert(pointer_result);
+        assert(hmac_len == sizeof hmac_buf);
+
+        if (memcmp(hmac_buf, mac, sizeof hmac_buf))
+                return false;
+
+        EVP_CIPHER_CTX_init(&cipher_ctx);
+
+        /* The first half of the ecdh key is used for encryption */
+        int_result = EVP_DecryptInit_ex(&cipher_ctx,
+                                        cipher,
+                                        NULL, /* default implementation */
+                                        ecdh_keybuffer,
+                                        iv);
+        assert(int_result);
+
+        out_length = data_in_length + EVP_CIPHER_block_size(cipher);
+        ntb_buffer_ensure_size(data_out,
+                               data_out->length + out_length);
+
+        int_result = EVP_DecryptUpdate(&cipher_ctx,
+                                       data_out->data + data_out->length,
+                                       &out_length,
+                                       data_in,
+                                       data_in_length);
+        if (!int_result) {
+                result = false;
+        } else {
+                data_out->length += out_length;
+
+                out_length = EVP_CIPHER_block_size(cipher);
+                ntb_buffer_ensure_size(data_out,
+                                       data_out->length + out_length);
+
+                int_result =
+                        EVP_DecryptFinal_ex(&cipher_ctx,
+                                            data_out->data + data_out->length,
+                                            &out_length);
+                if (!int_result)
+                        result = false;
+                else
+                        data_out->length += out_length;
+        }
+
+        EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+
+        return result;
 }
