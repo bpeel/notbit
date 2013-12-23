@@ -158,6 +158,8 @@ struct ntb_network {
         struct ntb_signal new_object_signal;
 
         struct ntb_main_context_source *save_addr_list_source;
+
+        struct ntb_list delayed_broadcasts;
 };
 
 enum ntb_network_inv_state {
@@ -203,6 +205,13 @@ struct ntb_network_inventory {
                         struct ntb_blob *blob;
                 };
         };
+};
+
+struct ntb_network_delayed_broadcast {
+        struct ntb_list link;
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+        struct ntb_main_context_source *source;
+        struct ntb_network *nw;
 };
 
 NTB_SLICE_ALLOCATOR(struct ntb_network_inventory,
@@ -935,6 +944,42 @@ broadcast_inv(struct ntb_network *nw,
         }
 }
 
+static void
+free_delayed_broadcast(struct ntb_network_delayed_broadcast *data)
+{
+        ntb_list_remove(&data->link);
+        ntb_main_context_remove_source(data->source);
+        ntb_free(data);
+}
+
+static void
+broadcast_delayed_inv_cb(struct ntb_main_context_source *source,
+                         void *user_data)
+{
+        struct ntb_network_delayed_broadcast *data = user_data;
+
+        broadcast_inv(data->nw, data->hash);
+        free_delayed_broadcast(data);
+}
+
+static void
+broadcast_delayed_inv(struct ntb_network *nw,
+                      const uint8_t *hash)
+{
+        struct ntb_network_delayed_broadcast *data;
+        int delay = rand() % 3 + 1;
+
+        data = ntb_alloc(sizeof *data);
+
+        memcpy(data->hash, hash, NTB_PROTO_HASH_LENGTH);
+        data->nw = nw;
+        ntb_list_insert(&nw->delayed_broadcasts, &data->link);
+        data->source = ntb_main_context_add_timer(NULL,
+                                                  delay,
+                                                  broadcast_delayed_inv_cb,
+                                                  data);
+}
+
 static bool
 handle_object(struct ntb_network *nw,
               struct ntb_network_peer *peer,
@@ -1151,7 +1196,9 @@ ntb_network_add_object(struct ntb_network *nw,
 
         if (inv) {
                 /* We've already got this object so we'll just ignore
-                 * it. (This probably shouldn't happen) */
+                 * it. This probably shouldn't happen, but it might
+                 * happen if for example a peer sends acknowledgement
+                 * data that is already in the network */
                 return;
         }
 
@@ -1183,8 +1230,10 @@ ntb_network_add_object(struct ntb_network *nw,
         inv->type = blob->type;
         inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
 
-        /* FIXME: pick a random delay to do this */
-        broadcast_inv(nw, hash);
+        if (delay)
+                broadcast_delayed_inv(nw, hash);
+        else
+                broadcast_inv(nw, hash);
 }
 
 static void
@@ -1343,6 +1392,7 @@ ntb_network_new(void)
         ntb_list_init(&nw->addrs);
         ntb_list_init(&nw->accepted_inventories);
         ntb_list_init(&nw->rejected_inventories);
+        ntb_list_init(&nw->delayed_broadcasts);
 
         ntb_signal_init(&nw->new_object_signal);
 
@@ -1523,6 +1573,15 @@ free_inventories_in_list(struct ntb_list *list)
                 free_inventory(inv);
 }
 
+static void
+free_delayed_broadcasts(struct ntb_list *list)
+{
+        struct ntb_network_delayed_broadcast *data, *tmp;
+
+        ntb_list_for_each_safe(data, tmp, list, link)
+                free_delayed_broadcast(data);
+}
+
 void
 ntb_network_free(struct ntb_network *nw)
 {
@@ -1540,6 +1599,8 @@ ntb_network_free(struct ntb_network *nw)
         free_listen_sockets(nw);
         free_inventories_in_list(&nw->accepted_inventories);
         free_inventories_in_list(&nw->rejected_inventories);
+
+        free_delayed_broadcasts(&nw->delayed_broadcasts);
 
         ntb_hash_table_free(nw->inventory_hash);
 
