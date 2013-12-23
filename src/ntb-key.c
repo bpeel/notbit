@@ -20,6 +20,7 @@
 
 #include <string.h>
 #include <openssl/obj_mac.h>
+#include <openssl/ecdh.h>
 #include <assert.h>
 
 #include "ntb-key.h"
@@ -133,6 +134,8 @@ ntb_key_new(struct ntb_ecc *ecc,
 
         signing_key = ntb_ecc_create_key(ecc, private_signing_key);
         encryption_key = ntb_ecc_create_key(ecc, private_encryption_key);
+
+        ECDH_set_method(encryption_key, ECDH_OpenSSL());
 
         key = new_key(label,
                       version,
