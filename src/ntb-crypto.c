@@ -186,13 +186,6 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         } while (count_leading_zeroes(ripemd_hash) <
                  cookie->create_key.leading_zeroes);
 
-        ntb_address_encode(4, 1, ripemd_hash, address);
-
-        ntb_log("Key pair generated after %i attempt%s. Address is %s",
-                attempts,
-                attempts == 1 ? "" : "s",
-                address);
-
         cookie->create_key.key =
                 ntb_key_new_with_public(crypto->ecc,
                                         cookie->create_key.label,
@@ -203,6 +196,16 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                                         pub_signing_key,
                                         private_encryption_key,
                                         pub_encryption_key);
+
+        ntb_address_encode(cookie->create_key.key->version,
+                           cookie->create_key.key->stream,
+                           ripemd_hash,
+                           address);
+
+        ntb_log("Key pair generated after %i attempt%s. Address is %s",
+                attempts,
+                attempts == 1 ? "" : "s",
+                address);
 }
 
 static void
