@@ -348,6 +348,8 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
 
         data_out->length += out_length;
 
+        EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+
         /* Add the HMAC to data_out */
         ntb_buffer_ensure_size(data_out,
                                data_out->length + SHA256_DIGEST_LENGTH);
