@@ -24,6 +24,8 @@
 #include <openssl/ripemd.h>
 #include <openssl/ec.h>
 
+#include "ntb-buffer.h"
+
 #define NTB_ECC_PRIVATE_KEY_SIZE 32
 #define NTB_ECC_PUBLIC_KEY_SIZE 65 /* includes the 0x04 prefix */
 
@@ -61,5 +63,12 @@ ntb_ecc_get_pub_key(struct ntb_ecc *ecc,
 
 void
 ntb_ecc_free(struct ntb_ecc *ecc);
+
+void
+ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
+                           const EC_POINT *public_key,
+                           const uint8_t *data_in,
+                           size_t data_in_length,
+                           struct ntb_buffer *data_out);
 
 #endif /* NTB_ECC_H */
