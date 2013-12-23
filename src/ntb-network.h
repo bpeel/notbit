@@ -23,6 +23,7 @@
 
 #include "ntb-error.h"
 #include "ntb-signal.h"
+#include "ntb-blob.h"
 
 extern struct ntb_error_domain
 ntb_network_error;
@@ -35,6 +36,11 @@ struct ntb_network;
 
 struct ntb_network *
 ntb_network_new(void);
+
+void
+ntb_network_add_object(struct ntb_network *nw,
+                       struct ntb_blob *blob,
+                       bool delay);
 
 void
 ntb_network_load_store(struct ntb_network *nw);

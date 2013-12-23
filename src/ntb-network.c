@@ -1133,6 +1133,60 @@ gc_timeout_cb(struct ntb_main_context_source *source,
         gc_addrs(nw);
 }
 
+void
+ntb_network_add_object(struct ntb_network *nw,
+                       struct ntb_blob *blob,
+                       bool delay)
+{
+        struct ntb_network_inventory *inv;
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+        const uint8_t *timestamp_ptr;
+        uint32_t timestamp_length;
+        bool timestamp_result;
+        int64_t age;
+
+        ntb_proto_double_hash(blob->data, blob->size, hash);
+
+        inv = ntb_hash_table_get(nw->inventory_hash, hash);
+
+        if (inv) {
+                /* We've already got this object so we'll just ignore
+                 * it. (This probably shouldn't happen) */
+                return;
+        }
+
+        inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
+        memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
+        ntb_hash_table_set(nw->inventory_hash, inv);
+
+        timestamp_ptr = blob->data + sizeof (uint64_t);
+        timestamp_length = blob->size - sizeof (uint64_t);
+        timestamp_result = ntb_proto_get_timestamp(&timestamp_ptr,
+                                                   &timestamp_length,
+                                                   &inv->timestamp);
+        assert(timestamp_result);
+
+        age = ntb_main_context_get_wall_clock(NULL) - inv->timestamp;
+
+        if (age >= NTB_NETWORK_INV_CACHE_AGE)
+                inv->blob = NULL;
+        else
+                inv->blob = ntb_blob_ref(blob);
+
+        /* Save the blob immediately regardless of whether there is a
+         * delay so that if the process exits before we get around to
+         * advertising it then we will immediately advertise it again
+         * when the process restarts */
+        ntb_store_save_blob(NULL, hash, blob);
+
+        ntb_list_insert(&nw->accepted_inventories, &inv->link);
+        inv->type = blob->type;
+        inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
+
+        /* FIXME: pick a random delay to do this */
+        broadcast_inv(nw, hash);
+}
+
 static void
 store_for_each_blob_cb(enum ntb_proto_inv_type type,
                        const uint8_t *hash,
