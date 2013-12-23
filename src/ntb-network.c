@@ -155,6 +155,8 @@ struct ntb_network {
         struct ntb_list accepted_inventories;
         struct ntb_list rejected_inventories;
 
+        struct ntb_signal new_object_signal;
+
         struct ntb_main_context_source *save_addr_list_source;
 };
 
@@ -977,6 +979,14 @@ handle_object(struct ntb_network *nw,
 
                 ntb_store_save_blob(NULL, hash, inv->blob);
 
+                ntb_list_insert(&nw->accepted_inventories, &inv->link);
+                inv->type = event->type;
+                inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
+
+                broadcast_inv(nw, hash);
+
+                ntb_signal_emit(&nw->new_object_signal, inv->blob);
+
                 /* If the blob is not quite new then we won't bother
                  * keeping it in memory under the assumption that's
                  * less likely that a peer will request it. If
@@ -986,12 +996,6 @@ handle_object(struct ntb_network *nw,
                         ntb_blob_unref(inv->blob);
                         inv->blob = NULL;
                 }
-
-                ntb_list_insert(&nw->accepted_inventories, &inv->link);
-                inv->type = event->type;
-                inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
-
-                broadcast_inv(nw, hash);
         }
 
         return true;
@@ -1286,6 +1290,8 @@ ntb_network_new(void)
         ntb_list_init(&nw->accepted_inventories);
         ntb_list_init(&nw->rejected_inventories);
 
+        ntb_signal_init(&nw->new_object_signal);
+
         nw->n_peers = 0;
         nw->n_unconnected_addrs = 0;
         nw->connect_queue_source = NULL;
@@ -1411,6 +1417,12 @@ ntb_network_add_peer_address(struct ntb_network *nw,
         addr->explicitly_added = true;
 
         return true;
+}
+
+struct ntb_signal *
+ntb_network_get_new_object_signal(struct ntb_network *nw)
+{
+        return &nw->new_object_signal;
 }
 
 void

@@ -49,6 +49,9 @@ ntb_network_add_peer_address(struct ntb_network *nw,
                              const char *address,
                              struct ntb_error **error);
 
+struct ntb_signal *
+ntb_network_get_new_object_signal(struct ntb_network *nw);
+
 void
 ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
                                             bool value);
