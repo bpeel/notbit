@@ -33,15 +33,15 @@
 #include "ntb-store.h"
 #include "ntb-signal.h"
 #include "ntb-proto.h"
-#include "ntb-pointer-list.h"
 #include "ntb-buffer.h"
 #include "ntb-pow.h"
+#include "ntb-pointer-array.h"
 
 struct ntb_keyring {
         struct ntb_network *nw;
         struct ntb_crypto *crypto;
         struct ntb_pow *pow;
-        struct ntb_list keys;
+        struct ntb_buffer keys;
         struct ntb_list tasks;
         struct ntb_listener new_object_listener;
 };
@@ -64,26 +64,16 @@ struct ntb_keyring_task {
 static void
 save_keyring(struct ntb_keyring *keyring)
 {
-        struct ntb_key **keys;
-        struct ntb_pointer_list *plist;
-        int n_keys = 0, i = 0;
-
-        ntb_list_for_each(plist, &keyring->keys, link)
-                n_keys++;
-
-        keys = alloca(sizeof (struct ntb_key *) * n_keys);
-
-        ntb_list_for_each(plist, &keyring->keys, link)
-                keys[i++] = plist->data;
-
-        ntb_store_save_keys(NULL /* default store */, keys, n_keys);
+        ntb_store_save_keys(NULL /* default store */,
+                            (struct ntb_key **) keyring->keys.data,
+                            ntb_pointer_array_length(&keyring->keys));
 }
 
 static void
 add_key(struct ntb_keyring *keyring,
         struct ntb_key *key)
 {
-        ntb_pointer_list_insert(&keyring->keys, ntb_key_ref(key));
+        ntb_pointer_array_append(&keyring->keys, ntb_key_ref(key));
 }
 
 static void
@@ -167,9 +157,9 @@ create_pubkey_blob_cb(struct ntb_blob *blob,
 
 static void
 maybe_post_key(struct ntb_keyring *keyring,
-               struct ntb_pointer_list *key_link)
+               int key_index)
 {
-        struct ntb_key *key = key_link->data;
+        struct ntb_key *key = ntb_pointer_array_get(&keyring->keys, key_index);
         struct ntb_key *tmp_key;
         int64_t now, last_send_age;
         struct ntb_keyring_task *task;
@@ -196,7 +186,7 @@ maybe_post_key(struct ntb_keyring *keyring,
         tmp_key = ntb_key_copy(key);
         tmp_key->last_pubkey_send_time = now + rand() % 600 - 300;
         ntb_key_unref(key);
-        key_link->data = tmp_key;
+        ntb_pointer_array_set(&keyring->keys, key_index, tmp_key);
 
         save_keyring(keyring);
 
@@ -217,11 +207,11 @@ handle_getpubkey_with_ripe(struct ntb_keyring *keyring,
                            uint64_t stream_number,
                            const uint8_t *ripe)
 {
-        struct ntb_pointer_list *plist;
         struct ntb_key *key;
+        int i;
 
-        ntb_list_for_each(plist, &keyring->keys, link) {
-                key = plist->data;
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
+                key = ntb_pointer_array_get(&keyring->keys, i);
 
                 if (!memcmp(key->ripe, ripe, RIPEMD160_DIGEST_LENGTH)) {
                         if (key->version != address_version ||
@@ -229,7 +219,7 @@ handle_getpubkey_with_ripe(struct ntb_keyring *keyring,
                                 ntb_log("getpubkey requested for key with the "
                                         "wrong version or stream number");
                         } else {
-                                maybe_post_key(keyring, plist);
+                                maybe_post_key(keyring, i);
                         }
                         break;
                 }
@@ -242,11 +232,11 @@ handle_getpubkey_with_tag(struct ntb_keyring *keyring,
                           uint64_t stream_number,
                           const uint8_t *tag)
 {
-        struct ntb_pointer_list *plist;
         struct ntb_key *key;
+        int i;
 
-        ntb_list_for_each(plist, &keyring->keys, link) {
-                key = plist->data;
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
+                key = ntb_pointer_array_get(&keyring->keys, i);
 
                 if (!memcmp(key->tag, tag, NTB_KEY_TAG_SIZE)) {
                         if (key->version != address_version ||
@@ -254,7 +244,7 @@ handle_getpubkey_with_tag(struct ntb_keyring *keyring,
                                 ntb_log("getpubkey requested for key with the "
                                         "wrong version or stream number");
                         } else {
-                                maybe_post_key(keyring, plist);
+                                maybe_post_key(keyring, i);
                         }
                         break;
                 }
@@ -387,7 +377,7 @@ ntb_keyring_new(struct ntb_network *nw)
 
         keyring->crypto = ntb_crypto_new();
         keyring->pow = ntb_pow_new();
-        ntb_list_init(&keyring->keys);
+        ntb_buffer_init(&keyring->keys);
 
         ntb_store_for_each_key(NULL, /* default store */
                                for_each_key_cb,
@@ -454,16 +444,14 @@ cancel_tasks(struct ntb_keyring *keyring)
 void
 ntb_keyring_free(struct ntb_keyring *keyring)
 {
-        struct ntb_pointer_list *plist, *tmp;
+        int i;
 
         ntb_list_remove(&keyring->new_object_listener.link);
 
         cancel_tasks(keyring);
 
-        ntb_list_for_each_safe(plist, tmp, &keyring->keys, link) {
-                ntb_key_unref(plist->data);
-                ntb_pointer_list_free(plist);
-        }
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++)
+                ntb_key_unref(ntb_pointer_array_get(&keyring->keys, i));
 
         ntb_pow_free(keyring->pow);
         ntb_crypto_free(keyring->crypto);
