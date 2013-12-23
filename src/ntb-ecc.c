@@ -298,7 +298,7 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
                                        public_key,
                                        ephemeral_key,
                                        kdf_sha512);
-        assert(ecdh_keylen = sizeof ecdh_keybuffer);
+        assert(ecdh_keylen == sizeof ecdh_keybuffer);
 
         /* Add the initialisation vector to data_out */
         iv_offset = data_out->length;
