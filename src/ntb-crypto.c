@@ -23,6 +23,8 @@
 #include <openssl/ripemd.h>
 #include <openssl/sha.h>
 #include <openssl/rand.h>
+#include <openssl/ecdsa.h>
+#include <openssl/obj_mac.h>
 #include <assert.h>
 
 #include "ntb-crypto.h"
@@ -48,7 +50,8 @@ struct ntb_crypto {
 };
 
 enum ntb_crypto_cookie_type {
-        NTB_CRYPTO_COOKIE_CREATE_KEY
+        NTB_CRYPTO_COOKIE_CREATE_KEY,
+        NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB
 };
 
 struct ntb_crypto_cookie {
@@ -74,8 +77,16 @@ struct ntb_crypto_cookie {
                         char *label;
                         int leading_zeroes;
                 } create_key;
+
+                struct {
+                        struct ntb_key *key;
+                        struct ntb_blob *blob;
+                } create_pubkey_blob;
         };
 };
+
+/* We send acknowledgements */
+#define NTB_CRYPTO_PUBKEY_BEHAVIORS UINT32_C(0x80000000)
 
 static struct ntb_crypto_cookie *
 new_cookie(struct ntb_crypto *crypto,
@@ -115,6 +126,12 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                         if (cookie->create_key.key)
                                 ntb_key_unref(cookie->create_key.key);
                         ntb_free(cookie->create_key.label);
+                        break;
+                case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
+                        if (cookie->create_key.key)
+                                ntb_key_unref(cookie->create_pubkey_blob.key);
+                        if (cookie->create_pubkey_blob.blob)
+                                ntb_blob_unref(cookie->create_pubkey_blob.blob);
                         break;
                 }
 
@@ -208,6 +225,196 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                 address);
 }
 
+static struct ntb_blob *
+create_key_from_buffer(const struct ntb_buffer *buffer)
+{
+        return ntb_blob_new(NTB_PROTO_INV_TYPE_PUBKEY,
+                            buffer->data,
+                            buffer->length);
+}
+
+static void
+append_public_key(struct ntb_buffer *buffer,
+                  const EC_KEY *key)
+{
+        size_t oct_size;
+
+        ntb_buffer_ensure_size(buffer,
+                               buffer->length + NTB_ECC_PUBLIC_KEY_SIZE);
+
+        oct_size = EC_POINT_point2oct(EC_KEY_get0_group(key),
+                                      EC_KEY_get0_public_key(key),
+                                      POINT_CONVERSION_UNCOMPRESSED,
+                                      buffer->data + buffer->length,
+                                      NTB_ECC_PUBLIC_KEY_SIZE,
+                                      NULL);
+        assert(oct_size == NTB_ECC_PUBLIC_KEY_SIZE);
+
+        /* Remove the 0x04 prefix */
+        memmove(buffer->data + buffer->length,
+                buffer->data + buffer->length + 1,
+                NTB_ECC_PUBLIC_KEY_SIZE - 1);
+
+        buffer->length += NTB_ECC_PUBLIC_KEY_SIZE - 1;
+}
+
+static void
+append_key_base(struct ntb_key *key,
+                struct ntb_buffer *buffer,
+                size_t *behaviors_offset)
+{
+        /* Leave space for the nonce. The caller will have to
+         * calculate this */
+        ntb_buffer_set_length(buffer, buffer->length + sizeof (uint64_t));
+
+        ntb_proto_add_64(buffer, key->last_pubkey_send_time);
+        ntb_proto_add_var_int(buffer, key->version);
+        ntb_proto_add_var_int(buffer, key->stream);
+
+        if (behaviors_offset)
+                *behaviors_offset = buffer->length;
+
+        ntb_proto_add_32(buffer, NTB_CRYPTO_PUBKEY_BEHAVIORS);
+        append_public_key(buffer, key->signing_key);
+        append_public_key(buffer, key->encryption_key);
+}
+
+static void
+append_signature(struct ntb_buffer *buffer,
+                 struct ntb_key *key,
+                 const uint8_t *data,
+                 size_t length)
+{
+        uint8_t digest[SHA_DIGEST_LENGTH];
+        unsigned int sig_length = ECDSA_size(key->signing_key);
+        uint8_t *sig = alloca(sig_length);
+        int int_ret;
+
+        SHA1(data, length, digest);
+
+        int_ret = ECDSA_sign(0, /* type (ignored) */
+                             digest,
+                             SHA_DIGEST_LENGTH,
+                             sig,
+                             &sig_length,
+                             key->signing_key);
+        assert(int_ret);
+
+        ntb_proto_add_var_int(buffer, sig_length);
+        ntb_buffer_append(buffer, sig, sig_length);
+}
+
+static void
+append_v34_key_base(struct ntb_key *key,
+                    struct ntb_buffer *buffer,
+                    size_t *behaviors_offset)
+{
+        append_key_base(key, buffer, behaviors_offset);
+
+        ntb_proto_add_var_int(buffer, key->nonce_trials_per_byte);
+        ntb_proto_add_var_int(buffer, key->payload_length_extra_bytes);
+
+        append_signature(buffer,
+                         key,
+                         buffer->data + sizeof (uint64_t),
+                         buffer->length - sizeof (uint64_t));
+}
+
+static struct ntb_blob *
+create_v4_key(struct ntb_crypto *crypto,
+              struct ntb_key *key)
+{
+        struct ntb_blob *blob;
+        struct ntb_buffer buffer;
+        size_t behaviors_offset;
+        EC_POINT *tag_public_key_point;
+        struct ntb_buffer encrypted_buffer;
+
+        ntb_buffer_init(&buffer);
+        ntb_buffer_init(&encrypted_buffer);
+
+        append_v34_key_base(key, &buffer, &behaviors_offset);
+
+        tag_public_key_point =
+                ntb_ecc_make_pub_key_point(crypto->ecc,
+                                           key->tag_private_key);
+
+        ntb_buffer_append(&encrypted_buffer,
+                          buffer.data,
+                          behaviors_offset);
+        ntb_buffer_append(&encrypted_buffer,
+                          key->tag,
+                          NTB_KEY_TAG_SIZE);
+
+        ntb_ecc_encrypt_with_point(crypto->ecc,
+                                   tag_public_key_point,
+                                   buffer.data + behaviors_offset,
+                                   buffer.length - behaviors_offset,
+                                   &encrypted_buffer);
+
+        EC_POINT_free(tag_public_key_point);
+
+        blob = create_key_from_buffer(&encrypted_buffer);
+
+        ntb_buffer_destroy(&buffer);
+        ntb_buffer_destroy(&encrypted_buffer);
+
+        return blob;
+}
+
+static struct ntb_blob *
+create_v3_key(struct ntb_key *key)
+{
+        struct ntb_blob *blob;
+        struct ntb_buffer buffer;
+
+        ntb_buffer_init(&buffer);
+
+        append_v34_key_base(key, &buffer, NULL);
+
+        blob = create_key_from_buffer(&buffer);
+
+        ntb_buffer_destroy(&buffer);
+
+        return blob;
+}
+
+static struct ntb_blob *
+create_v2_key(struct ntb_key *key)
+{
+        struct ntb_blob *blob;
+        struct ntb_buffer buffer;
+
+        ntb_buffer_init(&buffer);
+
+        append_key_base(key, &buffer, NULL);
+
+        blob = create_key_from_buffer(&buffer);
+
+        ntb_buffer_destroy(&buffer);
+
+        return blob;
+}
+
+static void
+handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
+{
+        struct ntb_key *key = cookie->create_pubkey_blob.key;
+
+        switch (key->version) {
+        case 4:
+                cookie->create_pubkey_blob.blob =
+                        create_v4_key(cookie->crypto, key);
+                break;
+        case 3:
+                cookie->create_pubkey_blob.blob = create_v3_key(key);
+                break;
+        default:
+                cookie->create_pubkey_blob.blob = create_v2_key(key);
+                break;
+        }
+}
+
 static void
 idle_cb(struct ntb_main_context_source *source,
         void *user_data)
@@ -215,11 +422,17 @@ idle_cb(struct ntb_main_context_source *source,
         struct ntb_crypto_cookie *cookie = user_data;
         struct ntb_crypto *crypto = cookie->crypto;
         ntb_crypto_create_key_func create_key_func;
+        ntb_crypto_create_pubkey_blob_func create_pubkey_blob_func;
 
         switch (cookie->type) {
         case NTB_CRYPTO_COOKIE_CREATE_KEY:
                 create_key_func = cookie->func;
                 create_key_func(cookie->create_key.key, cookie->user_data);
+                break;
+        case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
+                create_pubkey_blob_func = cookie->func;
+                create_pubkey_blob_func(cookie->create_pubkey_blob.blob,
+                                        cookie->user_data);
                 break;
         }
 
@@ -266,6 +479,9 @@ thread_func(void *user_data)
                         switch (type) {
                         case NTB_CRYPTO_COOKIE_CREATE_KEY:
                                 handle_create_key(cookie);
+                                break;
+                        case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
+                                handle_create_pubkey_blob(cookie);
                                 break;
                         }
 
@@ -327,6 +543,28 @@ ntb_crypto_create_key(struct ntb_crypto *crypto,
                             user_data);
         cookie->create_key.label = ntb_strdup(label);
         cookie->create_key.leading_zeroes = leading_zeroes;
+
+        pthread_mutex_unlock(&crypto->mutex);
+
+        return cookie;
+}
+
+struct ntb_crypto_cookie *
+ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
+                              struct ntb_key *key,
+                              ntb_crypto_create_pubkey_blob_func callback,
+                              void *user_data)
+{
+        struct ntb_crypto_cookie *cookie;
+
+        pthread_mutex_lock(&crypto->mutex);
+
+        cookie = new_cookie(crypto,
+                            NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB,
+                            callback,
+                            user_data);
+        cookie->create_pubkey_blob.key = ntb_key_ref(key);
+        cookie->create_pubkey_blob.blob = NULL;
 
         pthread_mutex_unlock(&crypto->mutex);
 

@@ -24,6 +24,7 @@
 
 #include "ntb-error.h"
 #include "ntb-key.h"
+#include "ntb-blob.h"
 
 struct ntb_crypto;
 
@@ -32,6 +33,10 @@ struct ntb_crypto_cookie;
 typedef void
 (* ntb_crypto_create_key_func)(struct ntb_key *key,
                                void *user_data);
+
+typedef void
+(* ntb_crypto_create_pubkey_blob_func)(struct ntb_blob *blob,
+                                       void *user_data);
 
 struct ntb_crypto *
 ntb_crypto_new(void);
@@ -42,6 +47,12 @@ ntb_crypto_create_key(struct ntb_crypto *crypto,
                       int leading_zeroes,
                       ntb_crypto_create_key_func callback,
                       void *user_data);
+
+struct ntb_crypto_cookie *
+ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
+                              struct ntb_key *key,
+                              ntb_crypto_create_pubkey_blob_func callback,
+                              void *user_data);
 
 void
 ntb_crypto_cancel_task(struct ntb_crypto_cookie *cookie);
