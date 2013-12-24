@@ -28,6 +28,7 @@
 
 #include "ntb-proto.h"
 #include "ntb-util.h"
+#include "ntb-ecc.h"
 
 const uint8_t
 ntb_proto_magic[4] = { 0xe9, 0xbe, 0xb4, 0xd9 };
@@ -358,6 +359,123 @@ ntb_proto_get_command(const uint8_t *data,
         va_end(ap);
 
         return result;
+}
+
+bool
+ntb_proto_get_decrypted_msg(const uint8_t *data,
+                            uint32_t data_length,
+                            struct ntb_proto_decrypted_msg *msg)
+{
+        const uint8_t *data_start = data;
+        ssize_t header_size;
+
+        header_size = ntb_proto_get_command(data,
+                                            data_length,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->message_version,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->sender_address_version,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->sender_stream_number,
+
+                                            NTB_PROTO_ARGUMENT_32,
+                                            &msg->sender_behaviors,
+
+                                            NTB_PROTO_ARGUMENT_END);
+
+        if (header_size == -1)
+                return false;
+
+        data += header_size;
+        data_length -= header_size;
+
+        if (data_length < (NTB_ECC_PUBLIC_KEY_SIZE - 1) * 2)
+                return false;
+
+        msg->sender_signing_key = data;
+        msg->sender_encryption_key = data + NTB_ECC_PUBLIC_KEY_SIZE - 1;
+
+        data += (NTB_ECC_PUBLIC_KEY_SIZE - 1) * 2;
+        data_length -= (NTB_ECC_PUBLIC_KEY_SIZE - 1) * 2;
+
+        header_size = ntb_proto_get_command(data,
+                                            data_length,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->nonce_trials_per_byte,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->extra_bytes,
+
+                                            NTB_PROTO_ARGUMENT_END);
+
+        if (header_size == -1)
+                return false;
+
+        data += header_size;
+        data_length -= header_size;
+
+        if (data_length < RIPEMD160_DIGEST_LENGTH)
+                return false;
+
+        msg->destination_ripe = data;
+
+        data += RIPEMD160_DIGEST_LENGTH;
+        data_length -= RIPEMD160_DIGEST_LENGTH;
+
+        header_size = ntb_proto_get_command(data,
+                                            data_length,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->encoding,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &msg->message_length,
+
+                                            NTB_PROTO_ARGUMENT_END);
+
+        if (header_size == -1)
+                return false;
+
+        data += header_size;
+        data_length -= header_size;
+
+        if (data_length < msg->message_length)
+                return false;
+
+        msg->message = data;
+
+        data += msg->message_length;
+        data_length -= msg->message_length;
+
+        if (!ntb_proto_get_var_int(&data, &data_length, &msg->ack_length))
+                return false;
+
+        if (data_length < msg->ack_length)
+                return false;
+
+        msg->ack = data;
+
+        data += msg->ack_length;
+        data_length -= msg->ack_length;
+
+        msg->signed_data_length = data - data_start;
+
+        if (!ntb_proto_get_var_int(&data, &data_length, &msg->sig_length))
+                return false;
+
+        msg->sig = data;
+
+        if (data_length < msg->sig_length)
+                return false;
+
+        if (data_length > msg->sig_length)
+                return false;
+
+        return true;
 }
 
 void

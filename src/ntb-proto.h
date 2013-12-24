@@ -65,6 +65,22 @@ struct ntb_proto_var_int_list {
         const uint8_t *values;
 };
 
+struct ntb_proto_decrypted_msg {
+        const uint8_t *sender_signing_key;
+        const uint8_t *sender_encryption_key;
+        uint64_t message_version;
+        uint64_t sender_address_version;
+        uint64_t sender_stream_number;
+        uint32_t sender_behaviors;
+        uint64_t nonce_trials_per_byte;
+        uint64_t extra_bytes;
+        const uint8_t *destination_ripe;
+        uint64_t encoding;
+        const uint8_t *message, *ack, *sig;
+        uint64_t message_length, ack_length, sig_length;
+        size_t signed_data_length;
+};
+
 #define NTB_PROTO_HEADER_SIZE (4 + 12 + 4 + 4)
 
 #define NTB_PROTO_VERSION UINT32_C(2)
@@ -153,6 +169,11 @@ ssize_t
 ntb_proto_get_command(const uint8_t *data,
                       uint32_t length,
                       ...);
+
+bool
+ntb_proto_get_decrypted_msg(const uint8_t *data,
+                            uint32_t length,
+                            struct ntb_proto_decrypted_msg *msg);
 
 static inline void
 ntb_proto_add_8(struct ntb_buffer *buf,
