@@ -36,6 +36,7 @@
 #include "ntb-buffer.h"
 #include "ntb-pow.h"
 #include "ntb-pointer-array.h"
+#include "ntb-address.h"
 
 struct ntb_keyring {
         struct ntb_network *nw;
@@ -327,9 +328,171 @@ handle_pubkey(struct ntb_keyring *keyring,
 }
 
 static void
+get_address_from_keys(uint8_t address_version,
+                      uint8_t stream,
+                      const uint8_t *signing_key,
+                      const uint8_t *encryption_key,
+                      char *sender_address)
+{
+        SHA512_CTX sha_ctx;
+        uint8_t four = 0x04;
+        uint8_t sha_hash[SHA512_DIGEST_LENGTH];
+        uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
+
+        SHA512_Init(&sha_ctx);
+
+        /* The keys from the network commands don't include the 0x04
+         * prefix so we have to separately add it in */
+        SHA512_Update(&sha_ctx, &four, 1);
+        SHA512_Update(&sha_ctx, signing_key, NTB_ECC_PUBLIC_KEY_SIZE - 1);
+
+        SHA512_Update(&sha_ctx, &four, 1);
+        SHA512_Update(&sha_ctx, encryption_key, NTB_ECC_PUBLIC_KEY_SIZE - 1);
+
+        SHA512_Final(sha_hash, &sha_ctx);
+
+        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, ripe);
+
+        ntb_address_encode(address_version,
+                           stream,
+                           ripe,
+                           sender_address);
+}
+
+static void
+send_acknowledgement(struct ntb_keyring *keyring,
+                     const uint8_t *ack,
+                     size_t ack_length)
+{
+        enum ntb_proto_inv_type type;
+        const char *command_name;
+
+        if (ack_length == 0) {
+                ntb_log("The decrypted message contains no "
+                        "acknowledgement data");
+                return;
+        }
+
+        if (ack_length < NTB_PROTO_HEADER_SIZE ||
+            !ntb_proto_check_command_string(ack + 4)) {
+                ntb_log("The acknowledgement message in the decrypted message "
+                        "is invalid");
+                return;
+        }
+
+        command_name = (const char *) ack + 4;
+        ack += NTB_PROTO_HEADER_SIZE;
+        ack_length -= NTB_PROTO_HEADER_SIZE;
+
+        for (type = 0; type < 4; type++) {
+                if (!strcmp(ntb_proto_get_command_name_for_type(type),
+                            command_name)) {
+                        ntb_network_add_object_from_data(keyring->nw,
+                                                         type,
+                                                         ack,
+                                                         ack_length,
+                                                         NTB_NETWORK_DELAY,
+                                                         "acknowledgement "
+                                                         "data");
+                        return;
+                }
+        }
+
+        ntb_log("The acknowledgement data contains an unknown command “%s”",
+                ack + 4);
+}
+
+static void
+decrypt_msg_cb(struct ntb_key *key,
+               struct ntb_blob *blob,
+               void *user_data)
+{
+        struct ntb_keyring_task *task = user_data;
+        struct ntb_keyring *keyring = task->keyring;
+        struct ntb_proto_decrypted_msg msg;
+        char sender_address[NTB_ADDRESS_MAX_LENGTH + 1];
+
+        task->crypto_cookie = NULL;
+
+        free_task(task);
+
+        /* If we couldn't decrypt it then the key will be NULL */
+        if (key == NULL)
+                return;
+
+        if (!ntb_proto_get_decrypted_msg(blob->data,
+                                         blob->size,
+                                         &msg))
+                goto invalid;
+
+        /* We can't encode the address if these numbers are too high
+         * so instead we'll just assume the message is invalid */
+        if (msg.sender_stream_number > 255 ||
+            msg.sender_address_version > 255)
+                goto invalid;
+
+        if (memcmp(key->ripe, msg.destination_ripe, RIPEMD160_DIGEST_LENGTH)) {
+                ntb_log("The key that was used to encrypt the message does "
+                        "not match the destination address embedded in the "
+                        "message. This could be a surreptitious forwarding"
+                        "attack");
+                return;
+        }
+
+        get_address_from_keys(msg.sender_address_version,
+                              msg.sender_stream_number,
+                              msg.sender_signing_key,
+                              msg.sender_encryption_key,
+                              sender_address);
+
+        ntb_log("Accepted message from %s", sender_address);
+
+        send_acknowledgement(keyring, msg.ack, msg.ack_length);
+
+        return;
+
+invalid:
+        ntb_log("Decrypted message is invalid");
+}
+
+static void
 handle_msg(struct ntb_keyring *keyring,
            struct ntb_blob *blob)
 {
+        struct ntb_keyring_task *task;
+        uint64_t nonce;
+        int64_t timestamp;
+        ssize_t header_length;
+        uint64_t stream_number;
+
+        header_length = ntb_proto_get_command(blob->data,
+                                              blob->size,
+
+                                              NTB_PROTO_ARGUMENT_64,
+                                              &nonce,
+
+                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                              &timestamp,
+
+                                              NTB_PROTO_ARGUMENT_VAR_INT,
+                                              &stream_number,
+
+                                              NTB_PROTO_ARGUMENT_END);
+
+        if (header_length == -1) {
+                ntb_log("Invalid msg command received");
+                return;
+        }
+
+        task = add_task(keyring);
+        task->crypto_cookie =
+                ntb_crypto_decrypt_msg(keyring->crypto,
+                                       blob,
+                                       (struct ntb_key * const *)
+                                       keyring->keys.data,
+                                       ntb_pointer_array_length(&keyring->keys),
+                                       decrypt_msg_cb,
+                                       task);
 }
 
 static void

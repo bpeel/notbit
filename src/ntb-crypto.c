@@ -52,7 +52,8 @@ struct ntb_crypto {
 
 enum ntb_crypto_cookie_type {
         NTB_CRYPTO_COOKIE_CREATE_KEY,
-        NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB
+        NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB,
+        NTB_CRYPTO_COOKIE_DECRYPT_MSG
 };
 
 struct ntb_crypto_cookie {
@@ -83,6 +84,14 @@ struct ntb_crypto_cookie {
                         struct ntb_key *key;
                         struct ntb_blob *blob;
                 } create_pubkey_blob;
+
+                struct {
+                        struct ntb_blob *blob;
+                        struct ntb_key **keys;
+                        struct ntb_key *chosen_key;
+                        struct ntb_blob *result;
+                        int n_keys;
+                } decrypt_msg;
         };
 };
 
@@ -119,6 +128,8 @@ new_cookie(struct ntb_crypto *crypto,
 static void
 unref_cookie(struct ntb_crypto_cookie *cookie)
 {
+        int i;
+
         /* This should only be called with the lock */
 
         if (--cookie->ref_count <= 0) {
@@ -133,6 +144,16 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                                 ntb_key_unref(cookie->create_pubkey_blob.key);
                         if (cookie->create_pubkey_blob.blob)
                                 ntb_blob_unref(cookie->create_pubkey_blob.blob);
+                        break;
+                case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
+                        for (i = 0; i < cookie->decrypt_msg.n_keys; i++)
+                                ntb_key_unref(cookie->decrypt_msg.keys[i]);
+                        ntb_free(cookie->decrypt_msg.keys);
+                        if (cookie->decrypt_msg.result)
+                                ntb_blob_unref(cookie->decrypt_msg.result);
+                        if (cookie->decrypt_msg.chosen_key)
+                                ntb_key_unref(cookie->decrypt_msg.chosen_key);
+                        ntb_blob_unref(cookie->decrypt_msg.blob);
                         break;
                 }
 
@@ -399,6 +420,120 @@ handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
 }
 
 static void
+check_signature_in_decrypted_msg(struct ntb_crypto_cookie *cookie)
+{
+        struct ntb_proto_decrypted_msg msg;
+        uint8_t public_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        EC_KEY *key;
+        uint8_t digest[SHA_DIGEST_LENGTH];
+        int verify_result;
+
+        ntb_log("Successfully decrypted a message using the key “%s”",
+                cookie->decrypt_msg.chosen_key->label);
+
+        if (!ntb_proto_get_decrypted_msg(cookie->decrypt_msg.result->data,
+                                         cookie->decrypt_msg.result->size,
+                                         &msg)) {
+                ntb_log("The decrypted message is invalid");
+                goto invalid;
+        }
+
+        SHA1(cookie->decrypt_msg.result->data, msg.signed_data_length, digest);
+
+        /* The keys on the network have the 0x04 prefix stripped so we
+         * need to add it back on */
+        public_key[0] = 0x04;
+        memcpy(public_key + 1,
+               msg.sender_signing_key,
+               NTB_ECC_PUBLIC_KEY_SIZE - 1);
+
+        key = ntb_ecc_create_key_with_public(cookie->crypto->ecc,
+                                             NULL, /* private key */
+                                             public_key);
+
+        verify_result = ECDSA_verify(0, /* type, ignored */
+                                     digest,
+                                     sizeof digest,
+                                     msg.sig,
+                                     msg.sig_length,
+                                     key);
+
+        EC_KEY_free(key);
+
+        if (verify_result != 1) {
+                ntb_log("The signature in the decrypted message is invalid");
+                goto invalid;
+        }
+
+        return;
+
+invalid:
+        ntb_key_unref(cookie->decrypt_msg.chosen_key);
+        cookie->decrypt_msg.chosen_key = NULL;
+        ntb_blob_unref(cookie->decrypt_msg.result);
+        cookie->decrypt_msg.result = NULL;
+}
+
+static void
+handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
+{
+        struct ntb_crypto *crypto = cookie->crypto;
+        struct ntb_buffer buffer;
+        struct ntb_key *key;
+        ssize_t header_size;
+        uint64_t pow_nonce;
+        int64_t timestamp;
+        uint64_t stream_number;
+        const uint8_t *data;
+        size_t data_length;
+        size_t decryption_start;
+        int i;
+
+        header_size = ntb_proto_get_command(cookie->decrypt_msg.blob->data,
+                                            cookie->decrypt_msg.blob->size,
+
+                                            NTB_PROTO_ARGUMENT_64,
+                                            &pow_nonce,
+
+                                            NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                            &timestamp,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &stream_number,
+
+                                            NTB_PROTO_ARGUMENT_END);
+
+        assert(header_size != -1);
+
+        data = cookie->decrypt_msg.blob->data + header_size;
+        data_length = cookie->decrypt_msg.blob->size - header_size;
+
+        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
+
+        decryption_start = buffer.length;
+
+        for (i = 0; i < cookie->decrypt_msg.n_keys; i++) {
+                key = cookie->decrypt_msg.keys[i];
+
+                if (ntb_ecc_decrypt(crypto->ecc,
+                                    key->encryption_key,
+                                    data,
+                                    data_length,
+                                    &buffer)) {
+                        cookie->decrypt_msg.chosen_key = ntb_key_ref(key);
+                        cookie->decrypt_msg.result =
+                                ntb_blob_dynamic_end(&buffer);
+                        check_signature_in_decrypted_msg(cookie);
+                        return;
+                }
+
+                buffer.length = decryption_start;
+        }
+
+        ntb_buffer_destroy(&buffer);
+}
+
+static void
 idle_cb(struct ntb_main_context_source *source,
         void *user_data)
 {
@@ -406,6 +541,7 @@ idle_cb(struct ntb_main_context_source *source,
         struct ntb_crypto *crypto = cookie->crypto;
         ntb_crypto_create_key_func create_key_func;
         ntb_crypto_create_pubkey_blob_func create_pubkey_blob_func;
+        ntb_crypto_decrypt_msg_func decrypt_msg_func;
 
         switch (cookie->type) {
         case NTB_CRYPTO_COOKIE_CREATE_KEY:
@@ -416,6 +552,12 @@ idle_cb(struct ntb_main_context_source *source,
                 create_pubkey_blob_func = cookie->func;
                 create_pubkey_blob_func(cookie->create_pubkey_blob.blob,
                                         cookie->user_data);
+                break;
+        case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
+                decrypt_msg_func = cookie->func;
+                decrypt_msg_func(cookie->decrypt_msg.chosen_key,
+                                 cookie->decrypt_msg.result,
+                                 cookie->user_data);
                 break;
         }
 
@@ -466,6 +608,9 @@ thread_func(void *user_data)
                                 break;
                         case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
                                 handle_create_pubkey_blob(cookie);
+                                break;
+                        case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
+                                handle_decrypt_msg(cookie);
                                 break;
                         }
 
@@ -549,6 +694,38 @@ ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
                             user_data);
         cookie->create_pubkey_blob.key = ntb_key_ref(key);
         cookie->create_pubkey_blob.blob = NULL;
+
+        pthread_mutex_unlock(&crypto->mutex);
+
+        return cookie;
+}
+
+struct ntb_crypto_cookie *
+ntb_crypto_decrypt_msg(struct ntb_crypto *crypto,
+                       struct ntb_blob *blob,
+                       struct ntb_key * const *keys,
+                       int n_keys,
+                       ntb_crypto_decrypt_msg_func callback,
+                       void *user_data)
+{
+        struct ntb_crypto_cookie *cookie;
+        int i;
+
+        pthread_mutex_lock(&crypto->mutex);
+
+        cookie = new_cookie(crypto,
+                            NTB_CRYPTO_COOKIE_DECRYPT_MSG,
+                            callback,
+                            user_data);
+        cookie->decrypt_msg.blob = ntb_blob_ref(blob);
+        cookie->decrypt_msg.keys =
+                ntb_memdup(keys, n_keys * sizeof (struct ntb_key *));
+        cookie->decrypt_msg.n_keys = n_keys;
+        cookie->decrypt_msg.result = NULL;
+        cookie->decrypt_msg.chosen_key = NULL;
+
+        for (i = 0; i < n_keys; i++)
+                ntb_key_ref(keys[i]);
 
         pthread_mutex_unlock(&crypto->mutex);
 

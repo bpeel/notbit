@@ -38,6 +38,14 @@ typedef void
 (* ntb_crypto_create_pubkey_blob_func)(struct ntb_blob *blob,
                                        void *user_data);
 
+/* If the decryption failed, the key and blob will be NULL. The blob
+ * will have the msg type but it isn't a real msg and instead it
+ * contains the decrypted data */
+typedef void
+(* ntb_crypto_decrypt_msg_func)(struct ntb_key *key,
+                                struct ntb_blob *blob,
+                                void *user_data);
+
 struct ntb_crypto *
 ntb_crypto_new(void);
 
@@ -53,6 +61,14 @@ ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
                               struct ntb_key *key,
                               ntb_crypto_create_pubkey_blob_func callback,
                               void *user_data);
+
+struct ntb_crypto_cookie *
+ntb_crypto_decrypt_msg(struct ntb_crypto *crypto,
+                       struct ntb_blob *msg,
+                       struct ntb_key * const *keys,
+                       int n_keys,
+                       ntb_crypto_decrypt_msg_func callback,
+                       void *user_data);
 
 void
 ntb_crypto_cancel_task(struct ntb_crypto_cookie *cookie);
