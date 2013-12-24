@@ -87,7 +87,7 @@ struct ntb_crypto_cookie {
 };
 
 /* We send acknowledgements */
-#define NTB_CRYPTO_PUBKEY_BEHAVIORS UINT32_C(0x80000000)
+#define NTB_CRYPTO_PUBKEY_BEHAVIORS UINT32_C(0x00000001)
 
 static struct ntb_crypto_cookie *
 new_cookie(struct ntb_crypto *crypto,
