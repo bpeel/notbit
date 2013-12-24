@@ -57,6 +57,26 @@ ntb_proto_address_hash(const void *data,
         RIPEMD160(hash1, SHA512_DIGEST_LENGTH, hash);
 }
 
+bool
+ntb_proto_check_command_string(const uint8_t *command_string)
+{
+        const uint8_t *command_end;
+        int i;
+
+        /* The command must end with a zero */
+        command_end = memchr(command_string, 0, 12);
+
+        if (command_end == NULL)
+                return false;
+
+        /* The rest of the command must be zeroes */
+        for (i = command_end - command_string + 1; i < 12; i++)
+                if (command_string[i] != '\0')
+                        return false;
+
+        return true;
+}
+
 int64_t
 ntb_proto_get_max_age_for_type(enum ntb_proto_inv_type type)
 {

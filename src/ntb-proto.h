@@ -100,6 +100,9 @@ ntb_proto_address_hash(const void *data,
                        int length,
                        uint8_t *hash);
 
+bool
+ntb_proto_check_command_string(const uint8_t *command_string);
+
 int64_t
 ntb_proto_get_max_age_for_type(enum ntb_proto_inv_type type);
 

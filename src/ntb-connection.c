@@ -204,26 +204,6 @@ update_poll_flags(struct ntb_connection *conn)
 }
 
 static bool
-check_command_string(const uint8_t *command_string)
-{
-        const uint8_t *command_end;
-        int i;
-
-        /* The command must end with a zero */
-        command_end = memchr(command_string, 0, 12);
-
-        if (command_end == NULL)
-                return false;
-
-        /* The rest of the command must be zeroes */
-        for (i = command_end - command_string + 1; i < 12; i++)
-                if (command_string[i] != '\0')
-                        return false;
-
-        return true;
-}
-
-static bool
 addr_command_handler(struct ntb_connection *conn,
                      const uint8_t *data,
                      uint32_t command_length)
@@ -604,7 +584,7 @@ process_command(struct ntb_connection *conn,
                 return false;
         }
 
-        if (!check_command_string(data + 4)) {
+        if (!ntb_proto_check_command_string(data + 4)) {
                 ntb_log("Invalid command string from %s",
                         conn->remote_address_string);
                 set_error_state(conn);
