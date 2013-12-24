@@ -143,11 +143,15 @@ create_key(struct ntb_ecc *ecc,
 
         EC_KEY_set_group(key, ecc->group);
 
-        bn_ret = BN_bin2bn(private_key, NTB_ECC_PRIVATE_KEY_SIZE, &ecc->bn);
-        assert(bn_ret);
+        if (private_key) {
+                bn_ret = BN_bin2bn(private_key,
+                                   NTB_ECC_PRIVATE_KEY_SIZE,
+                                   &ecc->bn);
+                assert(bn_ret);
 
-        int_ret = EC_KEY_set_private_key(key, &ecc->bn);
-        assert(int_ret);
+                int_ret = EC_KEY_set_private_key(key, &ecc->bn);
+                assert(int_ret);
+        }
 
         int_ret = EC_KEY_set_public_key(key, ecc->pub_key_point);
         assert(int_ret);
