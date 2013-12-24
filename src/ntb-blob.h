@@ -24,6 +24,7 @@
 
 #include "ntb-proto.h"
 #include "ntb-ref-count.h"
+#include "ntb-buffer.h"
 
 /* A blob represents a ref-counted immutable chunk of data. This will
  * be used to hold all inventory objects from the network such as
@@ -41,6 +42,13 @@ struct ntb_blob {
         /* Over-allocated to contain the data */
         uint8_t data[1];
 };
+
+void
+ntb_blob_dynamic_init(struct ntb_buffer *buffer,
+                      enum ntb_proto_inv_type type);
+
+struct ntb_blob *
+ntb_blob_dynamic_end(struct ntb_buffer *buffer);
 
 struct ntb_blob *
 ntb_blob_new(enum ntb_proto_inv_type type,

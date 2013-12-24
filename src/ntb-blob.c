@@ -23,6 +23,32 @@
 #include "ntb-blob.h"
 #include "ntb-util.h"
 
+void
+ntb_blob_dynamic_init(struct ntb_buffer *buffer,
+                      enum ntb_proto_inv_type type)
+{
+        struct ntb_blob *blob;
+
+        ntb_buffer_init(buffer);
+
+        ntb_buffer_set_length(buffer,
+                              NTB_STRUCT_OFFSET(struct ntb_blob, data));
+
+        blob = (struct ntb_blob *) buffer->data;
+        blob->type = type;
+}
+
+struct ntb_blob *
+ntb_blob_dynamic_end(struct ntb_buffer *buffer)
+{
+        struct ntb_blob *blob = (struct ntb_blob *) buffer->data;
+
+        blob->size = buffer->length - NTB_STRUCT_OFFSET(struct ntb_blob, data);
+        ntb_ref_count_init(&blob->ref_count);
+
+        return blob;
+}
+
 struct ntb_blob *
 ntb_blob_new(enum ntb_proto_inv_type type,
              const void *data,
