@@ -35,6 +35,7 @@
 #include "ntb-log.h"
 #include "ntb-address.h"
 #include "ntb-ecc.h"
+#include "ntb-proto.h"
 
 struct ntb_crypto {
         pthread_mutex_t mutex;
@@ -225,14 +226,6 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                 address);
 }
 
-static struct ntb_blob *
-create_key_from_buffer(const struct ntb_buffer *buffer)
-{
-        return ntb_blob_new(NTB_PROTO_INV_TYPE_PUBKEY,
-                            buffer->data,
-                            buffer->length);
-}
-
 static void
 append_public_key(struct ntb_buffer *buffer,
                   const EC_KEY *key)
@@ -331,7 +324,8 @@ create_v4_key(struct ntb_crypto *crypto,
         struct ntb_buffer encrypted_buffer;
 
         ntb_buffer_init(&buffer);
-        ntb_buffer_init(&encrypted_buffer);
+        ntb_blob_dynamic_init(&encrypted_buffer,
+                              NTB_PROTO_INV_TYPE_PUBKEY);
 
         append_v34_key_base(key, &buffer, &behaviors_offset);
 
@@ -354,10 +348,9 @@ create_v4_key(struct ntb_crypto *crypto,
 
         EC_POINT_free(tag_public_key_point);
 
-        blob = create_key_from_buffer(&encrypted_buffer);
+        blob = ntb_blob_dynamic_end(&encrypted_buffer);
 
         ntb_buffer_destroy(&buffer);
-        ntb_buffer_destroy(&encrypted_buffer);
 
         return blob;
 }
@@ -365,35 +358,25 @@ create_v4_key(struct ntb_crypto *crypto,
 static struct ntb_blob *
 create_v3_key(struct ntb_key *key)
 {
-        struct ntb_blob *blob;
         struct ntb_buffer buffer;
 
-        ntb_buffer_init(&buffer);
+        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_PUBKEY);
 
         append_v34_key_base(key, &buffer, NULL);
 
-        blob = create_key_from_buffer(&buffer);
-
-        ntb_buffer_destroy(&buffer);
-
-        return blob;
+        return ntb_blob_dynamic_end(&buffer);
 }
 
 static struct ntb_blob *
 create_v2_key(struct ntb_key *key)
 {
-        struct ntb_blob *blob;
         struct ntb_buffer buffer;
 
-        ntb_buffer_init(&buffer);
+        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_PUBKEY);
 
         append_key_base(key, &buffer, NULL);
 
-        blob = create_key_from_buffer(&buffer);
-
-        ntb_buffer_destroy(&buffer);
-
-        return blob;
+        return ntb_blob_dynamic_end(&buffer);
 }
 
 static void
