@@ -128,7 +128,11 @@ create_pubkey_pow_cb(uint64_t nonce,
 
         memcpy(task->blob->data, &nonce, sizeof nonce);
 
-        ntb_network_add_object(keyring->nw, task->blob, true /* delay */);
+        ntb_network_add_blob(keyring->nw,
+                             task->blob,
+                             NTB_NETWORK_DELAY |
+                             NTB_NETWORK_SKIP_VALIDATION,
+                             "pubkey response");
 
         task->pow_cookie = NULL;
         free_task(task);

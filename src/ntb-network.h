@@ -32,15 +32,29 @@ enum ntb_network_error {
         NTB_NETWORK_ERROR_INVALID_ADDRESS
 };
 
+enum ntb_network_add_object_flags {
+        NTB_NETWORK_SKIP_VALIDATION = (1 << 0),
+        NTB_NETWORK_DELAY = (1 << 1)
+};
+
 struct ntb_network;
 
 struct ntb_network *
 ntb_network_new(void);
 
 void
-ntb_network_add_object(struct ntb_network *nw,
-                       struct ntb_blob *blob,
-                       bool delay);
+ntb_network_add_object_from_data(struct ntb_network *nw,
+                                 enum ntb_proto_inv_type type,
+                                 const uint8_t *object_data,
+                                 size_t object_data_length,
+                                 enum ntb_network_add_object_flags flags,
+                                 const char *source_note);
+
+void
+ntb_network_add_blob(struct ntb_network *nw,
+                     struct ntb_blob *blob,
+                     enum ntb_network_add_object_flags flags,
+                     const char *source_note);
 
 void
 ntb_network_load_store(struct ntb_network *nw);

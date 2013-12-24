@@ -847,15 +847,13 @@ handle_inv(struct ntb_network *nw,
 }
 
 static bool
-should_reject(struct ntb_network_peer *peer,
-              enum ntb_proto_inv_type type,
+should_reject(enum ntb_proto_inv_type type,
               const uint8_t *payload,
               size_t payload_length,
-              int64_t age)
+              int64_t age,
+              const char *source_note)
 {
         const char *type_name;
-        const char *remote_address_string =
-                ntb_connection_get_remote_address_string(peer->connection);
 
         type_name = ntb_proto_get_command_name_for_type(type);
 
@@ -863,7 +861,7 @@ should_reject(struct ntb_network_peer *peer,
                 ntb_log("Rejecting %s from %s which was created "
                         "%" PRIi64 " seconds in the future",
                         type_name,
-                        remote_address_string,
+                        source_note,
                         -age);
                 return true;
         }
@@ -872,7 +870,7 @@ should_reject(struct ntb_network_peer *peer,
                 ntb_log("Rejecting %s from %s which was created "
                         "%" PRIi64 " seconds ago",
                         type_name,
-                        remote_address_string,
+                        source_note,
                         age);
                 return true;
         }
@@ -884,7 +882,7 @@ should_reject(struct ntb_network_peer *peer,
                 ntb_log("Rejecting %s from %s because the proof-of-work is "
                         "too low",
                         type_name,
-                        remote_address_string);
+                        source_note);
                 return true;
         }
 
@@ -980,17 +978,42 @@ broadcast_delayed_inv(struct ntb_network *nw,
                                                   data);
 }
 
-static bool
-handle_object(struct ntb_network *nw,
-              struct ntb_network_peer *peer,
-              struct ntb_connection_object_event *event)
+static void
+add_object(struct ntb_network *nw,
+           enum ntb_proto_inv_type type,
+           const uint8_t *object_data,
+           size_t object_data_length,
+           struct ntb_blob *blob,
+           enum ntb_network_add_object_flags flags,
+           const char *source_note)
 {
         struct ntb_network_inventory *inv;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
+        uint64_t nonce;
+        int64_t timestamp;
         int64_t age;
+        ssize_t header_size;
 
-        ntb_proto_double_hash(event->object_data,
-                              event->object_data_length,
+        header_size = ntb_proto_get_command(object_data,
+                                            object_data_length,
+
+                                            NTB_PROTO_ARGUMENT_64,
+                                            &nonce,
+
+                                            NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                            &timestamp,
+
+                                            NTB_PROTO_ARGUMENT_END);
+
+        if (header_size == -1) {
+                ntb_log("Invalid %s received from %s",
+                        ntb_proto_get_command_name_for_type(type),
+                        source_note);
+                return;
+        }
+
+        ntb_proto_double_hash(object_data,
+                              object_data_length,
                               hash);
 
         inv = ntb_hash_table_get(nw->inventory_hash, hash);
@@ -1003,32 +1026,40 @@ handle_object(struct ntb_network *nw,
                 ntb_list_remove(&inv->link);
         } else {
                 /* We've already got this object so we'll just ignore it */
-                return true;
+                return;
         }
 
-        age = ntb_main_context_get_wall_clock(NULL) - event->timestamp;
+        age = ntb_main_context_get_wall_clock(NULL) - timestamp;
 
-        inv->timestamp = event->timestamp;
+        inv->timestamp = timestamp;
 
-        if (should_reject(peer,
-                          event->type,
-                          event->object_data,
-                          event->object_data_length,
-                          age)) {
+        if (!(flags & NTB_NETWORK_SKIP_VALIDATION) &&
+            should_reject(type,
+                          object_data,
+                          object_data_length,
+                          age,
+                          source_note)) {
                 inv->state = NTB_NETWORK_INV_STATE_REJECTED;
                 ntb_list_insert(&nw->rejected_inventories, &inv->link);
         } else {
-                inv->blob = ntb_blob_new(event->type,
-                                         event->object_data,
-                                         event->object_data_length);
+                if (blob) {
+                        inv->blob = ntb_blob_ref(blob);
+                } else {
+                        inv->blob = ntb_blob_new(type,
+                                                 object_data,
+                                                 object_data_length);
+                }
 
                 ntb_store_save_blob(NULL, hash, inv->blob);
 
                 ntb_list_insert(&nw->accepted_inventories, &inv->link);
-                inv->type = event->type;
+                inv->type = type;
                 inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
 
-                broadcast_inv(nw, hash);
+                if ((flags & NTB_NETWORK_DELAY))
+                        broadcast_delayed_inv(nw, hash);
+                else
+                        broadcast_inv(nw, hash);
 
                 ntb_signal_emit(&nw->new_object_signal, inv->blob);
 
@@ -1042,6 +1073,20 @@ handle_object(struct ntb_network *nw,
                         inv->blob = NULL;
                 }
         }
+}
+
+static bool
+handle_object(struct ntb_network *nw,
+              struct ntb_network_peer *peer,
+              struct ntb_connection_object_event *event)
+{
+        add_object(nw,
+                   event->type,
+                   event->object_data,
+                   event->object_data_length,
+                   NULL, /* let add_object create the blob */
+                   0, /* no flags */
+                   ntb_connection_get_remote_address_string(peer->connection));
 
         return true;
 }
@@ -1179,61 +1224,35 @@ gc_timeout_cb(struct ntb_main_context_source *source,
 }
 
 void
-ntb_network_add_object(struct ntb_network *nw,
-                       struct ntb_blob *blob,
-                       bool delay)
+ntb_network_add_blob(struct ntb_network *nw,
+                     struct ntb_blob *blob,
+                     enum ntb_network_add_object_flags flags,
+                     const char *source_note)
 {
-        struct ntb_network_inventory *inv;
-        uint8_t hash[NTB_PROTO_HASH_LENGTH];
-        const uint8_t *timestamp_ptr;
-        uint32_t timestamp_length;
-        bool timestamp_result;
-        int64_t age;
+        add_object(nw,
+                   blob->type,
+                   blob->data,
+                   blob->size,
+                   blob,
+                   flags,
+                   source_note);
+}
 
-        ntb_proto_double_hash(blob->data, blob->size, hash);
-
-        inv = ntb_hash_table_get(nw->inventory_hash, hash);
-
-        if (inv) {
-                /* We've already got this object so we'll just ignore
-                 * it. This probably shouldn't happen, but it might
-                 * happen if for example a peer sends acknowledgement
-                 * data that is already in the network */
-                return;
-        }
-
-        inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
-        memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
-        ntb_hash_table_set(nw->inventory_hash, inv);
-
-        timestamp_ptr = blob->data + sizeof (uint64_t);
-        timestamp_length = blob->size - sizeof (uint64_t);
-        timestamp_result = ntb_proto_get_timestamp(&timestamp_ptr,
-                                                   &timestamp_length,
-                                                   &inv->timestamp);
-        assert(timestamp_result);
-
-        age = ntb_main_context_get_wall_clock(NULL) - inv->timestamp;
-
-        if (age >= NTB_NETWORK_INV_CACHE_AGE)
-                inv->blob = NULL;
-        else
-                inv->blob = ntb_blob_ref(blob);
-
-        /* Save the blob immediately regardless of whether there is a
-         * delay so that if the process exits before we get around to
-         * advertising it then we will immediately advertise it again
-         * when the process restarts */
-        ntb_store_save_blob(NULL, hash, blob);
-
-        ntb_list_insert(&nw->accepted_inventories, &inv->link);
-        inv->type = blob->type;
-        inv->state = NTB_NETWORK_INV_STATE_ACCEPTED;
-
-        if (delay)
-                broadcast_delayed_inv(nw, hash);
-        else
-                broadcast_inv(nw, hash);
+void
+ntb_network_add_object_from_data(struct ntb_network *nw,
+                                 enum ntb_proto_inv_type type,
+                                 const uint8_t *object_data,
+                                 size_t object_data_length,
+                                 enum ntb_network_add_object_flags flags,
+                                 const char *source_note)
+{
+        add_object(nw,
+                   type,
+                   object_data,
+                   object_data_length,
+                   NULL, /* let add_object create the blob */
+                   flags,
+                   source_note);
 }
 
 static void
