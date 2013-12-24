@@ -453,6 +453,7 @@ thread_func(void *user_data)
                 /* The cookie would have had a reference for being in
                  * the queue. We'll steal this reference */
                 ntb_list_remove(&cookie->link);
+                cookie->in_queue = false;
 
                 if (!cookie->cancelled) {
                         type = cookie->type;
