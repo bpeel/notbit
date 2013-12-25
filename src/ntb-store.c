@@ -29,6 +29,7 @@
 #include <dirent.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <sys/time.h>
 
 #include "ntb-store.h"
 #include "ntb-util.h"
@@ -50,6 +51,8 @@ struct ntb_store {
         struct ntb_buffer filename_buf;
         struct ntb_buffer tmp_buf;
         int directory_len;
+        struct ntb_buffer maildir_buf;
+        int maildir_len;
 
         pthread_mutex_t mutex;
         pthread_cond_t cond;
@@ -63,6 +66,10 @@ struct ntb_store {
          * the mutex is locked in order to make it thread-safe */
         struct ntb_slice_allocator allocator;
 
+        /* Number of messages we have saved. This is just used to help
+         * generate a unique name */
+        unsigned int num_stored_messages;
+
         bool quit;
 };
 
@@ -71,6 +78,7 @@ enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_LOAD_BLOB,
         NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST,
         NTB_STORE_TASK_TYPE_SAVE_KEYS,
+        NTB_STORE_TASK_TYPE_SAVE_MESSAGE,
         NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
 
@@ -98,6 +106,12 @@ struct ntb_store_task {
                         struct ntb_key **keys;
                         int n_keys;
                 } save_keys;
+
+                struct {
+                        char from_address[NTB_ADDRESS_MAX_LENGTH + 1];
+                        char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
+                        struct ntb_blob *blob;
+                } save_message;
 
                 struct {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
@@ -257,6 +271,58 @@ init_store_directory(struct ntb_store *store,
         ntb_buffer_append_string(&store->filename_buf, "objects");
 
         if (!make_directory_hierarchy(&store->filename_buf, error))
+                return false;
+
+        return true;
+}
+
+static bool
+init_maildir(struct ntb_store *store,
+             const char *maildir,
+             struct ntb_error **error)
+{
+        const char *home;
+
+        if (maildir) {
+                ntb_buffer_append_string(&store->maildir_buf,
+                                         maildir);
+                strip_trailing_slashes(&store->maildir_buf);
+                ntb_buffer_append_c(&store->maildir_buf, '/');
+        } else if ((home = getenv("HOME"))) {
+                if (home[0] != '/') {
+                        ntb_set_error(error,
+                                      &ntb_store_error,
+                                      NTB_STORE_ERROR_INVALID_MAILDIR,
+                                      "The HOME path is not "
+                                      "absolute");
+                        return false;
+                }
+
+                ntb_buffer_append_string(&store->maildir_buf,
+                                         home);
+                strip_trailing_slashes(&store->maildir_buf);
+                ntb_buffer_append_string(&store->maildir_buf,
+                                         "/.maildir/");
+        } else {
+                ntb_set_error(error,
+                              &ntb_store_error,
+                              NTB_STORE_ERROR_INVALID_MAILDIR,
+                              "HOME is not set");
+                return false;
+        }
+
+        store->maildir_len = store->maildir_buf.length;
+
+        ntb_buffer_append_string(&store->maildir_buf, "new");
+
+        if (!make_directory_hierarchy(&store->maildir_buf, error))
+                return false;
+
+        ntb_buffer_set_length(&store->maildir_buf,
+                              store->maildir_buf.length - 3);
+        ntb_buffer_append_string(&store->maildir_buf, "tmp");
+
+        if (!try_mkdir((const char *) store->maildir_buf.data, error))
                 return false;
 
         return true;
@@ -651,6 +717,143 @@ handle_save_keys(struct ntb_store *store,
 }
 
 static void
+generate_maildir_name(struct ntb_store *store,
+                      struct ntb_buffer *buffer)
+{
+        struct timeval tv;
+        int hostname_length = 2;
+
+        gettimeofday(&tv, NULL /* tz */);
+
+        ntb_buffer_append_printf(buffer,
+                                 "%li.M%liQ%u.",
+                                 tv.tv_sec,
+                                 tv.tv_usec,
+                                 store->num_stored_messages++);
+
+        while (true) {
+                ntb_buffer_ensure_size(buffer,
+                                       buffer->length + hostname_length);
+
+                if (gethostname((char *) buffer->data + buffer->length,
+                                hostname_length) == -1) {
+                        if (errno == ENAMETOOLONG)
+                                hostname_length *= 2;
+                        else
+                                buffer->data[buffer->length--] = '\0';
+                } else {
+                        break;
+                }
+        }
+
+        while (buffer->data[buffer->length]) {
+                if (buffer->data[buffer->length] == '/')
+                        buffer->data[buffer->length] = '\057';
+                else if (buffer->data[buffer->length] == ':')
+                        buffer->data[buffer->length] = '\072';
+                buffer->length++;
+        }
+}
+
+static void
+save_message(struct ntb_store *store,
+             const char *from_address,
+             const char *to_address,
+             struct ntb_blob *blob,
+             FILE *out)
+{
+        struct ntb_proto_decrypted_msg msg;
+        const uint8_t *eol;
+
+        fprintf(out,
+                "From: %s@bitmessage\n"
+                "To: %s@bitmessage\n"
+                "Content-Type: text/plain; charset=UTF-8\n"
+                "Content-Transfer-Encoding: 8bit\n",
+                from_address,
+                to_address);
+
+        ntb_proto_get_decrypted_msg(blob->data, blob->size, &msg);
+
+        if (msg.encoding == 2 &&
+            msg.message_length >= 9 &&
+            !memcmp(msg.message, "Subject:", 8) &&
+            (eol = memchr(msg.message, '\n', msg.message_length))) {
+                fputs("Subject: ", out);
+
+                fwrite(msg.message + 8, 1, eol - msg.message - 8, out);
+                fputc('\n', out);
+
+                msg.message_length -= eol - msg.message + 1;
+                msg.message = eol + 1;
+
+                if (msg.message_length >= 5 &&
+                    !memcmp(msg.message, "Body:", 5)) {
+                        msg.message += 5;
+                        msg.message_length -= 5;
+                }
+        }
+
+        fputc('\n', out);
+        fwrite(msg.message, 1, msg.message_length, out);
+}
+
+static void
+handle_save_message(struct ntb_store *store,
+                    struct ntb_store_task *task)
+{
+        FILE *out;
+
+        ntb_log("Saving message");
+
+        store->maildir_buf.length = store->maildir_len;
+        ntb_buffer_append_string(&store->maildir_buf, "tmp/");
+
+        generate_maildir_name(store, &store->maildir_buf);
+
+        out = fopen((char *) store->maildir_buf.data, "w");
+
+        if (out == NULL) {
+                ntb_log("Error opening %s: %s",
+                        (char *) store->maildir_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        save_message(store,
+                     task->save_message.from_address,
+                     task->save_message.to_address,
+                     task->save_message.blob,
+                     out);
+
+        if (fclose(out) == EOF) {
+                ntb_log("Error writing to %s: %s",
+                        (char *) store->maildir_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        store->tmp_buf.length = 0;
+        ntb_buffer_append(&store->tmp_buf,
+                          store->maildir_buf.data,
+                          store->maildir_len);
+        ntb_buffer_append_string(&store->tmp_buf, "new");
+        ntb_buffer_append(&store->tmp_buf,
+                          store->maildir_buf.data +
+                          store->maildir_len + 3,
+                          store->maildir_buf.length -
+                          store->maildir_len - 3 + 1);
+
+        if (rename((char *) store->maildir_buf.data,
+                   (char *) store->tmp_buf.data) == -1) {
+                ntb_log("Error renaming %s to %s: %s",
+                        (char *) store->filename_buf.data,
+                        (char *) store->tmp_buf.data,
+                        strerror(errno));
+        }
+}
+
+static void
 free_task(struct ntb_store *store,
           struct ntb_store_task *task)
 {
@@ -672,6 +875,9 @@ free_task(struct ntb_store *store,
                 for (i = 0; i < task->save_keys.n_keys; i++)
                         ntb_key_unref(task->save_keys.keys[i]);
                 ntb_free(task->save_keys.keys);
+                break;
+        case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
+                ntb_blob_unref(task->save_message.blob);
                 break;
         }
 
@@ -717,6 +923,9 @@ store_thread_func(void *user_data)
                         case NTB_STORE_TASK_TYPE_SAVE_KEYS:
                                 handle_save_keys(store, task);
                                 break;
+                        case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
+                                handle_save_message(store, task);
+                                break;
                         case NTB_STORE_TASK_TYPE_LOAD_BLOB:
                                 assert(false);
                                 break;
@@ -735,6 +944,7 @@ store_thread_func(void *user_data)
 
 struct ntb_store *
 ntb_store_new(const char *store_directory,
+              const char *maildir,
               struct ntb_error **error)
 {
         struct ntb_store *store = ntb_alloc(sizeof *store);
@@ -742,10 +952,15 @@ ntb_store_new(const char *store_directory,
         ntb_list_init(&store->queue);
         store->quit = false;
         store->started = false;
+        store->num_stored_messages = 0;
 
         ntb_buffer_init(&store->filename_buf);
+        ntb_buffer_init(&store->maildir_buf);
 
         if (!init_store_directory(store, store_directory, error))
+                goto error;
+
+        if (!init_maildir(store, maildir, error))
                 goto error;
 
         pthread_mutex_init(&store->mutex, NULL /* attrs */);
@@ -759,6 +974,7 @@ ntb_store_new(const char *store_directory,
         return store;
 
 error:
+        ntb_buffer_destroy(&store->maildir_buf);
         ntb_buffer_destroy(&store->filename_buf);
         ntb_free(store);
         return NULL;
@@ -826,6 +1042,29 @@ ntb_store_delete_object(struct ntb_store *store,
 
         pthread_mutex_unlock(&store->mutex);
 }
+
+void
+ntb_store_save_message(struct ntb_store *store,
+                       const char *from_address,
+                       const char *to_address,
+                       struct ntb_blob *blob)
+{
+        struct ntb_store_task *task;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_MESSAGE);
+
+        strcpy(task->save_message.from_address, from_address);
+        strcpy(task->save_message.to_address, to_address);
+        task->save_message.blob = ntb_blob_ref(blob);
+
+        pthread_mutex_unlock(&store->mutex);
+}
+
 
 void
 ntb_store_save_addr_list(struct ntb_store *store,
@@ -1192,6 +1431,7 @@ ntb_store_free(struct ntb_store *store)
         ntb_list_for_each_safe(task, tmp, &store->queue, link)
                 free_task(store, task);
 
+        ntb_buffer_destroy(&store->maildir_buf);
         ntb_buffer_destroy(&store->tmp_buf);
         ntb_buffer_destroy(&store->filename_buf);
 

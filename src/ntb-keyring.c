@@ -411,6 +411,7 @@ decrypt_msg_cb(struct ntb_key *key,
         struct ntb_keyring *keyring = task->keyring;
         struct ntb_proto_decrypted_msg msg;
         char sender_address[NTB_ADDRESS_MAX_LENGTH + 1];
+        char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
 
         task->crypto_cookie = NULL;
 
@@ -445,9 +446,19 @@ decrypt_msg_cb(struct ntb_key *key,
                               msg.sender_encryption_key,
                               sender_address);
 
+        ntb_address_encode(key->version,
+                           key->stream,
+                           key->ripe,
+                           to_address);
+
         ntb_log("Accepted message from %s", sender_address);
 
         send_acknowledgement(keyring, msg.ack, msg.ack_length);
+
+        ntb_store_save_message(NULL, /* default store */
+                               sender_address,
+                               to_address,
+                               blob);
 
         return;
 

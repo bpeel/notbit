@@ -35,7 +35,8 @@ extern struct ntb_error_domain
 ntb_store_error;
 
 enum ntb_store_error {
-        NTB_STORE_ERROR_INVALID_STORE_DIRECTORY
+        NTB_STORE_ERROR_INVALID_STORE_DIRECTORY,
+        NTB_STORE_ERROR_INVALID_MAILDIR
 };
 
 struct ntb_store_cookie;
@@ -68,6 +69,7 @@ typedef void (* ntb_store_load_callback)(struct ntb_blob *blob,
 
 struct ntb_store *
 ntb_store_new(const char *store_directory,
+              const char *maildir,
               struct ntb_error **error);
 
 void
@@ -97,6 +99,12 @@ void
 ntb_store_save_keys(struct ntb_store *store,
                     struct ntb_key * const *keys,
                     int n_keys);
+
+void
+ntb_store_save_message(struct ntb_store *store,
+                       const char *from_address,
+                       const char *to_address,
+                       struct ntb_blob *blob);
 
 void
 ntb_store_for_each_blob(struct ntb_store *store,

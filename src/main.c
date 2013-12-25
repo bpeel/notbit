@@ -62,9 +62,10 @@ static bool option_daemonize = false;
 static char *option_user = NULL;
 static char *option_group = NULL;
 static char *option_store_directory = NULL;
+static char *option_maildir = NULL;
 static bool option_only_explicit_addresses = false;
 
-static const char options[] = "-a:l:du:g:D:p:eP:h";
+static const char options[] = "-a:l:du:g:D:p:eP:hm:";
 
 static void
 add_address(struct address **list,
@@ -130,7 +131,10 @@ usage(void)
                " -g <group>            Specify a group to run as.\n"
                " -D <datadir>          Specify an alternate location for the\n"
                "                       object store. Defaults to $XDG_DATA_HOME"
-               ""                      "/notbit\n");
+               ""                      "/notbit\n"
+               " -m <maildir>          Specify the maildir to save messages "
+               "to.\n"
+               "                       Defaults to $HOME/.maildir\n");
         exit(EXIT_FAILURE);
 }
 
@@ -194,6 +198,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'e':
                         option_only_explicit_addresses = true;
+                        break;
+
+                case 'm':
+                        option_maildir = optarg;
                         break;
 
                 case 'h':
@@ -404,7 +412,9 @@ run_network(void)
                 if (option_user)
                         set_user(option_user);
 
-                store = ntb_store_new(option_store_directory, &error);
+                store = ntb_store_new(option_store_directory,
+                                      option_maildir,
+                                      &error);
 
                 if (store == NULL) {
                         fprintf(stderr, "%s\n", error->message);
