@@ -60,6 +60,12 @@ struct ntb_keyring_task {
         struct ntb_pow_cookie *pow_cookie;
         struct ntb_blob *blob;
         struct ntb_list link;
+
+        union {
+                struct {
+                        int64_t timestamp;
+                } msg;
+        };
 };
 
 static void
@@ -456,6 +462,7 @@ decrypt_msg_cb(struct ntb_key *key,
         send_acknowledgement(keyring, msg.ack, msg.ack_length);
 
         ntb_store_save_message(NULL, /* default store */
+                               task->msg.timestamp,
                                sender_address,
                                to_address,
                                blob);
@@ -504,6 +511,7 @@ handle_msg(struct ntb_keyring *keyring,
                                        ntb_pointer_array_length(&keyring->keys),
                                        decrypt_msg_cb,
                                        task);
+        task->msg.timestamp = timestamp;
 }
 
 static void

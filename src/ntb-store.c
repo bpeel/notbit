@@ -108,6 +108,7 @@ struct ntb_store_task {
                 } save_keys;
 
                 struct {
+                        int64_t timestamp;
                         char from_address[NTB_ADDRESS_MAX_LENGTH + 1];
                         char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
                         struct ntb_blob *blob;
@@ -757,6 +758,7 @@ generate_maildir_name(struct ntb_store *store,
 
 static void
 save_message(struct ntb_store *store,
+             time_t timestamp,
              const char *from_address,
              const char *to_address,
              struct ntb_blob *blob,
@@ -764,14 +766,35 @@ save_message(struct ntb_store *store,
 {
         struct ntb_proto_decrypted_msg msg;
         const uint8_t *eol;
+        static const char *day_names[] = {
+                "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+        };
+        static const char *month_names[] = {
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+        };
+        struct tm tm;
+
+        localtime_r(&timestamp, &tm);
 
         fprintf(out,
                 "From: %s@bitmessage\n"
                 "To: %s@bitmessage\n"
+                "Date: %s, %i %s %i %02i:%02i:%02i %c%02li%02li\n"
                 "Content-Type: text/plain; charset=UTF-8\n"
                 "Content-Transfer-Encoding: 8bit\n",
                 from_address,
-                to_address);
+                to_address,
+                day_names[tm.tm_wday],
+                tm.tm_mday,
+                month_names[tm.tm_mon],
+                tm.tm_year + 1900,
+                tm.tm_hour,
+                tm.tm_min,
+                tm.tm_sec,
+                tm.tm_gmtoff < 0 ? '-' : '+',
+                labs(tm.tm_gmtoff) / 3600,
+                labs(tm.tm_gmtoff) % 3600 / 60);
 
         ntb_proto_get_decrypted_msg(blob->data, blob->size, &msg);
 
@@ -821,6 +844,7 @@ handle_save_message(struct ntb_store *store,
         }
 
         save_message(store,
+                     task->save_message.timestamp,
                      task->save_message.from_address,
                      task->save_message.to_address,
                      task->save_message.blob,
@@ -1045,6 +1069,7 @@ ntb_store_delete_object(struct ntb_store *store,
 
 void
 ntb_store_save_message(struct ntb_store *store,
+                       int64_t timestamp,
                        const char *from_address,
                        const char *to_address,
                        struct ntb_blob *blob)
@@ -1058,6 +1083,7 @@ ntb_store_save_message(struct ntb_store *store,
 
         task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_MESSAGE);
 
+        task->save_message.timestamp = timestamp;
         strcpy(task->save_message.from_address, from_address);
         strcpy(task->save_message.to_address, to_address);
         task->save_message.blob = ntb_blob_ref(blob);

@@ -102,6 +102,7 @@ ntb_store_save_keys(struct ntb_store *store,
 
 void
 ntb_store_save_message(struct ntb_store *store,
+                       int64_t timestamp,
                        const char *from_address,
                        const char *to_address,
                        struct ntb_blob *blob);
