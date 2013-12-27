@@ -1193,13 +1193,18 @@ gc_inventories(struct ntb_network *nw,
 {
         struct ntb_network_inventory *inv, *tmp;
         int64_t now = ntb_main_context_get_wall_clock(NULL);
+        enum ntb_proto_inv_type type;
         int64_t age;
 
         ntb_list_for_each_safe(inv, tmp, list, link) {
                 age = now - inv->timestamp;
+                if (inv->state == NTB_NETWORK_INV_STATE_ACCEPTED)
+                        type = inv->type;
+                else
+                        type = NTB_PROTO_INV_TYPE_MSG;
 
                 if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
-                    age >= (ntb_proto_get_max_age_for_type(inv->type) +
+                    age >= (ntb_proto_get_max_age_for_type(type) +
                             NTB_PROTO_EXTRA_AGE)) {
                         if (inv->state != NTB_NETWORK_INV_STATE_REJECTED)
                                 ntb_store_delete_object(NULL, inv->hash);
