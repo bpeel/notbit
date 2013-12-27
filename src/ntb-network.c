@@ -46,8 +46,11 @@ struct ntb_error_domain
 ntb_network_error;
 
 /* We will always try to keep at least this many connections open to
- * the network */
-#define NTB_NETWORK_TARGET_NUM_PEERS 8
+ * the network. These only count the outgoing connections and not the
+ * incoming ones because otherwise it would be easy for someone to
+ * connect to this node 8 times simultaneously in order to prevent it
+ * from talking to any one else. */
+#define NTB_NETWORK_NUM_OUTGOING_PEERS 8
 
 /* If an object is older than this in seconds then we won't bother
  * keeping it in memory. It will need to be retrieved from disk if
@@ -75,9 +78,9 @@ ntb_network_error;
  * same as the GC timeout so that it will use the same bucket */
 #define NTB_NETWORK_SAVE_ADDR_LIST_TIMEOUT NTB_NETWORK_GC_TIMEOUT
 
-/* If we end up with this many connections then we'll stop accepting
+/* If we end up with this many incoming connections then we'll stop accepting
  * new ones */
-#define NTB_NETWORK_MAX_CONNECTIONS 128
+#define NTB_NETWORK_MAX_INCOMING_PEERS 8
 
 enum ntb_network_peer_state {
         /* If we initiated the connection then we will go through these
@@ -97,6 +100,14 @@ enum ntb_network_peer_state {
         NTB_NETWORK_PEER_STATE_AWAITING_VERACK_IN,
 
         NTB_NETWORK_PEER_STATE_CONNECTED
+};
+
+enum ntb_network_direction {
+        /* Outgoing means we actively made the connection and incoming
+         * means we accepted the connection from a listening
+         * socket. */
+        NTB_NETWORK_OUTGOING,
+        NTB_NETWORK_INCOMING
 };
 
 struct ntb_network_addr {
@@ -123,6 +134,7 @@ struct ntb_network_peer {
         struct ntb_list requested_inventories;
 
         enum ntb_network_peer_state state;
+        enum ntb_network_direction direction;
 };
 
 struct ntb_network_listen_socket {
@@ -138,7 +150,8 @@ struct ntb_network {
 
         struct ntb_list listen_sockets;
 
-        int n_peers;
+        int n_outgoing_peers;
+        int n_incoming_peers;
         struct ntb_list peers;
 
         int n_unconnected_addrs;
@@ -324,7 +337,14 @@ remove_peer(struct ntb_network *nw,
                 nw->n_unconnected_addrs++;
                 peer->addr->connected = false;
         }
-        nw->n_peers--;
+        switch (peer->direction) {
+        case NTB_NETWORK_OUTGOING:
+                nw->n_outgoing_peers--;
+                break;
+        case NTB_NETWORK_INCOMING:
+                nw->n_incoming_peers--;
+                break;
+        }
 
         ntb_list_remove(&peer->link);
         ntb_slice_free(&ntb_network_peer_allocator, peer);
@@ -404,8 +424,6 @@ add_peer(struct ntb_network *nw,
 
         peer = ntb_slice_alloc(&ntb_network_peer_allocator);
 
-        nw->n_peers++;
-
         peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERACK_OUT;
 
         command_signal = ntb_connection_get_event_signal(conn);
@@ -451,6 +469,9 @@ connect_to_addr(struct ntb_network *nw,
         addr->last_connect_time = ntb_main_context_get_monotonic_clock(NULL);
         peer->addr = addr;
 
+        peer->direction = NTB_NETWORK_OUTGOING;
+        nw->n_outgoing_peers++;
+
         send_version_to_peer(nw, peer);
 
         return true;
@@ -465,10 +486,10 @@ connect_queue_cb(struct ntb_main_context_source *source,
         int n_addrs = 0;
         int addr_num;
 
-        /* If we've reached the number of connected peers then we can
+        /* If we've reached the number of outgoing peers then we can
          * stop trying to connect any more. There's also no point in
          * continuing if we've run out of unconnected addrs */
-        if (nw->n_peers >= NTB_NETWORK_TARGET_NUM_PEERS ||
+        if (nw->n_outgoing_peers >= NTB_NETWORK_NUM_OUTGOING_PEERS ||
             nw->n_unconnected_addrs <= 0) {
                 remove_connect_queue_source(nw);
                 return;
@@ -505,9 +526,9 @@ static void
 maybe_queue_connect(struct ntb_network *nw,
                     bool use_idle)
 {
-        /* If we've already got enough peers then we don't need to do
-         * anything */
-        if (nw->n_peers >= NTB_NETWORK_TARGET_NUM_PEERS)
+        /* If we've already got enough outgoing peers then we don't
+         * need to do anything */
+        if (nw->n_outgoing_peers >= NTB_NETWORK_NUM_OUTGOING_PEERS)
                 return;
 
         /* Or if we don't have any addrs to connect to */
@@ -1341,13 +1362,16 @@ listen_socket_source_cb(struct ntb_main_context_source *source,
 
         peer = add_peer(nw, conn);
         peer->state = NTB_NETWORK_PEER_STATE_AWAITING_VERSION_IN;
+
+        peer->direction = NTB_NETWORK_INCOMING;
+        nw->n_incoming_peers++;
 }
 
 static void
 update_listen_socket_source(struct ntb_network *nw,
                             struct ntb_network_listen_socket *listen_socket)
 {
-        if (nw->n_peers >= NTB_NETWORK_MAX_CONNECTIONS) {
+        if (nw->n_incoming_peers >= NTB_NETWORK_MAX_INCOMING_PEERS) {
                 if (listen_socket->source) {
                         ntb_main_context_remove_source(listen_socket->source);
                         listen_socket->source = NULL;
@@ -1415,7 +1439,8 @@ ntb_network_new(void)
 
         ntb_signal_init(&nw->new_object_signal);
 
-        nw->n_peers = 0;
+        nw->n_outgoing_peers = 0;
+        nw->n_incoming_peers = 0;
         nw->n_unconnected_addrs = 0;
         nw->connect_queue_source = NULL;
         nw->only_use_explicit_addresses = false;
@@ -1625,7 +1650,8 @@ ntb_network_free(struct ntb_network *nw)
 
         remove_connect_queue_source(nw);
 
-        assert(nw->n_peers == 0);
+        assert(nw->n_outgoing_peers == 0);
+        assert(nw->n_incoming_peers == 0);
         assert(nw->n_unconnected_addrs == 0);
 
         free(nw);
