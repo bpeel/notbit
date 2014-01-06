@@ -278,10 +278,17 @@ save_addr_list_cb(struct ntb_main_context_source *source,
         struct ntb_network_addr *addr;
         struct ntb_store_addr *store_addr;
         int n_addrs = 0;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        int64_t age;
 
         ntb_buffer_init(&buffer);
 
         ntb_list_for_each(addr, &nw->addrs, link) {
+                age = now - addr->advertise_time;
+
+                if (age > NTB_NETWORK_MAX_ADDR_AGE)
+                        continue;
+
                 ntb_buffer_ensure_size(&buffer,
                                        buffer.length + sizeof *store_addr);
                 store_addr =
