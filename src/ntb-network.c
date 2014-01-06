@@ -110,6 +110,15 @@ enum ntb_network_direction {
         NTB_NETWORK_INCOMING
 };
 
+enum ntb_network_addr_type {
+        /* The addr is in the hard-coded list of default addresses */
+        NTB_NETWORK_ADDR_DEFAULT,
+        /* The addr was explicitly added by a command line option */
+        NTB_NETWORK_ADDR_EXPLICITLY_ADDED,
+        /* The addr was discovered by a peer */
+        NTB_NETWORK_ADDR_DISCOVERED
+};
+
 struct ntb_network_addr {
         struct ntb_list link;
         struct ntb_netaddress address;
@@ -121,7 +130,8 @@ struct ntb_network_addr {
         uint64_t last_connect_time;
 
         bool connected;
-        bool explicitly_added;
+
+        enum ntb_network_addr_type type;
 };
 
 struct ntb_network_peer {
@@ -378,7 +388,7 @@ can_connect_to_addr(struct ntb_network *nw,
                 return false;
 
         if (nw->only_use_explicit_addresses &&
-            !addr->explicitly_added)
+            addr->type != NTB_NETWORK_ADDR_EXPLICITLY_ADDED)
                 return false;
 
         return true;
@@ -553,7 +563,7 @@ new_addr(struct ntb_network *nw)
 
         ntb_list_insert(&nw->addrs, &addr->link);
         addr->connected = false;
-        addr->explicitly_added = false;
+        addr->type = NTB_NETWORK_ADDR_DISCOVERED;
         nw->n_unconnected_addrs++;
 
         addr->last_connect_time = 0;
@@ -1208,6 +1218,7 @@ gc_addrs(struct ntb_network *nw)
 
         ntb_list_for_each_safe(addr, tmp, &nw->addrs, link) {
                 if (now - addr->advertise_time >= NTB_NETWORK_MAX_ADDR_AGE &&
+                    addr->type == NTB_NETWORK_ADDR_DISCOVERED &&
                     !addr->connected)
                         remove_addr(nw, addr);
         }
@@ -1451,6 +1462,7 @@ ntb_network_new(void)
                 /* These addresses are hard-coded so they should
                  * always work */
                 assert(addr);
+                addr->type = NTB_NETWORK_ADDR_DEFAULT;
         }
 
         maybe_queue_connect(nw, true /* use idle */);
@@ -1547,7 +1559,7 @@ ntb_network_add_peer_address(struct ntb_network *nw,
         if (addr == NULL)
                 return false;
 
-        addr->explicitly_added = true;
+        addr->type = NTB_NETWORK_ADDR_EXPLICITLY_ADDED;
 
         return true;
 }
