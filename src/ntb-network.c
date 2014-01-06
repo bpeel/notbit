@@ -364,17 +364,6 @@ remove_addr(struct ntb_network *nw,
         nw->n_unconnected_addrs--;
 }
 
-static void
-remove_peer_and_addr(struct ntb_network *nw,
-                     struct ntb_network_peer *peer)
-{
-        struct ntb_network_addr *addr = peer->addr;
-
-        remove_peer(nw, peer);
-        if (addr)
-                remove_addr(nw, addr);
-}
-
 static bool
 can_connect_to_addr(struct ntb_network *nw,
                     struct ntb_network_addr *addr)
@@ -451,22 +440,19 @@ connect_to_addr(struct ntb_network *nw,
         struct ntb_network_peer *peer;
         struct ntb_error *error = NULL;
 
+        addr->last_connect_time = ntb_main_context_get_monotonic_clock(NULL);
+
         connection = ntb_connection_connect(&addr->address, &error);
 
         if (connection == NULL) {
                 ntb_log("%s", error->message);
                 ntb_error_clear(&error);
 
-                /* If it's not possible to connect to this addr then
-                 * we'll assume it's dead */
-                remove_addr(nw, addr);
-
                 return false;
         }
 
         peer = add_peer(nw, connection);
 
-        addr->last_connect_time = ntb_main_context_get_monotonic_clock(NULL);
         peer->addr = addr;
 
         peer->direction = NTB_NETWORK_OUTGOING;
@@ -755,7 +741,7 @@ handle_version(struct ntb_network *nw,
                         "%" PRIu32,
                         remote_address_string,
                         event->version);
-                remove_peer_and_addr(nw, peer);
+                remove_peer(nw, peer);
                 return false;
         }
 
@@ -1123,14 +1109,8 @@ connection_event_cb(struct ntb_listener *listener,
 
         switch (event->type) {
         case NTB_CONNECTION_EVENT_ERROR:
-                remove_peer(nw, peer);
-                return false;
-
         case NTB_CONNECTION_EVENT_CONNECT_FAILED:
-                /* If we never actually managed to connect to the peer
-                 * then we'll assume it's a bad address and we'll stop
-                 * trying to connect to it */
-                remove_peer_and_addr(nw, peer);
+                remove_peer(nw, peer);
                 return false;
 
         case NTB_CONNECTION_EVENT_VERSION:
