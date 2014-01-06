@@ -1418,7 +1418,7 @@ add_addr_string(struct ntb_network *nw,
                 return NULL;
         }
 
-        addr->advertise_time = ntb_main_context_get_wall_clock(NULL);
+        addr->advertise_time = 0;
         addr->stream = 1;
         addr->services = NTB_PROTO_SERVICES;
 
