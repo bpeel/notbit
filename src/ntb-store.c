@@ -219,6 +219,37 @@ make_directory_hierarchy(struct ntb_buffer *buf,
 }
 
 static bool
+append_cwd(struct ntb_buffer *buffer)
+{
+        size_t try_size = 32;
+
+        while (true) {
+                ntb_buffer_ensure_size(buffer, buffer->length + try_size);
+
+                if (getcwd((char *) buffer->data + buffer->length,
+                           buffer->size - buffer->length)) {
+                        buffer->length += strlen((char *) buffer->data + buffer->length);
+                        return true;
+                } else if (errno != ERANGE) {
+                        return false;
+                }
+
+                try_size *= 2;
+        }
+}
+
+static void
+append_absolute_path(struct ntb_buffer *buffer,
+                     const char *path)
+{
+        if (path[0] != '/' && append_cwd(buffer))
+                ntb_buffer_append_c(buffer, '/');
+
+        ntb_buffer_append_string(buffer, path);
+        strip_trailing_slashes(buffer);
+}
+
+static bool
 init_store_directory(struct ntb_store *store,
                      const char *store_directory,
                      struct ntb_error **error)
@@ -226,9 +257,7 @@ init_store_directory(struct ntb_store *store,
         const char *data_home, *home;
 
         if (store_directory) {
-                ntb_buffer_append_string(&store->filename_buf,
-                                         store_directory);
-                strip_trailing_slashes(&store->filename_buf);
+                append_absolute_path(&store->filename_buf, store_directory);
                 ntb_buffer_append_string(&store->filename_buf, "/");
         } else if ((data_home = getenv("XDG_DATA_HOME"))) {
                 if (data_home[0] != '/') {
@@ -285,9 +314,7 @@ init_maildir(struct ntb_store *store,
         const char *home;
 
         if (maildir) {
-                ntb_buffer_append_string(&store->maildir_buf,
-                                         maildir);
-                strip_trailing_slashes(&store->maildir_buf);
+                append_absolute_path(&store->maildir_buf, maildir);
                 ntb_buffer_append_c(&store->maildir_buf, '/');
         } else if ((home = getenv("HOME"))) {
                 if (home[0] != '/') {
