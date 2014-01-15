@@ -1031,6 +1031,15 @@ error:
         return NULL;
 }
 
+const char *
+ntb_store_get_directory(struct ntb_store *store)
+{
+        ntb_buffer_set_length(&store->filename_buf, store->directory_len);
+        ntb_buffer_append_c(&store->filename_buf, '\0');
+
+        return (const char *) store->filename_buf.data;
+}
+
 void
 ntb_store_start(struct ntb_store *store)
 {

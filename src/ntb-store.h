@@ -72,6 +72,9 @@ ntb_store_new(const char *store_directory,
               const char *maildir,
               struct ntb_error **error);
 
+const char *
+ntb_store_get_directory(struct ntb_store *store);
+
 void
 ntb_store_start(struct ntb_store *store);
 

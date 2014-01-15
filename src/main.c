@@ -57,7 +57,7 @@ struct address {
 
 static struct address *option_listen_addresses = NULL;
 static struct address *option_peer_addresses = NULL;
-static char *option_log_file = "/dev/stdout";
+static char *option_log_file = NULL;
 static bool option_daemonize = false;
 static char *option_user = NULL;
 static char *option_group = NULL;
@@ -389,6 +389,33 @@ add_addresses(struct ntb_network *nw,
         return true;
 }
 
+static bool
+set_log_file(struct ntb_store *store,
+             struct ntb_error **error)
+{
+        struct ntb_buffer buffer;
+        bool res;
+
+        if (option_log_file) {
+                return ntb_log_set_file(option_log_file, error);
+        } else if (option_daemonize) {
+                ntb_buffer_init(&buffer);
+                ntb_buffer_append_string(&buffer,
+                                         ntb_store_get_directory(store));
+                if (buffer.length > 0 && buffer.data[buffer.length - 1] != '/')
+                        ntb_buffer_append_c(&buffer, '/');
+                ntb_buffer_append_string(&buffer, "notbit.log");
+
+                res = ntb_log_set_file((const char *) buffer.data, error);
+
+                ntb_buffer_destroy(&buffer);
+
+                return res;
+        } else {
+                return ntb_log_set_file("/dev/stdout", error);
+        }
+}
+
 static int
 run_network(void)
 {
@@ -407,11 +434,6 @@ run_network(void)
                 ntb_error_clear(&error);
                 ret = EXIT_FAILURE;
         } else {
-                if (option_group)
-                        set_group(option_group);
-                if (option_user)
-                        set_user(option_user);
-
                 store = ntb_store_new(option_store_directory,
                                       option_maildir,
                                       &error);
@@ -423,29 +445,42 @@ run_network(void)
                 } else {
                         ntb_store_set_default(store);
 
-                        if (option_daemonize)
-                                daemonize();
+                        if (!set_log_file(store, &error)) {
+                                fprintf(stderr, "%s\n", error->message);
+                                ntb_error_clear(&error);
+                                ret = EXIT_FAILURE;
+                        } else {
+                                if (option_group)
+                                        set_group(option_group);
+                                if (option_user)
+                                        set_user(option_user);
 
-                        ntb_store_start(store);
-                        ntb_log_start();
+                                if (option_daemonize)
+                                        daemonize();
 
-                        ntb_network_load_store(nw);
+                                ntb_store_start(store);
+                                ntb_log_start();
 
-                        keyring = ntb_keyring_new(nw);
+                                ntb_network_load_store(nw);
 
-                        quit_source = ntb_main_context_add_quit(NULL,
-                                                                quit_cb,
-                                                                &quit);
+                                keyring = ntb_keyring_new(nw);
 
-                        do
-                                ntb_main_context_poll(NULL);
-                        while(!quit);
+                                quit_source = ntb_main_context_add_quit(NULL,
+                                                                        quit_cb,
+                                                                        &quit);
 
-                        ntb_log("Exiting...");
+                                do
+                                        ntb_main_context_poll(NULL);
+                                while(!quit);
 
-                        ntb_main_context_remove_source(quit_source);
+                                ntb_log("Exiting...");
 
-                        ntb_keyring_free(keyring);
+                                ntb_main_context_remove_source(quit_source);
+
+                                ntb_keyring_free(keyring);
+
+                                ntb_log_close();
+                        }
                 }
         }
 
@@ -480,15 +515,7 @@ main(int argc, char **argv)
                 return EXIT_FAILURE;
         }
 
-        if (option_log_file && !ntb_log_set_file(option_log_file, &error)) {
-                fprintf(stderr, "Error setting log file: %s\n", error->message);
-                ntb_error_clear(&error);
-                ret = EXIT_FAILURE;
-        } else {
-                ret = run_network();
-
-                ntb_log_close();
-        }
+        ret = run_network();
 
         ntb_main_context_free(mc);
 
