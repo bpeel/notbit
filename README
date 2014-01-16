@@ -1,0 +1,103 @@
+Intro
+=====
+
+Notbit is a minimal client for the Bitmessage network. It is designed
+to work as a daemon with no UI. The idea is that it will store
+messages in the standard maildir format and accept new messages via a
+process like sendmail. That way it can be used with any compliant mail
+program such as Thunderbird or Mutt.
+
+Notbit is a work in progress and is currently fairly limited. It can
+not yet send messages but it is at least able to receive them. It is
+however able to fully participate as a peer in the network and forward
+on messages so running the client will aid the network.
+
+Dependencies
+============
+
+Notbit requires Linux. It will not work on other Unices because it is
+using some Linux-specific features such as epoll and abstract
+Unix-domain sockets. It also requires libcrypto with support for
+elliptic-curve cryptography. Unfortunately if you are building on
+Fedora you will need to build libcrypto from source because they don't
+ship ECC due to patent concerns.
+
+Building
+========
+
+First you will need to install the build dependencies for your
+system. The main one to install is libopenssl-devel to get
+libcrypto. If you are building from the git repo you will also need
+the standard autotools such as automake and autoconf.
+
+Now you can run the following commands to build Notbit:
+
+ git clone git://git.busydoingnothing.co.uk/notbit.git
+ cd notbit
+ ./autogen --prefix=$HOME
+ make
+ make install
+
+This will install notbit into your home directory. The executable will
+be in ~/bin which is typically already in your search path.
+
+Running Notbit
+==============
+
+Once notbit is built you can run it by just typing ‘notbit’. By
+default this will output logging messages to stdout. It will
+immediately try to connect to the network and start downloading
+messages. If instead you want to run notbit in the background you can
+type ‘notbit -d’ which will launch it as a daemon. In that case you
+can see the logging messages by typing:
+
+  tail -f ~/.local/share/notbit/notbit.log
+
+If you want to exit the daemon you can type ‘killall notbit’. This
+will do a graceful shutdown.
+
+Importing addresses
+===================
+
+Notbit doesn't currently have any interface to create
+addresses. However, it can import the addresses from the offical
+Bitmessage client. To do this, make sure Notbit is not currently
+running and then type:
+
+ cp ~/.config/PyBitmessage/keys.dat ~/.local/share/notbit/
+
+Reading messages
+================
+
+If Notbit receives a message for one of the addresses in keys.dat it
+will write it out in maildir format. maildir is a standard format
+which can be read by most mail programs such as mutt. By default the
+maildir will be ~/.maildir. You can change this with the -m option.
+
+Options
+=======
+
+Notbit has some command line options to configure it. These are listed
+below:
+
+ -h                    Show a help message
+ -p <port>             Specifies a different port to listen on.
+                       Defaults to 8444
+ -a <address[:port]>   Add an address to listen on. Can be
+                       specified multiple times. Defaults to
+                       [::] to listen on port 8444
+ -P <address[:port]>   Add to the list of initial peers that
+                       might be connected to.
+ -e                    Only connect to peers specified by -P
+ -l <file>             Specify the pathname for the log file
+                       Defaults to stdout or
+                       $XDG_DATA_HOME/notbit/notbit.log if -d is used
+ -d                    Fork and detach from terminal after
+                       creating listen socket. (Daemonize)
+ -u <user>             Specify a user to run as. Used to drop
+                       privileges.
+ -g <group>            Specify a group to run as.
+ -D <datadir>          Specify an alternate location for the
+                       object store. Defaults to $XDG_DATA_HOME/notbit
+ -m <maildir>          Specify the maildir to save messages to.
+                       Defaults to $HOME/.maildir

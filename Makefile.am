@@ -4,3 +4,7 @@
 ACLOCAL_AMFLAGS = -I build/autotools ${ACLOCAL_FLAGS}
 
 SUBDIRS = src
+
+EXTRA_DIST = \
+	README \
+	$(NULL)
