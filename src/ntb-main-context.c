@@ -106,6 +106,7 @@ struct ntb_main_context_source {
                 struct {
                         int fd;
                         enum ntb_main_context_poll_flags current_flags;
+                        struct ntb_main_context_source *idle_source;
                 };
 
                 /* Quit sources */
@@ -285,6 +286,29 @@ get_epoll_events(enum ntb_main_context_poll_flags flags)
         return events;
 }
 
+static void
+poll_idle_cb(struct ntb_main_context_source *source,
+             void *user_data)
+{
+        ntb_main_context_poll_callback callback;
+
+        /* This is used from an idle handler if a file descriptor was
+         * added which doesn't support epoll. Instead it always
+         * reports that the file descriptor is ready for reading and
+         * writing in order to simulate the behaviour of poll */
+
+        source = user_data;
+
+        callback = source->callback;
+
+        callback(source,
+                 source->fd,
+                 source->current_flags &
+                 (NTB_MAIN_CONTEXT_POLL_IN |
+                  NTB_MAIN_CONTEXT_POLL_OUT),
+                 source->user_data);
+}
+
 struct ntb_main_context_source *
 ntb_main_context_add_poll(struct ntb_main_context *mc,
                           int fd,
@@ -308,12 +332,28 @@ ntb_main_context_add_poll(struct ntb_main_context *mc,
         source->callback = callback;
         source->type = NTB_MAIN_CONTEXT_POLL_SOURCE;
         source->user_data = user_data;
+        source->idle_source = NULL;
 
         event.events = get_epoll_events(flags);
         event.data.ptr = source;
 
-        if (epoll_ctl(mc->epoll_fd, EPOLL_CTL_ADD, fd, &event) == -1)
-                ntb_warning("EPOLL_CTL_ADD failed: %s", strerror(errno));
+        if (epoll_ctl(mc->epoll_fd, EPOLL_CTL_ADD, fd, &event) == -1) {
+                /* EPERM will happen if the file descriptor doesn't
+                 * support epoll. This will happen with regular files.
+                 * Instead of poll on the file descriptor we will
+                 * install an idle handler which just always reports
+                 * that the descriptor is ready for reading and
+                 * writing. This simulates what poll would do */
+                if (errno == EPERM) {
+                        source->idle_source =
+                                ntb_main_context_add_idle(mc,
+                                                          poll_idle_cb,
+                                                          source);
+                } else {
+                        ntb_warning("EPOLL_CTL_ADD failed: %s",
+                                    strerror(errno));
+                }
+        }
 
         source->current_flags = flags;
 
@@ -331,14 +371,17 @@ ntb_main_context_modify_poll(struct ntb_main_context_source *source,
         if (source->current_flags == flags)
                 return;
 
-        event.events = get_epoll_events(flags);
-        event.data.ptr = source;
+        if (source->idle_source == NULL) {
+                event.events = get_epoll_events(flags);
+                event.data.ptr = source;
 
-        if (epoll_ctl(source->mc->epoll_fd,
-                      EPOLL_CTL_MOD,
-                      source->fd,
-                      &event) == -1)
-                ntb_warning("EPOLL_CTL_MOD failed: %s", strerror(errno));
+                if (epoll_ctl(source->mc->epoll_fd,
+                              EPOLL_CTL_MOD,
+                              source->fd,
+                              &event) == -1)
+                        ntb_warning("EPOLL_CTL_MOD failed: %s",
+                                    strerror(errno));
+        }
 
         source->current_flags = flags;
 }
@@ -458,7 +501,9 @@ ntb_main_context_remove_source(struct ntb_main_context_source *source)
 
         switch (source->type) {
         case NTB_MAIN_CONTEXT_POLL_SOURCE:
-                if (epoll_ctl(mc->epoll_fd,
+                if (source->idle_source)
+                        ntb_main_context_remove_source(source->idle_source);
+                else if (epoll_ctl(mc->epoll_fd,
                               EPOLL_CTL_DEL,
                               source->fd,
                               &event) == -1)
