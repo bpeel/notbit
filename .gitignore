@@ -21,6 +21,7 @@
 /src/Makefile
 /src/Makefile.in
 /src/notbit
+/src/notbit-sendmail
 /src/dump-store
 
 *.o

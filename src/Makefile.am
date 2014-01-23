@@ -1,4 +1,7 @@
-bin_PROGRAMS = notbit
+bin_PROGRAMS = \
+	notbit \
+	notbit-sendmail \
+	$(NULL)
 
 noinst_PROGRAMS = dump-store
 
@@ -79,6 +82,26 @@ notbit_SOURCES = \
 
 notbit_LDFLAGS = \
 	$(LIBCRYPTO_LIBS) \
+	$(NOTBIT_EXTRA_LIBS) \
+	-pthread \
+	$(NULL)
+
+notbit_sendmail_SOURCES = \
+	ntb-buffer.c \
+	ntb-buffer.h \
+	ntb-error.c \
+	ntb-error.h \
+	ntb-file-error.c \
+	ntb-file-error.h \
+	ntb-sendmail.c \
+	ntb-ipc-proto.h \
+	ntb-ipc-sockaddr.c \
+	ntb-ipc-sockaddr.h \
+	ntb-util.c \
+	ntb-util.h \
+	$(NULL)
+
+notbit_sendmail_LDFLAGS = \
 	$(NOTBIT_EXTRA_LIBS) \
 	-pthread \
 	$(NULL)
