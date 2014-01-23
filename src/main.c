@@ -37,6 +37,7 @@
 #include "ntb-proto.h"
 #include "ntb-file-error.h"
 #include "ntb-keyring.h"
+#include "ntb-ipc.h"
 
 static struct ntb_error_domain
 arguments_error;
@@ -416,16 +417,47 @@ set_log_file(struct ntb_store *store,
         }
 }
 
+static void
+run_main_loop(struct ntb_network *nw,
+              struct ntb_keyring *keyring,
+              struct ntb_store *store)
+{
+        struct ntb_main_context_source *quit_source;
+        bool quit = false;
+
+        if (option_group)
+                set_group(option_group);
+        if (option_user)
+                set_user(option_user);
+
+        if (option_daemonize)
+                daemonize();
+
+        ntb_store_start(store);
+        ntb_log_start();
+
+        ntb_network_load_store(nw);
+
+        quit_source = ntb_main_context_add_quit(NULL, quit_cb, &quit);
+
+        do
+                ntb_main_context_poll(NULL);
+        while(!quit);
+
+        ntb_log("Exiting...");
+
+        ntb_main_context_remove_source(quit_source);
+}
+
 static int
 run_network(void)
 {
         struct ntb_store *store = NULL;
         struct ntb_network *nw;
         struct ntb_keyring *keyring;
+        struct ntb_ipc *ipc;
         int ret = EXIT_SUCCESS;
         struct ntb_error *error = NULL;
-        struct ntb_main_context_source *quit_source;
-        bool quit = false;
 
         nw = ntb_network_new();
 
@@ -450,32 +482,17 @@ run_network(void)
                                 ntb_error_clear(&error);
                                 ret = EXIT_FAILURE;
                         } else {
-                                if (option_group)
-                                        set_group(option_group);
-                                if (option_user)
-                                        set_user(option_user);
-
-                                if (option_daemonize)
-                                        daemonize();
-
-                                ntb_store_start(store);
-                                ntb_log_start();
-
-                                ntb_network_load_store(nw);
-
                                 keyring = ntb_keyring_new(nw);
+                                ipc = ntb_ipc_new(keyring, &error);
 
-                                quit_source = ntb_main_context_add_quit(NULL,
-                                                                        quit_cb,
-                                                                        &quit);
-
-                                do
-                                        ntb_main_context_poll(NULL);
-                                while(!quit);
-
-                                ntb_log("Exiting...");
-
-                                ntb_main_context_remove_source(quit_source);
+                                if (ipc == NULL) {
+                                        fprintf(stderr, "%s\n", error->message);
+                                        ntb_error_clear(&error);
+                                        ret = EXIT_FAILURE;
+                                } else {
+                                        run_main_loop(nw, keyring, store);
+                                        ntb_ipc_free(ipc);
+                                }
 
                                 ntb_keyring_free(keyring);
 

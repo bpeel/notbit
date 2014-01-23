@@ -1,0 +1,51 @@
+== Core protocol
+
+Notbit listens on an abstract Unix-domain socket to implement IPC.
+This is used to send messages and to check the status of the daemon.
+The protocol is inspired by the Bitmessage protocol but it doesn't
+need to worry about proof-of-work or timing issues because it can
+assume it can trust all of the connections as they are from the same
+machine. Notbit checks the credentials of any connections to the
+socket and only accepts the same user as that of the notbit daemon or
+root.
+
+The socket will be located in $XDG_RUNTIME_DIR/notbit/notbit-ipc. The
+socket is abstract which means that there needs to be a zero byte
+prefixed to the address to get it to be treated as such. Abstract Unix
+domain sockets are a Linux-specific feature which makes it so the
+socket doesn't occupy a name in the filesystem. The protocol exchanges
+binary commands like the Bitmessage protocol but with a slightly
+different header. All integers are in big-endian. The command header
+looks like this:
+
+┌──┬──────────┬────────────┬────────────────────────────────────────────────┐
+│12│command   │char[12]    │ASCII string identifying the packet content,    │
+│  │          │            │NULL padded (non-NULL padding results in packet │
+│  │          │            │rejected)                                       │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│4 │request ID│uint32_t    │An integer representing the request. This will  │
+│  │          │            │be sent back in the reply so the client can tell│
+│  │          │            │which command it pertains to.                   │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│4 │length    │uint32_t    │Length of the payload in bytes                  │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │payload   │uchar[]     │The remainder of the command                    │
+└──┴──────────┴────────────┴────────────────────────────────────────────────┘
+
+The request ID is an arbitrary integer selected by the client.
+Typically the client would just start at 0 and increment this number
+every time it sends a request. Every request will receive a single
+‘response’ command from the server which will have same the request ID
+as the one it pertains to. The responses do not necessarily arrive in
+the same order as the requests.
+
+The responses will be contained in a ‘response’ command with the
+following payload:
+
+┌──┬──────────┬────────────┬────────────────────────────────────────────────┐
+│4 │status    │uint32_t    │A status code representing an error number or 0 │
+│  │          │            │If the request suceeded                         │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │data      │uchar[]     │Data for the response. If the status is non-zero│
+│  │          │            │then this will be some text describing the error│
+└──┴──────────┴────────────┴────────────────────────────────────────────────┘

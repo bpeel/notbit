@@ -15,6 +15,9 @@
 /missing
 /stamp-h1
 
+/doc/Makefile
+/doc/Makefile.in
+
 /src/Makefile
 /src/Makefile.in
 /src/notbit

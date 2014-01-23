@@ -3,7 +3,10 @@
 # source for m4 macros
 ACLOCAL_AMFLAGS = -I build/autotools ${ACLOCAL_FLAGS}
 
-SUBDIRS = src
+SUBDIRS = \
+	doc \
+	src \
+	$(NULL)
 
 EXTRA_DIST = \
 	README \
