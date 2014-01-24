@@ -51,12 +51,11 @@ calc_checksum(uint8_t version,
 }
 
 void
-ntb_address_encode(uint8_t version,
-                   uint8_t stream,
-                   const uint8_t *ripe,
+ntb_address_encode(const struct ntb_address *address,
                    char *output)
 {
         uint8_t bin_address[1 + 1 + RIPEMD160_DIGEST_LENGTH + 4];
+        const uint8_t *ripe = address->ripe;
         uint8_t *p;
         int ripe_length;
         int max_trim;
@@ -66,7 +65,7 @@ ntb_address_encode(uint8_t version,
 
         ripe_length = RIPEMD160_DIGEST_LENGTH;
 
-        if (version >= 4)
+        if (address->version >= 4)
                 max_trim = RIPEMD160_DIGEST_LENGTH;
         else
                 max_trim = 2;
@@ -76,11 +75,15 @@ ntb_address_encode(uint8_t version,
                 ripe_length--;
         }
 
-        calc_checksum(version, stream, ripe, ripe_length, checksum);
+        calc_checksum(address->version,
+                      address->stream,
+                      ripe,
+                      ripe_length,
+                      checksum);
 
         p = bin_address;
-        *(p++) = version;
-        *(p++) = stream;
+        *(p++) = address->version;
+        *(p++) = address->stream;
         memcpy(p, ripe, ripe_length);
         p += ripe_length;
         memcpy(p, checksum, sizeof checksum);
@@ -96,10 +99,8 @@ ntb_address_encode(uint8_t version,
 }
 
 bool
-ntb_address_decode(const char *address,
-                   int *version,
-                   int *stream,
-                   uint8_t *ripe)
+ntb_address_decode(struct ntb_address *address,
+                   const char *address_string)
 {
         uint8_t bin_address[1 + 1 + RIPEMD160_DIGEST_LENGTH + 4];
         uint8_t checksum[4];
@@ -107,11 +108,11 @@ ntb_address_decode(const char *address,
         const uint8_t *ripe_start = bin_address + 1 + 1;
         ssize_t ripe_length;
 
-        if (!strncmp(address, "BM-", 3))
-                address += 3;
+        if (!strncmp(address_string, "BM-", 3))
+                address_string += 3;
 
-        bin_address_length = ntb_base58_decode(address,
-                                               strlen(address),
+        bin_address_length = ntb_base58_decode(address_string,
+                                               strlen(address_string),
                                                bin_address,
                                                sizeof bin_address);
         if (bin_address_length == -1)
@@ -130,12 +131,12 @@ ntb_address_decode(const char *address,
         if (memcmp(checksum, ripe_start + ripe_length, 4))
                 return false;
 
-        memset(ripe, 0, RIPEMD160_DIGEST_LENGTH - ripe_length);
-        memcpy(ripe + RIPEMD160_DIGEST_LENGTH - ripe_length,
+        memset(address->ripe, 0, RIPEMD160_DIGEST_LENGTH - ripe_length);
+        memcpy(address->ripe + RIPEMD160_DIGEST_LENGTH - ripe_length,
                ripe_start,
                ripe_length);
-        *version = bin_address[0];
-        *stream = bin_address[1];
+        address->version = bin_address[0];
+        address->stream = bin_address[1];
 
         return true;
 }

@@ -27,6 +27,7 @@
 #include "ntb-proto.h"
 #include "ntb-ref-count.h"
 #include "ntb-ecc.h"
+#include "ntb-address.h"
 
 /* Private keys are immutable and reference counted. The ref-count is
  * thread-safe so that the key can be passed off to the store thread
@@ -37,14 +38,12 @@
 struct ntb_key {
         struct ntb_ref_count ref_count;
 
-        uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
+        struct ntb_address address;
         uint8_t tag[NTB_KEY_TAG_SIZE];
         uint8_t tag_private_key[NTB_ECC_PRIVATE_KEY_SIZE];
 
         char *label;
 
-        int version;
-        int stream;
         int nonce_trials_per_byte;
         int payload_length_extra_bytes;
         int64_t last_pubkey_send_time;
@@ -67,9 +66,7 @@ ntb_key_new(struct ntb_ecc *ecc,
 struct ntb_key *
 ntb_key_new_with_public(struct ntb_ecc *ecc,
                         const char *label,
-                        const uint8_t *ripe,
-                        uint64_t version,
-                        uint64_t stream,
+                        const struct ntb_address *address,
                         const uint8_t *private_signing_key,
                         const uint8_t *public_signing_key,
                         const uint8_t *private_encryption_key,

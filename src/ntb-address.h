@@ -21,6 +21,13 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <openssl/ripemd.h>
+
+struct ntb_address {
+        uint8_t version;
+        uint8_t stream;
+        uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
+};
 
 /* Maximum length that an encoded BitMessage address can be */
 /* The largest number in hex is:
@@ -35,15 +42,11 @@
 #define NTB_ADDRESS_MAX_LENGTH 39
 
 void
-ntb_address_encode(uint8_t version,
-                   uint8_t stream,
-                   const uint8_t *ripe,
+ntb_address_encode(const struct ntb_address *address,
                    char *output);
 
 bool
-ntb_address_decode(const char *address,
-                   int *version,
-                   int *stream,
-                   uint8_t *ripe);
+ntb_address_decode(struct ntb_address *address,
+                   const char *address_string);
 
 #endif /* NTB_ADDRESS_H */

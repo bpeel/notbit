@@ -224,9 +224,9 @@ handle_getpubkey_with_ripe(struct ntb_keyring *keyring,
         for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
                 key = ntb_pointer_array_get(&keyring->keys, i);
 
-                if (!memcmp(key->ripe, ripe, RIPEMD160_DIGEST_LENGTH)) {
-                        if (key->version != address_version ||
-                            key->stream != stream_number) {
+                if (!memcmp(key->address.ripe, ripe, RIPEMD160_DIGEST_LENGTH)) {
+                        if (key->address.version != address_version ||
+                            key->address.stream != stream_number) {
                                 ntb_log("getpubkey requested for key with the "
                                         "wrong version or stream number");
                         } else {
@@ -250,8 +250,8 @@ handle_getpubkey_with_tag(struct ntb_keyring *keyring,
                 key = ntb_pointer_array_get(&keyring->keys, i);
 
                 if (!memcmp(key->tag, tag, NTB_KEY_TAG_SIZE)) {
-                        if (key->version != address_version ||
-                            key->stream != stream_number) {
+                        if (key->address.version != address_version ||
+                            key->address.stream != stream_number) {
                                 ntb_log("getpubkey requested for key with the "
                                         "wrong version or stream number");
                         } else {
@@ -343,7 +343,7 @@ get_address_from_keys(uint8_t address_version,
         SHA512_CTX sha_ctx;
         uint8_t four = 0x04;
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
-        uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
+        struct ntb_address address;
 
         SHA512_Init(&sha_ctx);
 
@@ -357,12 +357,12 @@ get_address_from_keys(uint8_t address_version,
 
         SHA512_Final(sha_hash, &sha_ctx);
 
-        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, ripe);
+        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address.ripe);
 
-        ntb_address_encode(address_version,
-                           stream,
-                           ripe,
-                           sender_address);
+        address.version = address_version;
+        address.stream = stream;
+
+        ntb_address_encode(&address, sender_address);
 }
 
 static void
@@ -438,7 +438,9 @@ decrypt_msg_cb(struct ntb_key *key,
             msg.sender_address_version > 255)
                 goto invalid;
 
-        if (memcmp(key->ripe, msg.destination_ripe, RIPEMD160_DIGEST_LENGTH)) {
+        if (memcmp(key->address.ripe,
+                   msg.destination_ripe,
+                   RIPEMD160_DIGEST_LENGTH)) {
                 ntb_log("The key that was used to encrypt the message does "
                         "not match the destination address embedded in the "
                         "message. This could be a surreptitious forwarding "
@@ -452,10 +454,7 @@ decrypt_msg_cb(struct ntb_key *key,
                               msg.sender_encryption_key,
                               sender_address);
 
-        ntb_address_encode(key->version,
-                           key->stream,
-                           key->ripe,
-                           to_address);
+        ntb_address_encode(&key->address, to_address);
 
         ntb_log("Accepted message from %s", sender_address);
 

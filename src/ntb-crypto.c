@@ -196,8 +196,8 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         uint8_t private_encryption_key[NTB_ECC_PRIVATE_KEY_SIZE];
         uint8_t pub_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
-        uint8_t ripemd_hash[RIPEMD160_DIGEST_LENGTH];
-        char address[NTB_ADDRESS_MAX_LENGTH + 1];
+        struct ntb_address address;
+        char address_string[NTB_ADDRESS_MAX_LENGTH + 1];
         SHA512_CTX sha_ctx;
         int attempts = 0;
 
@@ -219,32 +219,30 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                               NTB_ECC_PUBLIC_KEY_SIZE);
                 SHA512_Final(sha_hash, &sha_ctx);
 
-                RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, ripemd_hash);
+                RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address.ripe);
 
                 attempts++;
-        } while (count_leading_zeroes(ripemd_hash) <
+        } while (count_leading_zeroes(address.ripe) <
                  cookie->create_key.leading_zeroes);
+
+        address.version = 4;
+        address.stream = 1;
 
         cookie->create_key.key =
                 ntb_key_new_with_public(crypto->ecc,
                                         cookie->create_key.label,
-                                        ripemd_hash,
-                                        4, /* version */
-                                        1, /* stream */
+                                        &address,
                                         private_signing_key,
                                         pub_signing_key,
                                         private_encryption_key,
                                         pub_encryption_key);
 
-        ntb_address_encode(cookie->create_key.key->version,
-                           cookie->create_key.key->stream,
-                           ripemd_hash,
-                           address);
+        ntb_address_encode(&cookie->create_key.key->address, address_string);
 
         ntb_log("Key pair generated after %i attempt%s. Address is %s",
                 attempts,
                 attempts == 1 ? "" : "s",
-                address);
+                address_string);
 }
 
 static void
@@ -282,8 +280,8 @@ append_key_base(struct ntb_key *key,
         ntb_buffer_set_length(buffer, buffer->length + sizeof (uint64_t));
 
         ntb_proto_add_64(buffer, key->last_pubkey_send_time);
-        ntb_proto_add_var_int(buffer, key->version);
-        ntb_proto_add_var_int(buffer, key->stream);
+        ntb_proto_add_var_int(buffer, key->address.version);
+        ntb_proto_add_var_int(buffer, key->address.stream);
 
         if (behaviors_offset)
                 *behaviors_offset = buffer->length;
@@ -405,7 +403,7 @@ handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_key *key = cookie->create_pubkey_blob.key;
 
-        switch (key->version) {
+        switch (key->address.version) {
         case 4:
                 cookie->create_pubkey_blob.blob =
                         create_v4_key(cookie->crypto, key);

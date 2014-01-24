@@ -108,8 +108,7 @@ static void
 flush_key(struct ntb_load_keys_data *data)
 {
         struct ntb_key *key;
-        uint8_t header_address[RIPEMD160_DIGEST_LENGTH];
-        int version, stream;
+        struct ntb_address address;
 
         if (!data->has_private_signing_key ||
             !data->has_private_encryption_key)
@@ -118,14 +117,12 @@ flush_key(struct ntb_load_keys_data *data)
         ntb_buffer_ensure_size(&data->address, data->address.length + 1);
         data->address.data[data->address.length] = '\0';
 
-        if (!ntb_address_decode((const char *) data->address.data,
-                                &version,
-                                &stream,
-                                header_address)) {
+        if (!ntb_address_decode(&address,
+                                (const char *) data->address.data)) {
                 ntb_log("Address is invalid “%s”",
                         (const char *) data->address.data);
-                version = 4;
-                stream = 1;
+                address.version = 4;
+                address.stream = 1;
         }
 
         ntb_buffer_ensure_size(&data->label, data->label.length + 1);
@@ -133,12 +130,12 @@ flush_key(struct ntb_load_keys_data *data)
 
         key = ntb_key_new(data->ecc,
                           (const char *) data->label.data,
-                          version,
-                          stream,
+                          address.version,
+                          address.stream,
                           data->private_signing_key,
                           data->private_encryption_key);
 
-        if (memcmp(key->ripe, header_address, RIPEMD160_DIGEST_LENGTH)) {
+        if (memcmp(key->address.ripe, address.ripe, RIPEMD160_DIGEST_LENGTH)) {
                 ntb_log("Calculated address for %s does not match",
                         (const char *) data->address.data);
         }

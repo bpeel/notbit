@@ -37,15 +37,15 @@ generate_tag(struct ntb_key *key)
         SHA512_CTX sha_ctx;
 
         ntb_buffer_init(&buffer);
-        ntb_proto_add_var_int(&buffer, key->version);
-        ntb_proto_add_var_int(&buffer, key->stream);
+        ntb_proto_add_var_int(&buffer, key->address.version);
+        ntb_proto_add_var_int(&buffer, key->address.stream);
 
         SHA512_Init(&sha_ctx);
         SHA512_Update(&sha_ctx, buffer.data, buffer.length);
 
         ntb_buffer_destroy(&buffer);
 
-        SHA512_Update(&sha_ctx, key->ripe, RIPEMD160_DIGEST_LENGTH);
+        SHA512_Update(&sha_ctx, key->address.ripe, RIPEMD160_DIGEST_LENGTH);
         SHA512_Final(hash1, &sha_ctx);
 
         SHA512_Init(&sha_ctx);
@@ -68,8 +68,8 @@ new_key(const char *label,
         ntb_ref_count_init(&key->ref_count);
 
         key->label = ntb_strdup(label);
-        key->version = version;
-        key->stream = stream;
+        key->address.version = version;
+        key->address.stream = stream;
         key->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
         key->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
         key->last_pubkey_send_time = 0;
@@ -85,9 +85,7 @@ new_key(const char *label,
 struct ntb_key *
 ntb_key_new_with_public(struct ntb_ecc *ecc,
                         const char *label,
-                        const uint8_t *ripe,
-                        uint64_t version,
-                        uint64_t stream,
+                        const struct ntb_address *address,
                         const uint8_t *private_signing_key,
                         const uint8_t *public_signing_key,
                         const uint8_t *private_encryption_key,
@@ -105,12 +103,12 @@ ntb_key_new_with_public(struct ntb_ecc *ecc,
                                                         public_encryption_key);
 
         key = new_key(label,
-                      version,
-                      stream,
+                      address->version,
+                      address->stream,
                       signing_key,
                       encryption_key);
 
-        memcpy(key->ripe, ripe, RIPEMD160_DIGEST_LENGTH);
+        memcpy(key->address.ripe, address->ripe, RIPEMD160_DIGEST_LENGTH);
 
         generate_tag(key);
 
@@ -153,7 +151,7 @@ ntb_key_new(struct ntb_ecc *ecc,
 
         SHA512_Final(sha_hash, &sha_ctx);
 
-        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, key->ripe);
+        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, key->address.ripe);
 
         generate_tag(key);
 

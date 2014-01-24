@@ -662,10 +662,7 @@ write_key(struct ntb_key *key,
         char signing_key_wif[NTB_STORE_MAX_WIF_LENGTH + 1];
         char encryption_key_wif[NTB_STORE_MAX_WIF_LENGTH + 1];
 
-        ntb_address_encode(key->version,
-                           key->stream,
-                           key->ripe,
-                           address);
+        ntb_address_encode(&key->address, address);
 
         encode_wif(key->signing_key, signing_key_wif);
         encode_wif(key->encryption_key, encryption_key_wif);
