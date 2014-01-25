@@ -441,7 +441,7 @@ decrypt_msg_cb(struct ntb_key *key,
         if (memcmp(key->ripe, msg.destination_ripe, RIPEMD160_DIGEST_LENGTH)) {
                 ntb_log("The key that was used to encrypt the message does "
                         "not match the destination address embedded in the "
-                        "message. This could be a surreptitious forwarding"
+                        "message. This could be a surreptitious forwarding "
                         "attack");
                 return;
         }
