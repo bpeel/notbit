@@ -672,6 +672,7 @@ ntb_crypto_create_key(struct ntb_crypto *crypto,
                             user_data);
         cookie->create_key.label = ntb_strdup(label);
         cookie->create_key.leading_zeroes = leading_zeroes;
+        cookie->create_key.key = NULL;
 
         pthread_mutex_unlock(&crypto->mutex);
 
