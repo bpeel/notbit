@@ -55,6 +55,12 @@ typedef void
                                  void *user_data);
 
 typedef void
+(* ntb_store_for_each_pubkey_blob_func)(const uint8_t *hash,
+                                        int64_t timestamp,
+                                        struct ntb_blob *blob,
+                                        void *user_data);
+
+typedef void
 (* ntb_store_for_each_addr_func)(const struct ntb_store_addr *addr,
                                  void *user_data);
 
@@ -117,6 +123,11 @@ void
 ntb_store_for_each_blob(struct ntb_store *store,
                         ntb_store_for_each_blob_func func,
                         void *user_data);
+
+void
+ntb_store_for_each_pubkey_blob(struct ntb_store *store,
+                               ntb_store_for_each_pubkey_blob_func func,
+                               void *user_data);
 
 void
 ntb_store_for_each_addr(struct ntb_store *store,

@@ -129,6 +129,13 @@ struct ntb_store_cookie {
         void *user_data;
 };
 
+typedef void (* for_each_blob_internal_func)(enum ntb_proto_inv_type type,
+                                             const uint8_t *hash,
+                                             int64_t timestamp,
+                                             const char *filename,
+                                             FILE *file,
+                                             void *user_data);
+
 /* The cookies are only allocated and destroyed in the main thread so
  * we don't need to have a per-store allocator */
 NTB_SLICE_ALLOCATOR(struct ntb_store_cookie, ntb_store_cookie_allocator);
@@ -1177,7 +1184,7 @@ is_hex_digit(int ch)
 static void
 process_file(struct ntb_store *store,
              const char *filename,
-             ntb_store_for_each_blob_func func,
+             for_each_blob_internal_func func,
              void *user_data)
 {
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
@@ -1189,7 +1196,6 @@ process_file(struct ntb_store *store,
         const uint8_t *buf_ptr;
         uint32_t length;
         int64_t now;
-        bool read_ret;
         int i;
 
         p = filename + store->directory_len + 8;
@@ -1229,12 +1235,10 @@ process_file(struct ntb_store *store,
          * 64-bit nonce and then either a 32-bit or 64-bit timestamp.
          * We only need the type and timestamp so we don't need to
          * read the rest */
-        read_ret = read_all(filename, buf, sizeof buf, file);
-
-        fclose(file);
-
-        if (!read_ret)
+        if (!read_all(filename, buf, sizeof buf, file)) {
+                fclose(file);
                 return;
+        }
 
         now = ntb_main_context_get_wall_clock(NULL);
 
@@ -1250,26 +1254,19 @@ process_file(struct ntb_store *store,
                                 filename,
                                 strerror(errno));
         } else {
-                func(type, hash, timestamp, user_data);
+                func(type, hash, timestamp, filename, file, user_data);
         }
+
+        fclose(file);
 }
 
-void
-ntb_store_for_each_blob(struct ntb_store *store,
-                        ntb_store_for_each_blob_func func,
-                        void *user_data)
+static void
+for_each_blob_internal(struct ntb_store *store,
+                       for_each_blob_internal_func func,
+                       void *user_data)
 {
         DIR *dir;
         struct dirent *dirent;
-
-        if (store == NULL)
-                store = ntb_store_get_default_or_abort();
-
-        /* This function runs synchronously but it should only be
-         * called once at startup before connecting to any peers so it
-         * shouldn't really matter */
-
-        ntb_log("Loading saved object store");
 
         store->filename_buf.length = store->directory_len;
         ntb_buffer_append_string(&store->filename_buf, "objects");
@@ -1295,8 +1292,112 @@ ntb_store_for_each_blob(struct ntb_store *store,
         }
 
         closedir(dir);
+}
+
+struct for_each_blob_data {
+        ntb_store_for_each_blob_func func;
+        void *user_data;
+};
+
+static void
+for_each_blob_cb(enum ntb_proto_inv_type type,
+                 const uint8_t *hash,
+                 int64_t timestamp,
+                 const char *filename,
+                 FILE *file,
+                 void *user_data)
+{
+        struct for_each_blob_data *data = user_data;
+
+        data->func(type, hash, timestamp, data->user_data);
+}
+
+void
+ntb_store_for_each_blob(struct ntb_store *store,
+                        ntb_store_for_each_blob_func func,
+                        void *user_data)
+{
+        struct for_each_blob_data data;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        /* This function runs synchronously but it should only be
+         * called once at startup before connecting to any peers so it
+         * shouldn't really matter */
+
+        ntb_log("Loading saved object store");
+
+        data.func = func;
+        data.user_data = user_data;
+
+        for_each_blob_internal(store, for_each_blob_cb, &data);
 
         ntb_log("Finished loading object store");
+}
+
+struct for_each_pubkey_blob_data {
+        ntb_store_for_each_pubkey_blob_func func;
+        void *user_data;
+};
+
+static void
+for_each_pubkey_blob_cb(enum ntb_proto_inv_type type,
+                        const uint8_t *hash,
+                        int64_t timestamp,
+                        const char *filename,
+                        FILE *file,
+                        void *user_data)
+{
+        struct for_each_pubkey_blob_data *data = user_data;
+        struct stat statbuf;
+        struct ntb_blob *blob;
+
+        if (type != NTB_PROTO_INV_TYPE_PUBKEY)
+                return;
+
+        /* Reset the file to just after the type */
+        if (fseek(file, sizeof (uint32_t), SEEK_SET))
+                return;
+
+        if (fstat(fileno(file), &statbuf) == -1)
+                return;
+
+        blob = ntb_blob_new(NTB_PROTO_INV_TYPE_PUBKEY,
+                            NULL, /* data */
+                            statbuf.st_size - sizeof (uint32_t));
+
+        if (read_all(filename,
+                     blob->data,
+                     statbuf.st_size - sizeof (uint32_t),
+                     file))
+                data->func(hash, timestamp, blob, data->user_data);
+
+        ntb_blob_unref(blob);
+}
+
+void
+ntb_store_for_each_pubkey_blob(struct ntb_store *store,
+                               ntb_store_for_each_pubkey_blob_func func,
+                               void *user_data)
+{
+        struct for_each_pubkey_blob_data data;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        /* This function runs synchronously but it should only be
+         * called once at startup before connecting to any peers so it
+         * shouldn't really matter */
+
+        ntb_log("Loading pubkey objects");
+
+        data.func = func;
+        data.user_data = user_data;
+
+        for_each_blob_internal(store, for_each_pubkey_blob_cb, &data);
+
+        ntb_log("Finished loading pubkey objects");
 }
 
 static void
