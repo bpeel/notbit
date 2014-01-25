@@ -48,16 +48,19 @@ struct ntb_store_addr {
         struct ntb_netaddress address;
 };
 
-typedef void (* ntb_store_for_each_blob_func)(enum ntb_proto_inv_type type,
-                                              const uint8_t *hash,
-                                              int64_t timestamp,
-                                              void *user_data);
+typedef void
+(* ntb_store_for_each_blob_func)(enum ntb_proto_inv_type type,
+                                 const uint8_t *hash,
+                                 int64_t timestamp,
+                                 void *user_data);
 
-typedef void (* ntb_store_for_each_addr_func)(const struct ntb_store_addr *addr,
-                                              void *user_data);
+typedef void
+(* ntb_store_for_each_addr_func)(const struct ntb_store_addr *addr,
+                                 void *user_data);
 
-typedef void (* ntb_store_for_each_key_func)(struct ntb_key *key,
-                                             void *user_data);
+typedef void
+(* ntb_store_for_each_key_func)(struct ntb_key *key,
+                                void *user_data);
 
 /* This is called when a load is complete. If the load succeeded then
  * blob will point to the contents. If it failed the callback will
