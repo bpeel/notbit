@@ -37,6 +37,8 @@
 #include "ntb-pow.h"
 #include "ntb-pointer-array.h"
 #include "ntb-address.h"
+#include "ntb-slice.h"
+#include "ntb-hash-table.h"
 
 struct ntb_keyring {
         struct ntb_network *nw;
@@ -45,6 +47,16 @@ struct ntb_keyring {
         struct ntb_buffer keys;
         struct ntb_list tasks;
         struct ntb_listener new_object_listener;
+
+        /* Hash table of pubkey blobs indexed by either the ripe
+         * (for v2/3 keys) or the tag (v4 keys) */
+        struct ntb_hash_table *pubkey_blob_table;
+        /* Pubkey blobs with the same tag or ripe are grouped together
+         * within this list. The hash table entry points to the first
+         * entry in the group */
+        struct ntb_list pubkey_blob_list;
+
+        struct ntb_main_context_source *gc_source;
 };
 
 struct ntb_keyring_cookie {
@@ -67,6 +79,29 @@ struct ntb_keyring_task {
                 } msg;
         };
 };
+
+struct ntb_keyring_pubkey_blob {
+        /* This struct is used to index the pubkey objects by either
+         * the ripe or the tag so that when we want to use a new
+         * public key we can first check if it's already in the
+         * network */
+
+        struct ntb_list link;
+        int64_t timestamp;
+        uint8_t ripe_or_tag[NTB_PROTO_HASH_LENGTH];
+        uint8_t hash[NTB_PROTO_HASH_LENGTH];
+};
+
+_Static_assert(RIPEMD160_DIGEST_LENGTH <= NTB_PROTO_HASH_LENGTH,
+               "The ripe is too long to fit in a hash");
+_Static_assert(NTB_KEY_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
+               "The tag is too long to fit in a hash");
+
+/* Time in minutes between each garbage collection run */
+#define NTB_KEYRING_GC_TIMEOUT 10
+
+NTB_SLICE_ALLOCATOR(struct ntb_keyring_pubkey_blob,
+                    ntb_keyring_pubkey_blob_allocator);
 
 static void
 save_keyring(struct ntb_keyring *keyring)
@@ -331,38 +366,50 @@ static void
 handle_pubkey(struct ntb_keyring *keyring,
               struct ntb_blob *blob)
 {
-}
-
-static void
-get_address_from_keys(uint8_t address_version,
-                      uint8_t stream,
-                      const uint8_t *signing_key,
-                      const uint8_t *encryption_key,
-                      char *sender_address)
-{
-        SHA512_CTX sha_ctx;
-        uint8_t four = 0x04;
-        uint8_t sha_hash[SHA512_DIGEST_LENGTH];
+        struct ntb_proto_pubkey pubkey;
+        struct ntb_keyring_pubkey_blob *pubkey_blob;
+        struct ntb_keyring_pubkey_blob *insert_pos;
         struct ntb_address address;
 
-        SHA512_Init(&sha_ctx);
+        if (!ntb_proto_get_pubkey(blob->data, blob->size, &pubkey))
+                return;
 
-        /* The keys from the network commands don't include the 0x04
-         * prefix so we have to separately add it in */
-        SHA512_Update(&sha_ctx, &four, 1);
-        SHA512_Update(&sha_ctx, signing_key, NTB_ECC_PUBLIC_KEY_SIZE - 1);
+        pubkey_blob = ntb_slice_alloc(&ntb_keyring_pubkey_blob_allocator);
 
-        SHA512_Update(&sha_ctx, &four, 1);
-        SHA512_Update(&sha_ctx, encryption_key, NTB_ECC_PUBLIC_KEY_SIZE - 1);
+        pubkey_blob->timestamp = pubkey.timestamp;
 
-        SHA512_Final(sha_hash, &sha_ctx);
+        ntb_proto_double_hash(blob->data, blob->size, pubkey_blob->hash);
 
-        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address.ripe);
+        if (pubkey.tag) {
+                memcpy(pubkey_blob->ripe_or_tag,
+                       pubkey.tag,
+                       NTB_PROTO_HASH_LENGTH);
+                memset(pubkey_blob->ripe_or_tag + NTB_KEY_TAG_SIZE,
+                       0,
+                       NTB_PROTO_HASH_LENGTH - NTB_KEY_TAG_SIZE);
+        } else {
+                ntb_address_from_network_keys(&address,
+                                              pubkey.address_version,
+                                              pubkey.stream,
+                                              pubkey.public_signing_key,
+                                              pubkey.public_encryption_key);
+                memcpy(pubkey_blob->ripe_or_tag,
+                       address.ripe,
+                       RIPEMD160_DIGEST_LENGTH);
+                memset(pubkey_blob->ripe_or_tag + RIPEMD160_DIGEST_LENGTH,
+                       0,
+                       NTB_PROTO_HASH_LENGTH - RIPEMD160_DIGEST_LENGTH);
+        }
 
-        address.version = address_version;
-        address.stream = stream;
+        insert_pos = ntb_hash_table_get(keyring->pubkey_blob_table,
+                                        pubkey_blob->ripe_or_tag);
 
-        ntb_address_encode(&address, sender_address);
+        if (insert_pos == NULL) {
+                ntb_list_insert(&keyring->pubkey_blob_list, &pubkey_blob->link);
+                ntb_hash_table_set(keyring->pubkey_blob_table, pubkey_blob);
+        } else {
+                ntb_list_insert(&insert_pos->link, &pubkey_blob->link);
+        }
 }
 
 static void
@@ -416,8 +463,9 @@ decrypt_msg_cb(struct ntb_key *key,
         struct ntb_keyring_task *task = user_data;
         struct ntb_keyring *keyring = task->keyring;
         struct ntb_proto_decrypted_msg msg;
-        char sender_address[NTB_ADDRESS_MAX_LENGTH + 1];
-        char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
+        struct ntb_address sender_address;
+        char sender_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
+        char to_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
 
         task->crypto_cookie = NULL;
 
@@ -448,22 +496,23 @@ decrypt_msg_cb(struct ntb_key *key,
                 return;
         }
 
-        get_address_from_keys(msg.sender_address_version,
-                              msg.sender_stream_number,
-                              msg.sender_signing_key,
-                              msg.sender_encryption_key,
-                              sender_address);
+        ntb_address_from_network_keys(&sender_address,
+                                      msg.sender_address_version,
+                                      msg.sender_stream_number,
+                                      msg.sender_signing_key,
+                                      msg.sender_encryption_key);
+        ntb_address_encode(&sender_address, sender_address_string);
 
-        ntb_address_encode(&key->address, to_address);
+        ntb_address_encode(&key->address, to_address_string);
 
-        ntb_log("Accepted message from %s", sender_address);
+        ntb_log("Accepted message from %s", sender_address_string);
 
         send_acknowledgement(keyring, msg.ack, msg.ack_length);
 
         ntb_store_save_message(NULL, /* default store */
                                task->msg.timestamp,
-                               sender_address,
-                               to_address,
+                               sender_address_string,
+                               to_address_string,
                                blob);
 
         return;
@@ -545,10 +594,62 @@ new_object_cb(struct ntb_listener *listener,
         return true;
 }
 
+static void
+remove_pubkey_blob(struct ntb_keyring *keyring,
+                   struct ntb_keyring_pubkey_blob *pubkey)
+{
+        struct ntb_keyring_pubkey_blob *prev, *next;
+
+        prev = ntb_container_of(pubkey->link.prev, pubkey, link);
+        next = ntb_container_of(pubkey->link.next, pubkey, link);
+
+        ntb_list_remove(&pubkey->link);
+
+        /* If this key is the first of its group then we need to move
+         * the hash table index to the next key in the group */
+        if (&prev->link == &keyring->pubkey_blob_list ||
+            memcmp(prev->ripe_or_tag,
+                   pubkey->ripe_or_tag,
+                   NTB_PROTO_HASH_LENGTH)) {
+                if (&next->link == &keyring->pubkey_blob_list ||
+                    memcmp(next->ripe_or_tag,
+                           pubkey->ripe_or_tag,
+                           NTB_PROTO_HASH_LENGTH))
+                        ntb_hash_table_remove(keyring->pubkey_blob_table,
+                                              pubkey);
+                else
+                        ntb_hash_table_set(keyring->pubkey_blob_table, next);
+        }
+
+        ntb_slice_free(&ntb_keyring_pubkey_blob_allocator, pubkey);
+}
+
+static void
+gc_timeout_cb(struct ntb_main_context_source *source,
+              void *user_data)
+{
+        struct ntb_keyring *keyring = user_data;
+        struct ntb_keyring_pubkey_blob *pubkey, *tmp;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        int64_t max_age =
+                ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_PUBKEY);
+        int64_t age;
+
+
+        ntb_list_for_each_safe(pubkey, tmp, &keyring->pubkey_blob_list, link) {
+                age = now - pubkey->timestamp;
+
+                if (age >= max_age)
+                        remove_pubkey_blob(keyring, pubkey);
+        }
+}
+
 struct ntb_keyring *
 ntb_keyring_new(struct ntb_network *nw)
 {
         struct ntb_keyring *keyring;
+        const size_t pubkey_blob_hash_offset =
+                NTB_STRUCT_OFFSET(struct ntb_keyring_pubkey_blob, ripe_or_tag);
 
         keyring = ntb_alloc(sizeof *keyring);
 
@@ -564,11 +665,39 @@ ntb_keyring_new(struct ntb_network *nw)
         keyring->pow = ntb_pow_new();
         ntb_buffer_init(&keyring->keys);
 
+        ntb_list_init(&keyring->pubkey_blob_list);
+        keyring->pubkey_blob_table =
+                ntb_hash_table_new(pubkey_blob_hash_offset);
+
         ntb_store_for_each_key(NULL, /* default store */
                                for_each_key_cb,
                                keyring);
 
+        keyring->gc_source = ntb_main_context_add_timer(NULL,
+                                                        NTB_KEYRING_GC_TIMEOUT,
+                                                        gc_timeout_cb,
+                                                        keyring);
+
         return keyring;
+}
+
+static void
+for_each_pubkey_blob_cb(const uint8_t *hash,
+                        int64_t timestamp,
+                        struct ntb_blob *blob,
+                        void *user_data)
+{
+        struct ntb_keyring *keyring = user_data;
+
+        handle_pubkey(keyring, blob);
+}
+
+void
+ntb_keyring_load_store(struct ntb_keyring *keyring)
+{
+        ntb_store_for_each_pubkey_blob(NULL,
+                                       for_each_pubkey_blob_cb,
+                                       keyring);
 }
 
 static void
@@ -626,13 +755,26 @@ cancel_tasks(struct ntb_keyring *keyring)
                 free_task(task);
 }
 
+static void
+free_pubkey_blobs(struct ntb_keyring *keyring)
+{
+        struct ntb_keyring_pubkey_blob *pubkey, *tmp;
+
+        ntb_list_for_each_safe(pubkey, tmp, &keyring->pubkey_blob_list, link)
+                ntb_slice_free(&ntb_keyring_pubkey_blob_allocator, pubkey);
+        ntb_hash_table_free(keyring->pubkey_blob_table);
+}
+
 void
 ntb_keyring_free(struct ntb_keyring *keyring)
 {
         int i;
 
+        ntb_main_context_remove_source(keyring->gc_source);
+
         ntb_list_remove(&keyring->new_object_listener.link);
 
+        free_pubkey_blobs(keyring);
         cancel_tasks(keyring);
 
         for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++)

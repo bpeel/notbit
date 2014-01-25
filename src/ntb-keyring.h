@@ -36,6 +36,9 @@ typedef void
 struct ntb_keyring *
 ntb_keyring_new(struct ntb_network *nw);
 
+void
+ntb_keyring_load_store(struct ntb_keyring *keyring);
+
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,
                        const char *label,
