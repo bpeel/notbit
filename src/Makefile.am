@@ -45,12 +45,18 @@ notbit_SOURCES = \
 	ntb-load-keys.h \
 	ntb-log.c \
 	ntb-log.h \
+	ntb-mail-parser.c \
+	ntb-mail-parser.h \
 	ntb-main-context.c \
 	ntb-main-context.h \
 	ntb-netaddress.c \
 	ntb-netaddress.h \
 	ntb-network.c \
 	ntb-network.h \
+	ntb-parse-addresses.c \
+	ntb-parse-addresses.h \
+	ntb-parse-content-type.c \
+	ntb-parse-content-type.h \
 	ntb-pointer-array.h \
 	ntb-pow.c \
 	ntb-pow.h \
