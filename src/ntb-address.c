@@ -25,6 +25,7 @@
 
 #include "ntb-address.h"
 #include "ntb-base58.h"
+#include "ntb-ecc.h"
 
 static void
 calc_checksum(uint8_t version,
@@ -139,4 +140,34 @@ ntb_address_decode(struct ntb_address *address,
         address->stream = bin_address[1];
 
         return true;
+}
+
+void
+ntb_address_from_network_keys(struct ntb_address *address,
+                              uint8_t version,
+                              uint8_t stream,
+                              const uint8_t *public_signing_key,
+                              const uint8_t *public_encryption_key)
+{
+        SHA512_CTX sha_ctx;
+        uint8_t sha_hash[SHA_DIGEST_LENGTH];
+        uint8_t key_prefix = 0x04;
+
+        address->version = version;
+        address->stream = stream;
+
+        /* The keys from the network commands don't include the 0x04
+         * prefix so we have to separately add it in */
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, &key_prefix, 1);
+        SHA512_Update(&sha_ctx,
+                      public_signing_key,
+                      NTB_ECC_PUBLIC_KEY_SIZE - 1);
+        SHA512_Update(&sha_ctx, &key_prefix, 1);
+        SHA512_Update(&sha_ctx,
+                      public_encryption_key,
+                      NTB_ECC_PUBLIC_KEY_SIZE - 1);
+        SHA512_Final(sha_hash, &sha_ctx);
+
+        RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address->ripe);
 }

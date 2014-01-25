@@ -49,4 +49,11 @@ bool
 ntb_address_decode(struct ntb_address *address,
                    const char *address_string);
 
+void
+ntb_address_from_network_keys(struct ntb_address *address,
+                              uint8_t version,
+                              uint8_t stream,
+                              const uint8_t *public_signing_key,
+                              const uint8_t *public_encryption_key);
+
 #endif /* NTB_ADDRESS_H */
