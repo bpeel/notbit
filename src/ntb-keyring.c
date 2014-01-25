@@ -462,6 +462,74 @@ send_acknowledgement(struct ntb_keyring *keyring,
 }
 
 static void
+create_public_key_cb(struct ntb_key *public_key,
+                     void *user_data)
+{
+        struct ntb_keyring_task *task = user_data;
+        struct ntb_keyring *keyring = task->keyring;
+        struct ntb_key *key;
+        int i;
+
+        task->crypto_cookie = NULL;
+        free_task(task);
+
+        /* Check if we already have the key. It could have been added
+         * in the time between queuing the crypto to create the key
+         * and getting the result */
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
+                key = ntb_pointer_array_get(&keyring->keys, i);
+
+                if (ntb_address_equal(&public_key->address, &key->address))
+                        return;
+        }
+
+        add_key(keyring, public_key);
+        save_keyring(keyring);
+}
+
+static void
+add_public_key(struct ntb_keyring *keyring,
+               const struct ntb_address *address,
+               const uint8_t *public_signing_key,
+               const uint8_t *public_encryption_key)
+{
+        uint8_t full_public_signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        uint8_t full_public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        struct ntb_keyring_task *task;
+        struct ntb_key *key;
+        int i;
+
+        /* Check if we already have the key */
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
+                key = ntb_pointer_array_get(&keyring->keys, i);
+
+                if (ntb_address_equal(address, &key->address))
+                        return;
+        }
+
+        /* The keys from the network don't have the 0x04 prefix so we
+         * have to add it */
+        full_public_signing_key[0] = 0x04;
+        memcpy(full_public_signing_key + 1,
+               public_signing_key,
+               NTB_ECC_PUBLIC_KEY_SIZE);
+        full_public_encryption_key[0] = 0x04;
+        memcpy(full_public_encryption_key + 1,
+               public_encryption_key,
+               NTB_ECC_PUBLIC_KEY_SIZE);
+
+        task = add_task(keyring);
+        task->crypto_cookie =
+                ntb_crypto_create_public_key(keyring->crypto,
+                                             address->version,
+                                             address->stream,
+                                             full_public_signing_key,
+                                             full_public_encryption_key,
+                                             create_public_key_cb,
+                                             task);
+}
+
+static void
 decrypt_msg_cb(struct ntb_key *key,
                struct ntb_blob *blob,
                void *user_data)
@@ -508,6 +576,12 @@ decrypt_msg_cb(struct ntb_key *key,
                                       msg.sender_signing_key,
                                       msg.sender_encryption_key);
         ntb_address_encode(&sender_address, sender_address_string);
+
+        /* Store the public key so we don't have to request it if we reply */
+        add_public_key(keyring,
+                       &sender_address,
+                       msg.sender_signing_key,
+                       msg.sender_encryption_key);
 
         ntb_address_encode(&key->address, to_address_string);
 
