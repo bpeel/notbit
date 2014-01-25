@@ -142,6 +142,15 @@ ntb_address_decode(struct ntb_address *address,
         return true;
 }
 
+bool
+ntb_address_equal(const struct ntb_address *a,
+                  const struct ntb_address *b)
+{
+        return (a->version == b->version &&
+                a->stream == b->stream &&
+                !memcmp(a->ripe, b->ripe, RIPEMD160_DIGEST_LENGTH));
+}
+
 void
 ntb_address_from_network_keys(struct ntb_address *address,
                               uint8_t version,
