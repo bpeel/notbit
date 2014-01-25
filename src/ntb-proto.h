@@ -81,6 +81,31 @@ struct ntb_proto_decrypted_msg {
         size_t signed_data_length;
 };
 
+struct ntb_proto_pubkey {
+        uint64_t nonce;
+        int64_t timestamp;
+
+        uint64_t stream;
+        uint64_t version;
+
+        uint64_t address_version;
+        uint32_t behaviours;
+
+        const uint8_t *public_signing_key;
+        const uint8_t *public_encryption_key;
+
+        uint64_t nonce_trials_per_byte;
+        uint64_t extra_bytes;
+
+        uint64_t signature_length;
+        const uint8_t *signature;
+
+        const uint8_t *tag;
+
+        size_t encrypted_data_length;
+        const uint8_t *encrypted_data;
+};
+
 #define NTB_PROTO_HEADER_SIZE (4 + 12 + 4 + 4)
 
 #define NTB_PROTO_VERSION UINT32_C(2)
@@ -174,6 +199,11 @@ bool
 ntb_proto_get_decrypted_msg(const uint8_t *data,
                             uint32_t length,
                             struct ntb_proto_decrypted_msg *msg);
+
+bool
+ntb_proto_get_pubkey(const uint8_t *data,
+                     uint32_t length,
+                     struct ntb_proto_pubkey *pubkey);
 
 static inline void
 ntb_proto_add_8(struct ntb_buffer *buf,

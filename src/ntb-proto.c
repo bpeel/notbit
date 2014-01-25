@@ -478,6 +478,132 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
         return true;
 }
 
+static bool
+process_v2_pubkey_parts(const uint8_t *data,
+                        uint32_t message_length,
+                        struct ntb_proto_pubkey *pubkey)
+{
+        if (message_length < 64 * 2 + 4)
+                return false;
+
+        pubkey->behaviours = ntb_proto_get_32(data);
+        pubkey->public_signing_key = data + 4;
+        pubkey->public_encryption_key = data + 4 + 64;
+
+        pubkey->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+        pubkey->extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+
+        return true;
+}
+
+static bool
+process_v3_pubkey_parts(const uint8_t *data,
+                        uint32_t message_length,
+                        struct ntb_proto_pubkey *pubkey)
+{
+        ssize_t header_length;
+
+        if (message_length < 4 + 64 * 2)
+                return false;
+
+        pubkey->behaviours = ntb_proto_get_32(data);
+        pubkey->public_signing_key = data + 4;
+        pubkey->public_encryption_key = data + 4 + 64;
+
+        data += 4 + 64 * 2;
+        message_length -= 4 + 64 * 2;
+
+        header_length =
+                ntb_proto_get_command(data,
+                                      message_length,
+
+                                      NTB_PROTO_ARGUMENT_VAR_INT,
+                                      &pubkey->nonce_trials_per_byte,
+
+                                      NTB_PROTO_ARGUMENT_VAR_INT,
+                                      &pubkey->extra_bytes,
+
+                                      NTB_PROTO_ARGUMENT_VAR_INT,
+                                      &pubkey->signature_length,
+
+                                      NTB_PROTO_ARGUMENT_END);
+
+        if (header_length == -1)
+                return false;
+
+        if (message_length < header_length + pubkey->signature_length)
+                return false;
+
+        pubkey->signature = data + header_length;
+
+        return true;
+}
+
+static bool
+process_v4_pubkey_parts(const uint8_t *data,
+                        uint32_t message_length,
+                        struct ntb_proto_pubkey *pubkey)
+{
+        if (message_length < 32)
+                return false;
+
+        pubkey->tag = data;
+        pubkey->encrypted_data = data + 32;
+        pubkey->encrypted_data_length = message_length - 32;
+
+        return true;
+}
+
+bool
+ntb_proto_get_pubkey(const uint8_t *data,
+                     uint32_t message_length,
+                     struct ntb_proto_pubkey *pubkey)
+{
+        ssize_t header_length;
+
+        memset(pubkey, 0, sizeof *pubkey);
+
+        header_length = ntb_proto_get_command(data,
+                                              message_length,
+
+                                              NTB_PROTO_ARGUMENT_64,
+                                              &pubkey->nonce,
+
+                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
+                                              &pubkey->timestamp,
+
+                                              NTB_PROTO_ARGUMENT_VAR_INT,
+                                              &pubkey->version,
+
+                                              NTB_PROTO_ARGUMENT_VAR_INT,
+                                              &pubkey->stream,
+
+                                              NTB_PROTO_ARGUMENT_END);
+
+        if (header_length == -1)
+                return false;
+
+        data += header_length;
+        message_length -= header_length;
+
+        switch (pubkey->version) {
+        case 2:
+                return process_v2_pubkey_parts(data,
+                                               message_length,
+                                               pubkey);
+        case 3:
+                return process_v3_pubkey_parts(data,
+                                               message_length,
+                                               pubkey);
+        case 4:
+                return process_v4_pubkey_parts(data,
+                                               message_length,
+                                               pubkey);
+        default:
+                return false;
+        }
+}
+
 void
 ntb_proto_add_var_int(struct ntb_buffer *buf,
                       uint64_t value)
