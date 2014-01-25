@@ -144,6 +144,10 @@ NTB_SLICE_ALLOCATOR(struct ntb_store_cookie, ntb_store_cookie_allocator);
 /* The added four is for the checksum, and the 1 for the 0x80 prefix */
 #define NTB_STORE_MAX_WIF_LENGTH 51
 
+/* ceil(log₅₈(2 ** (NTB_ECC_PUBLIC_KEY_SIZE × 8))) */
+/* The added four is for the checksum, and the 1 for the 0x80 prefix */
+#define NTB_STORE_MAX_PUBLIC_KEY_LENGTH 89
+
 static struct ntb_store *ntb_store_default = NULL;
 
 static struct ntb_store *
@@ -662,38 +666,75 @@ encode_wif(const EC_KEY *key,
 }
 
 static void
+encode_public_key(const EC_KEY *key,
+                  char *public_key)
+{
+        uint8_t buf[NTB_ECC_PUBLIC_KEY_SIZE];
+        size_t size;
+
+        size = EC_POINT_point2oct(EC_KEY_get0_group(key),
+                                  EC_KEY_get0_public_key(key),
+                                  POINT_CONVERSION_UNCOMPRESSED,
+                                  buf,
+                                  sizeof buf,
+                                  NULL);
+        assert(size == NTB_ECC_PUBLIC_KEY_SIZE);
+
+        size = ntb_base58_encode(buf, sizeof buf, public_key);
+        assert(size <= NTB_STORE_MAX_PUBLIC_KEY_LENGTH);
+
+        public_key[size] = '\0';
+}
+
+static void
 write_key(struct ntb_key *key,
           FILE *out)
 {
         char address[NTB_ADDRESS_MAX_LENGTH + 1];
         char signing_key_wif[NTB_STORE_MAX_WIF_LENGTH + 1];
         char encryption_key_wif[NTB_STORE_MAX_WIF_LENGTH + 1];
+        char public_signing_key[NTB_STORE_MAX_PUBLIC_KEY_LENGTH + 1];
+        char public_encryption_key[NTB_STORE_MAX_PUBLIC_KEY_LENGTH + 1];
 
         ntb_address_encode(&key->address, address);
-
-        encode_wif(key->signing_key, signing_key_wif);
-        encode_wif(key->encryption_key, encryption_key_wif);
 
         fprintf(out,
                 "[%s]\n"
                 "label = %s\n"
-                "enabled = %s\n"
-                "decoy = %s\n"
                 "noncetrialsperbyte = %i\n"
-                "payloadlengthextrabytes = %i\n"
-                "privsigningkey = %s\n"
-                "privencryptionkey = %s\n"
-                "lastpubkeysendtime = %" PRIi64 "\n"
-                "\n",
+                "payloadlengthextrabytes = %i\n",
                 address,
                 key->label,
-                key->enabled ? "true" : "false",
-                key->decoy ? "true" : "false",
                 key->nonce_trials_per_byte,
-                key->payload_length_extra_bytes,
-                signing_key_wif,
-                encryption_key_wif,
-                key->last_pubkey_send_time);
+                key->payload_length_extra_bytes);
+
+        if (ntb_key_has_private(key)) {
+                encode_wif(key->signing_key, signing_key_wif);
+                encode_wif(key->encryption_key, encryption_key_wif);
+
+                fprintf(out,
+                        "privsigningkey = %s\n"
+                        "privencryptionkey = %s\n"
+                        "lastpubkeysendtime = %" PRIi64 "\n"
+                        "enabled = %s\n"
+                        "decoy = %s\n",
+                        signing_key_wif,
+                        encryption_key_wif,
+                        key->last_pubkey_send_time,
+                        key->enabled ? "true" : "false",
+                        key->decoy ? "true" : "false");
+        } else {
+                encode_public_key(key->signing_key, public_signing_key);
+                encode_public_key(key->encryption_key, public_encryption_key);
+
+                fprintf(out,
+                        "pubsigningkey = %s\n"
+                        "pubencryptionkey = %s\n",
+                        public_signing_key,
+                        public_encryption_key);
+        }
+
+        fputc('\n', out);
 }
 
 static void
@@ -703,7 +744,7 @@ handle_save_keys(struct ntb_store *store,
         FILE *out;
         int i;
 
-        ntb_log("Saving private keys");
+        ntb_log("Saving keys");
 
         store->filename_buf.length = store->directory_len;
         ntb_buffer_append_string(&store->filename_buf,

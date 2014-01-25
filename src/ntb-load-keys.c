@@ -57,6 +57,8 @@ enum ntb_load_keys_field {
         NTB_LOAD_KEYS_FIELD_PAYLOAD_LENGTH_EXTRA_BYTES,
         NTB_LOAD_KEYS_FIELD_PRIV_SIGNING_KEY,
         NTB_LOAD_KEYS_FIELD_PRIV_ENCRYPTION_KEY,
+        NTB_LOAD_KEYS_FIELD_PUB_SIGNING_KEY,
+        NTB_LOAD_KEYS_FIELD_PUB_ENCRYPTION_KEY,
         NTB_LOAD_KEYS_FIELD_LAST_PUBKEY_SEND_TIME
 };
 
@@ -82,9 +84,13 @@ struct ntb_load_keys_data {
         bool decoy;
         bool has_private_signing_key;
         bool has_private_encryption_key;
+        bool has_public_signing_key;
+        bool has_public_encryption_key;
 
         uint8_t private_signing_key[NTB_ECC_PRIVATE_KEY_SIZE];
         uint8_t private_encryption_key[NTB_ECC_PRIVATE_KEY_SIZE];
+        uint8_t public_signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        uint8_t public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
 };
 
 static void
@@ -102,6 +108,8 @@ reset_data(struct ntb_load_keys_data *data)
 
         data->has_private_signing_key = false;
         data->has_private_encryption_key = false;
+        data->has_public_signing_key = false;
+        data->has_public_encryption_key = false;
 }
 
 static void
@@ -109,9 +117,14 @@ flush_key(struct ntb_load_keys_data *data)
 {
         struct ntb_key *key;
         struct ntb_address address;
+        bool has_private_keys;
 
-        if (!data->has_private_signing_key ||
-            !data->has_private_encryption_key)
+        has_private_keys = (data->has_private_signing_key &&
+                            data->has_private_encryption_key);
+
+        if (!has_private_keys &&
+            (!data->has_public_signing_key ||
+             !data->has_public_encryption_key))
                 return;
 
         ntb_buffer_ensure_size(&data->address, data->address.length + 1);
@@ -128,12 +141,22 @@ flush_key(struct ntb_load_keys_data *data)
         ntb_buffer_ensure_size(&data->label, data->label.length + 1);
         data->label.data[data->label.length] = '\0';
 
-        key = ntb_key_new(data->ecc,
-                          (const char *) data->label.data,
-                          address.version,
-                          address.stream,
-                          data->private_signing_key,
-                          data->private_encryption_key);
+        if (has_private_keys) {
+                key = ntb_key_new(data->ecc,
+                                  (const char *) data->label.data,
+                                  address.version,
+                                  address.stream,
+                                  data->private_signing_key,
+                                  data->private_encryption_key);
+        } else {
+                key = ntb_key_new_with_public(data->ecc,
+                                              (const char *) data->label.data,
+                                              &address,
+                                              NULL, /* private signing key */
+                                              data->public_signing_key,
+                                              NULL, /* private encryption key */
+                                              data->public_encryption_key);
+        }
 
         if (memcmp(key->address.ripe, address.ripe, RIPEMD160_DIGEST_LENGTH)) {
                 ntb_log("Calculated address for %s does not match",
@@ -206,7 +229,7 @@ parse_int_value(struct ntb_load_keys_data *data,
 }
 
 static bool
-parse_key(struct ntb_load_keys_data *data,
+parse_wif(struct ntb_load_keys_data *data,
           uint8_t *result)
 {
         uint8_t key_buf[1 + NTB_ECC_PRIVATE_KEY_SIZE + 4];
@@ -244,6 +267,32 @@ parse_key(struct ntb_load_keys_data *data,
         }
 
         memcpy(result, key_buf + 1, NTB_ECC_PRIVATE_KEY_SIZE);
+
+        return true;
+}
+
+static bool
+parse_public_key(struct ntb_load_keys_data *data,
+                 uint8_t *result)
+{
+        ssize_t key_length;
+
+        key_length = ntb_base58_decode((const char *) data->tmp_buf.data,
+                                       data->tmp_buf.length,
+                                       result,
+                                       NTB_ECC_PUBLIC_KEY_SIZE);
+
+        if (key_length != NTB_ECC_PUBLIC_KEY_SIZE) {
+                ntb_log("Invalid public key on line %i",
+                        data->line_num);
+                return false;
+        }
+
+        if (result[0] != 0x04) {
+                ntb_log("Public key on line %i does not have the right prefix",
+                        data->line_num);
+                return false;
+        }
 
         return true;
 }
@@ -286,12 +335,20 @@ process_value(struct ntb_load_keys_data *data)
                         data->payload_length_extra_bytes = int_value;
                 return;
         case NTB_LOAD_KEYS_FIELD_PRIV_SIGNING_KEY:
-                if (parse_key(data, data->private_signing_key))
+                if (parse_wif(data, data->private_signing_key))
                         data->has_private_signing_key = true;
                 return;
         case NTB_LOAD_KEYS_FIELD_PRIV_ENCRYPTION_KEY:
-                if (parse_key(data, data->private_encryption_key))
+                if (parse_wif(data, data->private_encryption_key))
                         data->has_private_encryption_key = true;
+                return;
+        case NTB_LOAD_KEYS_FIELD_PUB_SIGNING_KEY:
+                if (parse_public_key(data, data->public_signing_key))
+                        data->has_public_signing_key = true;
+                return;
+        case NTB_LOAD_KEYS_FIELD_PUB_ENCRYPTION_KEY:
+                if (parse_public_key(data, data->public_encryption_key))
+                        data->has_public_encryption_key = true;
                 return;
         case NTB_LOAD_KEYS_FIELD_LAST_PUBKEY_SEND_TIME:
                 if (parse_int_value(data, INT64_MAX, &int_value))
@@ -327,6 +384,10 @@ set_state_from_field_name(struct ntb_load_keys_data *data)
                 data->field = NTB_LOAD_KEYS_FIELD_PRIV_SIGNING_KEY;
         else if (!strcmp(field_name, "privencryptionkey"))
                 data->field = NTB_LOAD_KEYS_FIELD_PRIV_ENCRYPTION_KEY;
+        else if (!strcmp(field_name, "pubsigningkey"))
+                data->field = NTB_LOAD_KEYS_FIELD_PUB_SIGNING_KEY;
+        else if (!strcmp(field_name, "pubencryptionkey"))
+                data->field = NTB_LOAD_KEYS_FIELD_PUB_ENCRYPTION_KEY;
         else if (!strcmp(field_name, "lastpubkeysendtime"))
                 data->field = NTB_LOAD_KEYS_FIELD_LAST_PUBKEY_SEND_TIME;
         else
@@ -450,7 +511,7 @@ ntb_load_keys(FILE *file,
         struct ntb_load_keys_data data;
         int ch;
 
-        ntb_log("Loading private keys");
+        ntb_log("Loading keys");
 
         data.line_num = 1;
 

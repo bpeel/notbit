@@ -259,6 +259,9 @@ handle_getpubkey_with_ripe(struct ntb_keyring *keyring,
         for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
                 key = ntb_pointer_array_get(&keyring->keys, i);
 
+                if (!ntb_key_has_private(key))
+                        continue;
+
                 if (!memcmp(key->address.ripe, ripe, RIPEMD160_DIGEST_LENGTH)) {
                         if (key->address.version != address_version ||
                             key->address.stream != stream_number) {
@@ -283,6 +286,9 @@ handle_getpubkey_with_tag(struct ntb_keyring *keyring,
 
         for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
                 key = ntb_pointer_array_get(&keyring->keys, i);
+
+                if (!ntb_key_has_private(key))
+                        continue;
 
                 if (!memcmp(key->tag, tag, NTB_KEY_TAG_SIZE)) {
                         if (key->address.version != address_version ||

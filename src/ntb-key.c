@@ -194,3 +194,10 @@ ntb_key_unref(struct ntb_key *key)
                 ntb_free(key);
         }
 }
+
+bool
+ntb_key_has_private(struct ntb_key *key)
+{
+        return (EC_KEY_get0_private_key(key->signing_key) &&
+                EC_KEY_get0_private_key(key->encryption_key));
+}

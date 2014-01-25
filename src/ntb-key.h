@@ -81,4 +81,7 @@ ntb_key_copy(struct ntb_key *key);
 void
 ntb_key_unref(struct ntb_key *key);
 
+bool
+ntb_key_has_private(struct ntb_key *key);
+
 #endif /* NTB_KEY_H */
