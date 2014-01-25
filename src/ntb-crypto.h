@@ -63,6 +63,15 @@ ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
                               void *user_data);
 
 struct ntb_crypto_cookie *
+ntb_crypto_create_public_key(struct ntb_crypto *crypto,
+                             uint8_t version,
+                             uint8_t stream,
+                             const uint8_t *signing_key,
+                             const uint8_t *encryption_key,
+                             ntb_crypto_create_key_func callback,
+                             void *user_data);
+
+struct ntb_crypto_cookie *
 ntb_crypto_decrypt_msg(struct ntb_crypto *crypto,
                        struct ntb_blob *msg,
                        struct ntb_key * const *keys,

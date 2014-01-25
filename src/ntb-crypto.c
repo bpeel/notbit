@@ -53,6 +53,7 @@ struct ntb_crypto {
 enum ntb_crypto_cookie_type {
         NTB_CRYPTO_COOKIE_CREATE_KEY,
         NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB,
+        NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY,
         NTB_CRYPTO_COOKIE_DECRYPT_MSG
 };
 
@@ -84,6 +85,14 @@ struct ntb_crypto_cookie {
                         struct ntb_key *key;
                         struct ntb_blob *blob;
                 } create_pubkey_blob;
+
+                struct {
+                        uint8_t version;
+                        uint8_t stream;
+                        uint8_t signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
+                        uint8_t encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
+                        struct ntb_key *key;
+                } create_public_key;
 
                 struct {
                         struct ntb_blob *blob;
@@ -144,6 +153,10 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                                 ntb_key_unref(cookie->create_pubkey_blob.key);
                         if (cookie->create_pubkey_blob.blob)
                                 ntb_blob_unref(cookie->create_pubkey_blob.blob);
+                        break;
+                case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
+                        if (cookie->create_public_key.key)
+                                ntb_key_unref(cookie->create_public_key.key);
                         break;
                 case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
                         for (i = 0; i < cookie->decrypt_msg.n_keys; i++)
@@ -418,6 +431,30 @@ handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
 }
 
 static void
+handle_create_public_key(struct ntb_crypto_cookie *cookie)
+{
+        struct ntb_crypto *crypto = cookie->crypto;
+        struct ntb_address address;
+
+        ntb_address_from_network_keys(&address,
+                                      cookie->create_public_key.version,
+                                      cookie->create_public_key.stream,
+                                      cookie->create_public_key.signing_key + 1,
+                                      cookie->create_public_key.
+                                      encryption_key + 1);
+
+        cookie->create_public_key.key =
+                ntb_key_new_with_public(crypto->ecc,
+                                        "", /* label */
+                                        &address,
+                                        NULL, /* private signing_key */
+                                        cookie->create_public_key.signing_key,
+                                        NULL, /* private encryption_key */
+                                        cookie->create_public_key.
+                                        encryption_key);
+}
+
+static void
 check_signature_in_decrypted_msg(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_proto_decrypted_msg msg;
@@ -554,6 +591,11 @@ idle_cb(struct ntb_main_context_source *source,
                 create_pubkey_blob_func(cookie->create_pubkey_blob.blob,
                                         cookie->user_data);
                 break;
+        case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
+                create_key_func = cookie->func;
+                create_key_func(cookie->create_public_key.key,
+                                cookie->user_data);
+                break;
         case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
                 decrypt_msg_func = cookie->func;
                 decrypt_msg_func(cookie->decrypt_msg.chosen_key,
@@ -609,6 +651,9 @@ thread_func(void *user_data)
                                 break;
                         case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
                                 handle_create_pubkey_blob(cookie);
+                                break;
+                        case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
+                                handle_create_public_key(cookie);
                                 break;
                         case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
                                 handle_decrypt_msg(cookie);
@@ -696,6 +741,40 @@ ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
                             user_data);
         cookie->create_pubkey_blob.key = ntb_key_ref(key);
         cookie->create_pubkey_blob.blob = NULL;
+
+        pthread_mutex_unlock(&crypto->mutex);
+
+        return cookie;
+}
+
+struct ntb_crypto_cookie *
+ntb_crypto_create_public_key(struct ntb_crypto *crypto,
+                             uint8_t version,
+                             uint8_t stream,
+                             const uint8_t *signing_key,
+                             const uint8_t *encryption_key,
+                             ntb_crypto_create_key_func callback,
+                             void *user_data)
+{
+        struct ntb_crypto_cookie *cookie;
+
+        pthread_mutex_lock(&crypto->mutex);
+
+        cookie = new_cookie(crypto,
+                            NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY,
+                            callback,
+                            user_data);
+        cookie->create_public_key.version = version;
+        cookie->create_public_key.stream = stream;
+
+        memcpy(cookie->create_public_key.signing_key,
+               signing_key,
+               NTB_ECC_PUBLIC_KEY_SIZE);
+        memcpy(cookie->create_public_key.encryption_key,
+               encryption_key,
+               NTB_ECC_PUBLIC_KEY_SIZE);
+
+        cookie->create_public_key.key = NULL;
 
         pthread_mutex_unlock(&crypto->mutex);
 
