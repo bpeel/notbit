@@ -88,6 +88,23 @@ struct ntb_load_keys_data {
 };
 
 static void
+reset_data(struct ntb_load_keys_data *data)
+{
+        data->state = NTB_LOAD_KEYS_STATE_HEADER_START;
+        data->label.length = 0;
+        data->tmp_buf.length = 0;
+        data->address.length = 0;
+        data->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+        data->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+        data->last_pubkey_send_time = 0;
+        data->enabled = true;
+        data->decoy = false;
+
+        data->has_private_signing_key = false;
+        data->has_private_encryption_key = false;
+}
+
+static void
 flush_key(struct ntb_load_keys_data *data)
 {
         struct ntb_key *key;
@@ -136,23 +153,8 @@ flush_key(struct ntb_load_keys_data *data)
         data->func(key, data->user_data);
 
         ntb_key_unref(key);
-}
 
-static void
-reset_data(struct ntb_load_keys_data *data)
-{
-        data->state = NTB_LOAD_KEYS_STATE_HEADER_START;
-        data->label.length = 0;
-        data->tmp_buf.length = 0;
-        data->address.length = 0;
-        data->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
-        data->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
-        data->last_pubkey_send_time = 0;
-        data->enabled = true;
-        data->decoy = false;
-
-        data->has_private_signing_key = false;
-        data->has_private_encryption_key = false;
+        reset_data(data);
 }
 
 static bool
