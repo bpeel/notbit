@@ -79,6 +79,8 @@ enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST,
         NTB_STORE_TASK_TYPE_SAVE_KEYS,
         NTB_STORE_TASK_TYPE_SAVE_MESSAGE,
+        NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT,
+        NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT,
         NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
 
@@ -113,6 +115,15 @@ struct ntb_store_task {
                         char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
                         struct ntb_blob *blob;
                 } save_message;
+
+                struct {
+                        uint64_t id;
+                        struct ntb_blob *blob;
+                } save_message_content;
+
+                struct {
+                        uint64_t id;
+                } delete_message_content;
 
                 struct {
                         uint8_t hash[NTB_PROTO_HASH_LENGTH];
@@ -313,6 +324,11 @@ init_store_directory(struct ntb_store *store,
         ntb_buffer_append_string(&store->filename_buf, "objects");
 
         if (!make_directory_hierarchy(&store->filename_buf, error))
+                return false;
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "outgoing");
+        if (!try_mkdir((const char *) store->filename_buf.data, error))
                 return false;
 
         return true;
@@ -933,6 +949,68 @@ handle_save_message(struct ntb_store *store,
 }
 
 static void
+set_message_content_filename(struct ntb_store *store,
+                             uint64_t content_id)
+{
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_printf(&store->filename_buf,
+                                 "outgoing/%016" PRIx64,
+                                 content_id);
+}
+
+static void
+handle_save_message_content(struct ntb_store *store,
+                            struct ntb_store_task *task)
+{
+        struct ntb_blob *blob = task->save_message_content.blob;
+        FILE *file;
+
+        set_message_content_filename(store, task->save_message_content.id);
+        ntb_buffer_append_string(&store->filename_buf, ".tmp");
+
+        file = fopen((char *) store->filename_buf.data, "wb");
+
+        if (file == NULL) {
+                ntb_log("Error opening %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        if (fwrite(blob->data, 1, blob->size, file) != blob->size) {
+                ntb_log("Error writing %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                fclose(file);
+                unlink((char *) store->filename_buf.data);
+                return;
+        }
+
+        if (fclose(file) == EOF) {
+                ntb_log("Error writing %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                unlink((char *) store->filename_buf.data);
+                return;
+        }
+
+        rename_tmp_file(store);
+}
+
+static void
+handle_delete_message_content(struct ntb_store *store,
+                              struct ntb_store_task *task)
+{
+        set_message_content_filename(store, task->delete_message_content.id);
+
+        if (unlink((char *) store->filename_buf.data) == -1) {
+                ntb_log("Error deleting “%s”: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+        }
+}
+
+static void
 free_task(struct ntb_store *store,
           struct ntb_store_task *task)
 {
@@ -957,6 +1035,11 @@ free_task(struct ntb_store *store,
                 break;
         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
                 ntb_blob_unref(task->save_message.blob);
+                break;
+        case NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT:
+                ntb_blob_unref(task->save_message_content.blob);
+                break;
+        case NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT:
                 break;
         }
 
@@ -1004,6 +1087,12 @@ store_thread_func(void *user_data)
                                 break;
                         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
                                 handle_save_message(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT:
+                                handle_save_message_content(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT:
+                                handle_delete_message_content(store, task);
                                 break;
                         case NTB_STORE_TASK_TYPE_LOAD_BLOB:
                                 assert(false);
@@ -1155,6 +1244,43 @@ ntb_store_save_message(struct ntb_store *store,
         pthread_mutex_unlock(&store->mutex);
 }
 
+void
+ntb_store_save_message_content(struct ntb_store *store,
+                               uint64_t content_id,
+                               struct ntb_blob *blob)
+{
+        struct ntb_store_task *task;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT);
+
+        task->save_message_content.id = content_id;
+        task->save_message_content.blob = ntb_blob_ref(blob);
+
+        pthread_mutex_unlock(&store->mutex);
+}
+
+void
+ntb_store_delete_message_content(struct ntb_store *store,
+                                 uint64_t content_id)
+{
+        struct ntb_store_task *task;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT);
+
+        task->delete_message_content.id = content_id;
+
+        pthread_mutex_unlock(&store->mutex);
+}
 
 void
 ntb_store_save_addr_list(struct ntb_store *store,

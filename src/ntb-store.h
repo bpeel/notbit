@@ -120,6 +120,15 @@ ntb_store_save_message(struct ntb_store *store,
                        struct ntb_blob *blob);
 
 void
+ntb_store_save_message_content(struct ntb_store *store,
+                               uint64_t content_id,
+                               struct ntb_blob *blob);
+
+void
+ntb_store_delete_message_content(struct ntb_store *store,
+                                 uint64_t content_id);
+
+void
 ntb_store_for_each_blob(struct ntb_store *store,
                         ntb_store_for_each_blob_func func,
                         void *user_data);
