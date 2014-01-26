@@ -128,6 +128,9 @@ struct ntb_proto_pubkey {
 
 #define NTB_PROTO_DEFAULT_PORT 8444
 
+/* We send acknowledgements */
+#define NTB_PROTO_PUBKEY_BEHAVIORS UINT32_C(0x00000001)
+
 extern const uint8_t
 ntb_proto_magic[4];
 

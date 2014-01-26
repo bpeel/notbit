@@ -109,9 +109,6 @@ struct ntb_crypto_cookie {
         };
 };
 
-/* We send acknowledgements */
-#define NTB_CRYPTO_PUBKEY_BEHAVIORS UINT32_C(0x00000001)
-
 static struct ntb_crypto_cookie *
 new_cookie(struct ntb_crypto *crypto,
            enum ntb_crypto_cookie_type type,
@@ -306,7 +303,7 @@ append_key_base(struct ntb_key *key,
         if (behaviors_offset)
                 *behaviors_offset = buffer->length;
 
-        ntb_proto_add_32(buffer, NTB_CRYPTO_PUBKEY_BEHAVIORS);
+        ntb_proto_add_32(buffer, NTB_PROTO_PUBKEY_BEHAVIORS);
         append_public_key(buffer, key->signing_key);
         append_public_key(buffer, key->encryption_key);
 }
