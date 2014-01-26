@@ -54,7 +54,8 @@ enum ntb_crypto_cookie_type {
         NTB_CRYPTO_COOKIE_CREATE_KEY,
         NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB,
         NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY,
-        NTB_CRYPTO_COOKIE_DECRYPT_MSG
+        NTB_CRYPTO_COOKIE_DECRYPT_MSG,
+        NTB_CRYPTO_COOKIE_GENERATE_ACKDATA
 };
 
 struct ntb_crypto_cookie {
@@ -101,6 +102,10 @@ struct ntb_crypto_cookie {
                         struct ntb_blob *result;
                         int n_keys;
                 } decrypt_msg;
+
+                struct {
+                        uint8_t ackdata[NTB_CRYPTO_ACKDATA_SIZE];
+                } generate_ackdata;
         };
 };
 
@@ -167,6 +172,8 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                         if (cookie->decrypt_msg.chosen_key)
                                 ntb_key_unref(cookie->decrypt_msg.chosen_key);
                         ntb_blob_unref(cookie->decrypt_msg.blob);
+                        break;
+                case NTB_CRYPTO_COOKIE_GENERATE_ACKDATA:
                         break;
                 }
 
@@ -572,6 +579,16 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
 }
 
 static void
+handle_generate_ackdata(struct ntb_crypto_cookie *cookie)
+{
+        int result;
+
+        result = RAND_bytes(cookie->generate_ackdata.ackdata,
+                            NTB_CRYPTO_ACKDATA_SIZE);
+        assert(result);
+}
+
+static void
 idle_cb(struct ntb_main_context_source *source,
         void *user_data)
 {
@@ -580,6 +597,7 @@ idle_cb(struct ntb_main_context_source *source,
         ntb_crypto_create_key_func create_key_func;
         ntb_crypto_create_pubkey_blob_func create_pubkey_blob_func;
         ntb_crypto_decrypt_msg_func decrypt_msg_func;
+        ntb_crypto_generate_ackdata_func generate_ackdata_func;
 
         switch (cookie->type) {
         case NTB_CRYPTO_COOKIE_CREATE_KEY:
@@ -601,6 +619,11 @@ idle_cb(struct ntb_main_context_source *source,
                 decrypt_msg_func(cookie->decrypt_msg.chosen_key,
                                  cookie->decrypt_msg.result,
                                  cookie->user_data);
+                break;
+        case NTB_CRYPTO_COOKIE_GENERATE_ACKDATA:
+                generate_ackdata_func = cookie->func;
+                generate_ackdata_func(cookie->generate_ackdata.ackdata,
+                                      cookie->user_data);
                 break;
         }
 
@@ -657,6 +680,9 @@ thread_func(void *user_data)
                                 break;
                         case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
                                 handle_decrypt_msg(cookie);
+                                break;
+                        case NTB_CRYPTO_COOKIE_GENERATE_ACKDATA:
+                                handle_generate_ackdata(cookie);
                                 break;
                         }
 
@@ -807,6 +833,25 @@ ntb_crypto_decrypt_msg(struct ntb_crypto *crypto,
 
         for (i = 0; i < n_keys; i++)
                 ntb_key_ref(keys[i]);
+
+        pthread_mutex_unlock(&crypto->mutex);
+
+        return cookie;
+}
+
+struct ntb_crypto_cookie *
+ntb_crypto_generate_ackdata(struct ntb_crypto *crypto,
+                            ntb_crypto_generate_ackdata_func callback,
+                            void *user_data)
+{
+        struct ntb_crypto_cookie *cookie;
+
+        pthread_mutex_lock(&crypto->mutex);
+
+        cookie = new_cookie(crypto,
+                            NTB_CRYPTO_COOKIE_GENERATE_ACKDATA,
+                            callback,
+                            user_data);
 
         pthread_mutex_unlock(&crypto->mutex);
 

@@ -46,6 +46,13 @@ typedef void
                                 struct ntb_blob *blob,
                                 void *user_data);
 
+typedef void
+(* ntb_crypto_generate_ackdata_func)(const uint8_t *ackdata,
+                                     void *user_data);
+
+
+#define NTB_CRYPTO_ACKDATA_SIZE 32
+
 struct ntb_crypto *
 ntb_crypto_new(void);
 
@@ -78,6 +85,11 @@ ntb_crypto_decrypt_msg(struct ntb_crypto *crypto,
                        int n_keys,
                        ntb_crypto_decrypt_msg_func callback,
                        void *user_data);
+
+struct ntb_crypto_cookie *
+ntb_crypto_generate_ackdata(struct ntb_crypto *crypto,
+                            ntb_crypto_generate_ackdata_func callback,
+                            void *user_data);
 
 void
 ntb_crypto_cancel_task(struct ntb_crypto_cookie *cookie);
