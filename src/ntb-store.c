@@ -80,6 +80,7 @@ enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_SAVE_KEYS,
         NTB_STORE_TASK_TYPE_SAVE_MESSAGE,
         NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT,
+        NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT,
         NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT,
         NTB_STORE_TASK_TYPE_DELETE_OBJECT
 };
@@ -120,6 +121,11 @@ struct ntb_store_task {
                         uint64_t id;
                         struct ntb_blob *blob;
                 } save_message_content;
+
+                struct {
+                        uint64_t id;
+                        struct ntb_store_cookie *cookie;
+                } load_message_content;
 
                 struct {
                         uint64_t id;
@@ -395,7 +401,7 @@ append_hash(struct ntb_buffer *buffer,
 }
 
 static void
-load_blob_idle_cb(struct ntb_main_context_source *source,
+load_data_idle_cb(struct ntb_main_context_source *source,
                   void *user_data)
 {
         struct ntb_store_cookie *cookie = user_data;
@@ -521,7 +527,7 @@ handle_load_blob(struct ntb_store *store,
         task->load_blob.cookie->blob = blob;
         task->load_blob.cookie->idle_source =
                 ntb_main_context_add_idle(NULL,
-                                          load_blob_idle_cb,
+                                          load_data_idle_cb,
                                           task->load_blob.cookie);
 }
 
@@ -997,6 +1003,78 @@ handle_save_message_content(struct ntb_store *store,
         rename_tmp_file(store);
 }
 
+static struct ntb_blob *
+load_message_content_from_file(const char *filename,
+                               FILE *file)
+{
+        struct stat statbuf;
+        struct ntb_blob *blob;
+
+        if (fstat(fileno(file), &statbuf) == -1) {
+                ntb_log("Error getting info for %s", filename);
+                return NULL;
+        }
+
+        blob = ntb_blob_new(NTB_PROTO_INV_TYPE_MSG,
+                            NULL /* data */,
+                            statbuf.st_size);
+
+        if (!read_all(filename, blob->data, blob->size, file)) {
+                ntb_blob_unref(blob);
+                return NULL;
+        }
+
+        return blob;
+}
+
+static void
+handle_load_message_content(struct ntb_store *store,
+                            struct ntb_store_task *task)
+{
+        struct ntb_blob *blob = NULL;
+        const char *filename;
+        FILE *file;
+
+        /* As a special case this the lock is still held when this
+         * function is called */
+
+        /* If the task was cancelled before we got here then the
+         * cookie will have been reset to NULL. In that case we don't
+         * need to do anything */
+        if (task->load_message_content.cookie == NULL)
+                return;
+
+        pthread_mutex_unlock(&store->mutex);
+
+        set_message_content_filename(store, task->load_message_content.id);
+        filename = (const char *) store->filename_buf.data;
+
+        file = fopen(filename, "rb");
+
+        if (file == NULL) {
+                ntb_log("Error opening %s: %s", filename, strerror(errno));
+        } else {
+                blob = load_message_content_from_file(filename, file);
+                fclose(file);
+        }
+
+        pthread_mutex_lock(&store->mutex);
+
+        /* The task could have also been cancelled while we were
+         * loading with the mutex unlocked */
+        if (task->load_message_content.cookie == NULL) {
+                if (blob)
+                        ntb_blob_unref(blob);
+                return;
+        }
+
+        task->load_message_content.cookie->blob = blob;
+        task->load_message_content.cookie->idle_source =
+                ntb_main_context_add_idle(NULL,
+                                          load_data_idle_cb,
+                                          task->load_message_content.cookie);
+}
+
 static void
 handle_delete_message_content(struct ntb_store *store,
                               struct ntb_store_task *task)
@@ -1039,6 +1117,8 @@ free_task(struct ntb_store *store,
         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT:
                 ntb_blob_unref(task->save_message_content.blob);
                 break;
+        case NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT:
+                break;
         case NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT:
                 break;
         }
@@ -1069,6 +1149,11 @@ store_thread_func(void *user_data)
                         /* This special case needs to keep the lock
                          * held for part of the task */
                         handle_load_blob(store, task);
+                } else if (task->type ==
+                           NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT) {
+                        /* This special case needs to keep the lock
+                         * held for part of the task */
+                        handle_load_message_content(store, task);
                 } else {
                         pthread_mutex_unlock(&store->mutex);
 
@@ -1095,6 +1180,7 @@ store_thread_func(void *user_data)
                                 handle_delete_message_content(store, task);
                                 break;
                         case NTB_STORE_TASK_TYPE_LOAD_BLOB:
+                        case NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT:
                                 assert(false);
                                 break;
                         }
@@ -1262,6 +1348,38 @@ ntb_store_save_message_content(struct ntb_store *store,
         task->save_message_content.blob = ntb_blob_ref(blob);
 
         pthread_mutex_unlock(&store->mutex);
+}
+
+struct ntb_store_cookie *
+ntb_store_load_message_content(struct ntb_store *store,
+                               uint64_t content_id,
+                               ntb_store_load_callback func,
+                               void *user_data)
+{
+        struct ntb_store_task *task;
+        struct ntb_store_cookie *cookie;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT);
+        task->load_message_content.id = content_id;
+
+        cookie = ntb_slice_alloc(&ntb_store_cookie_allocator);
+        cookie->store = store;
+        cookie->blob = NULL;
+        cookie->task = task;
+        cookie->idle_source = NULL;
+        cookie->func = func;
+        cookie->user_data = user_data;
+
+        task->load_message_content.cookie = cookie;
+
+        pthread_mutex_unlock(&store->mutex);
+
+        return cookie;
 }
 
 void
@@ -1713,8 +1831,25 @@ ntb_store_cancel_task(struct ntb_store_cookie *cookie)
 
         pthread_mutex_lock(&store->mutex);
 
-        if (cookie->task)
-                cookie->task->load_blob.cookie = NULL;
+        if (cookie->task) {
+                switch (cookie->task->type) {
+                case NTB_STORE_TASK_TYPE_LOAD_BLOB:
+                        cookie->task->load_blob.cookie = NULL;
+                        break;
+                case NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT:
+                        cookie->task->load_message_content.cookie = NULL;
+                        break;
+                case NTB_STORE_TASK_TYPE_SAVE_BLOB:
+                case NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST:
+                case NTB_STORE_TASK_TYPE_SAVE_KEYS:
+                case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
+                case NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT:
+                case NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT:
+                case NTB_STORE_TASK_TYPE_DELETE_OBJECT:
+                        assert(false);
+                        break;
+                }
+        }
         if (cookie->idle_source)
                 ntb_main_context_remove_source(cookie->idle_source);
         if (cookie->blob)

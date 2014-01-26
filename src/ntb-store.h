@@ -124,6 +124,12 @@ ntb_store_save_message_content(struct ntb_store *store,
                                uint64_t content_id,
                                struct ntb_blob *blob);
 
+struct ntb_store_cookie *
+ntb_store_load_message_content(struct ntb_store *store,
+                               uint64_t content_id,
+                               ntb_store_load_callback func,
+                               void *user_data);
+
 void
 ntb_store_delete_message_content(struct ntb_store *store,
                                  uint64_t content_id);
