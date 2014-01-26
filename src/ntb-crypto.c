@@ -140,7 +140,7 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                         ntb_free(cookie->create_key.label);
                         break;
                 case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
-                        if (cookie->create_key.key)
+                        if (cookie->create_pubkey_blob.key)
                                 ntb_key_unref(cookie->create_pubkey_blob.key);
                         if (cookie->create_pubkey_blob.blob)
                                 ntb_blob_unref(cookie->create_pubkey_blob.blob);
