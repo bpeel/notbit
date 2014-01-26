@@ -263,31 +263,6 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
 }
 
 static void
-append_public_key(struct ntb_buffer *buffer,
-                  const EC_KEY *key)
-{
-        size_t oct_size;
-
-        ntb_buffer_ensure_size(buffer,
-                               buffer->length + NTB_ECC_PUBLIC_KEY_SIZE);
-
-        oct_size = EC_POINT_point2oct(EC_KEY_get0_group(key),
-                                      EC_KEY_get0_public_key(key),
-                                      POINT_CONVERSION_UNCOMPRESSED,
-                                      buffer->data + buffer->length,
-                                      NTB_ECC_PUBLIC_KEY_SIZE,
-                                      NULL);
-        assert(oct_size == NTB_ECC_PUBLIC_KEY_SIZE);
-
-        /* Remove the 0x04 prefix */
-        memmove(buffer->data + buffer->length,
-                buffer->data + buffer->length + 1,
-                NTB_ECC_PUBLIC_KEY_SIZE - 1);
-
-        buffer->length += NTB_ECC_PUBLIC_KEY_SIZE - 1;
-}
-
-static void
 append_key_base(struct ntb_key *key,
                 struct ntb_buffer *buffer,
                 size_t *behaviors_offset)
@@ -304,8 +279,8 @@ append_key_base(struct ntb_key *key,
                 *behaviors_offset = buffer->length;
 
         ntb_proto_add_32(buffer, NTB_PROTO_PUBKEY_BEHAVIORS);
-        append_public_key(buffer, key->signing_key);
-        append_public_key(buffer, key->encryption_key);
+        ntb_proto_add_public_key(buffer, key->signing_key);
+        ntb_proto_add_public_key(buffer, key->encryption_key);
 }
 
 static void

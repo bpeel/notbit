@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stdarg.h>
 #include <openssl/sha.h>
+#include <openssl/ecdsa.h>
 
 #include "ntb-buffer.h"
 #include "ntb-netaddress.h"
@@ -260,6 +261,10 @@ ntb_proto_add_netaddress(struct ntb_buffer *buf,
 void
 ntb_proto_add_var_str(struct ntb_buffer *buf,
                       const char *str);
+
+void
+ntb_proto_add_public_key(struct ntb_buffer *buf,
+                         const EC_KEY *key);
 
 void
 ntb_proto_begin_command(struct ntb_buffer *buf,

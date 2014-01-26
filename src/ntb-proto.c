@@ -649,6 +649,30 @@ ntb_proto_add_var_str(struct ntb_buffer *buf,
 }
 
 void
+ntb_proto_add_public_key(struct ntb_buffer *buf,
+                         const EC_KEY *key)
+{
+        size_t oct_size;
+
+        ntb_buffer_ensure_size(buf, buf->length + NTB_ECC_PUBLIC_KEY_SIZE);
+
+        oct_size = EC_POINT_point2oct(EC_KEY_get0_group(key),
+                                      EC_KEY_get0_public_key(key),
+                                      POINT_CONVERSION_UNCOMPRESSED,
+                                      buf->data + buf->length,
+                                      NTB_ECC_PUBLIC_KEY_SIZE,
+                                      NULL);
+        assert(oct_size == NTB_ECC_PUBLIC_KEY_SIZE);
+
+        /* Remove the 0x04 prefix */
+        memmove(buf->data + buf->length,
+                buf->data + buf->length + 1,
+                NTB_ECC_PUBLIC_KEY_SIZE - 1);
+
+        buf->length += NTB_ECC_PUBLIC_KEY_SIZE - 1;
+}
+
+void
 ntb_proto_begin_command(struct ntb_buffer *buf,
                         const char *command)
 {
