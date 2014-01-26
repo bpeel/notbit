@@ -499,6 +499,25 @@ handle_load_blob(struct ntb_store *store,
 }
 
 static void
+rename_tmp_file(struct ntb_store *store)
+{
+        store->tmp_buf.length = 0;
+        ntb_buffer_append(&store->tmp_buf,
+                          store->filename_buf.data,
+                          store->filename_buf.length - 4);
+        ntb_buffer_append_c(&store->tmp_buf, '\0');
+
+        if (rename((char *) store->filename_buf.data,
+                   (char *) store->tmp_buf.data) == -1) {
+                ntb_log("Error renaming %s to %s: %s",
+                        (char *) store->filename_buf.data,
+                        (char *) store->tmp_buf.data,
+                        strerror(errno));
+                unlink((char *) store->filename_buf.data);
+        }
+}
+
+static void
 handle_save_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
@@ -540,20 +559,7 @@ handle_save_blob(struct ntb_store *store,
                 return;
         }
 
-        store->tmp_buf.length = 0;
-        ntb_buffer_append(&store->tmp_buf,
-                          store->filename_buf.data,
-                          store->filename_buf.length - 4);
-        ntb_buffer_append_c(&store->tmp_buf, '\0');
-
-        if (rename((char *) store->filename_buf.data,
-                   (char *) store->tmp_buf.data) == -1) {
-                ntb_log("Error renaming %s to %s: %s",
-                        (char *) store->filename_buf.data,
-                        (char *) store->tmp_buf.data,
-                        strerror(errno));
-                unlink((char *) store->filename_buf.data);
-        }
+        rename_tmp_file(store);
 }
 
 static void
@@ -613,19 +619,7 @@ handle_save_addr_list(struct ntb_store *store,
                 return;
         }
 
-        store->tmp_buf.length = 0;
-        ntb_buffer_append(&store->tmp_buf,
-                          store->filename_buf.data,
-                          store->filename_buf.length - 4);
-        ntb_buffer_append_c(&store->tmp_buf, '\0');
-
-        if (rename((char *) store->filename_buf.data,
-                   (char *) store->tmp_buf.data) == -1) {
-                ntb_log("Error renaming %s to %s: %s",
-                        (char *) store->filename_buf.data,
-                        (char *) store->tmp_buf.data,
-                        strerror(errno));
-        }
+        rename_tmp_file(store);
 }
 
 static void
@@ -730,19 +724,7 @@ handle_save_keys(struct ntb_store *store,
                 return;
         }
 
-        store->tmp_buf.length = 0;
-        ntb_buffer_append(&store->tmp_buf,
-                          store->filename_buf.data,
-                          store->filename_buf.length - 4);
-        ntb_buffer_append_c(&store->tmp_buf, '\0');
-
-        if (rename((char *) store->filename_buf.data,
-                   (char *) store->tmp_buf.data) == -1) {
-                ntb_log("Error renaming %s to %s: %s",
-                        (char *) store->filename_buf.data,
-                        (char *) store->tmp_buf.data,
-                        strerror(errno));
-        }
+        rename_tmp_file(store);
 }
 
 static void
