@@ -228,7 +228,8 @@ append_cwd(struct ntb_buffer *buffer)
 
                 if (getcwd((char *) buffer->data + buffer->length,
                            buffer->size - buffer->length)) {
-                        buffer->length += strlen((char *) buffer->data + buffer->length);
+                        buffer->length += strlen((char *) buffer->data +
+                                                 buffer->length);
                         return true;
                 } else if (errno != ERANGE) {
                         return false;
