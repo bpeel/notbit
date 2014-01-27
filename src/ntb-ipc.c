@@ -722,11 +722,6 @@ ntb_ipc_new(struct ntb_keyring *keyring,
         int sock;
         int res;
 
-        if (!ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len, error))
-                return NULL;
-
-        sockaddr_path = ((struct sockaddr_un *) sockaddr)->sun_path + 1;
-
         sock = socket(PF_LOCAL, SOCK_STREAM, 0);
 
         if (sock == -1) {
@@ -737,6 +732,11 @@ ntb_ipc_new(struct ntb_keyring *keyring,
                 return NULL;
         }
 
+        if (!ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len, error))
+                return NULL;
+
+        sockaddr_path = ((struct sockaddr_un *) sockaddr)->sun_path + 1;
+
         res = bind(sock, (struct sockaddr *) sockaddr, sockaddr_len);
 
         if (res == -1) {
@@ -745,9 +745,12 @@ ntb_ipc_new(struct ntb_keyring *keyring,
                                    "Failed to bind abstract sock %s: %s",
                                    sockaddr_path,
                                    strerror(errno));
+                ntb_free(sockaddr);
                 close(sock);
                 return NULL;
         }
+
+        ntb_free(sockaddr);
 
         res = listen(sock, 10);
 
