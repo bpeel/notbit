@@ -49,3 +49,57 @@ following payload:
 │? │data      │uchar[]     │Data for the response. If the status is non-zero│
 │  │          │            │then this will be some text describing the error│
 └──┴──────────┴────────────┴────────────────────────────────────────────────┘
+
+== ‘email’ command
+
+The email command is used to add an outgoing message to the network
+using an RFC822-format email. This is the same format that you would
+use to send a regular email using a command like sendmail. Thus the
+email command is expected to be used to make a drop-in replacement for
+sendmail so that Notbit can be used with regular mail clients.
+
+The email command has no payload. Instead the contents of the message
+are passed in a file descriptor which must be specified using file
+descriptor passing. This is a feature of Unix domain sockets (see man
+unix(7)). notbit-sendmail just directly passes the file descriptor for
+its standard in over the protocol so that it doesn't need to
+redundantly copy the email before passing it on.
+
+All of the addresses in the email must be of the form
+‘BM-foo@bitmessage’ where BM-foo is a valid Bitmessage address. If
+notbit can't understand any of the addresses then an error response
+will be reported.
+
+The from address must refer to the address for a private key that is
+known by Notbit. An error response will be returned otherwise. The
+destination addresses are specified in the To, Cc and Bcc headers.
+These can be any valid addresses and Notbit will query the network for
+the keys if it doesn't yet have them. There can be multiple
+destination addresses and this will result in multiple copies of the
+message being sent. The distinction between To, Cc and Bcc is lost
+once the email becomes a Bitmessage as only one of the recipients is
+encoded in each message so the recipient can't tell who else the
+message was sent to anyway.
+
+The message must be text/plain. The content-type header will be
+checked to verify this and an error response will be reported if it is
+anything else. This means that HTML and emails with attachments will
+be rejected.
+
+Currently the email must be in either UTF-8 or us-ascii. The charset
+attribute in the content-type will be checked to verify this. It is
+expected that a later version will accept other character sets and
+convert them to UTF-8 on the fly. It currently also only supports the
+transfer encodings 7bit and 8bit. It is expected that quoted-printable
+will be added shortly as that is widely used.
+
+If a subject header is present then the message will be sent with the
+‘SIMPLE’ encoding rather than ‘TRIVIAL’ and the subject will be
+included.
+
+All other headers are stripped from the message so that the final
+message appears as a normal message and can be read by PyBitmessage or
+other clients conforming to the protocol.
+
+The response is sent immediately after the email is parsed and it does
+not wait until the message hits the network and is actually sent.

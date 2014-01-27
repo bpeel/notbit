@@ -25,6 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/un.h>
+#include <assert.h>
 
 #include "ntb-ipc.h"
 #include "ntb-ipc-proto.h"
@@ -37,6 +38,8 @@
 #include "ntb-buffer.h"
 #include "ntb-proto.h"
 #include "ntb-socket.h"
+#include "ntb-mail-parser.h"
+#include "ntb-blob.h"
 
 struct ntb_ipc {
         int sock;
@@ -65,6 +68,27 @@ struct ntb_ipc_connection {
         struct ntb_buffer outbuf;
         struct ntb_buffer inbuf;
         struct ntb_buffer fd_queue;
+
+        struct ntb_list emails;
+
+        struct ntb_list link;
+};
+
+/* This represents an email that is being read from a file descriptor
+   passed in the email command */
+struct ntb_ipc_email {
+        struct ntb_ipc_connection *conn;
+
+        struct ntb_address from_address;
+        struct ntb_buffer to_addresses;
+        struct ntb_buffer content;
+        int content_encoding;
+
+        struct ntb_main_context_source *source;
+        int fd;
+        int request_id;
+
+        struct ntb_mail_parser *parser;
 
         struct ntb_list link;
 };
@@ -97,8 +121,26 @@ close_fd_queue(struct ntb_ipc_connection *conn)
 }
 
 static void
+remove_email(struct ntb_ipc_email *email)
+{
+        ntb_buffer_destroy(&email->to_addresses);
+        ntb_buffer_destroy(&email->content);
+
+        ntb_mail_parser_free(email->parser);
+        ntb_main_context_remove_source(email->source);
+        close(email->fd);
+        ntb_list_remove(&email->link);
+        ntb_free(email);
+}
+
+static void
 remove_connection(struct ntb_ipc_connection *conn)
 {
+        struct ntb_ipc_email *email, *tmp;
+
+        ntb_list_for_each_safe(email, tmp, &conn->emails, link)
+                remove_email(email);
+
         close_fd_queue(conn);
         ntb_buffer_destroy(&conn->fd_queue);
         ntb_buffer_destroy(&conn->inbuf);
@@ -120,7 +162,8 @@ update_poll(struct ntb_ipc_connection *conn)
         /* Shutdown the socket if we've finished writing */
         if (!conn->write_finished &&
             conn->read_finished &&
-            conn->outbuf.length == 0) {
+            conn->outbuf.length == 0 &&
+            ntb_list_empty(&conn->emails)) {
                 if (shutdown(conn->sock, SHUT_WR) == -1) {
                         ntb_log("shutdown for IPC connection failed: %s",
                                 strerror(errno));
@@ -205,8 +248,221 @@ send_response(struct ntb_ipc_connection *conn,
         return update_poll(conn);
 }
 
+static void
+send_email(struct ntb_ipc_email *email)
+{
+        struct ntb_ipc_connection *conn = email->conn;
+        struct ntb_ipc *ipc = conn->ipc;
+        struct ntb_error *error = NULL;
+        struct ntb_blob *content;
+        enum ntb_ipc_proto_status status;
+        bool res;
+
+        content = ntb_blob_dynamic_end(&email->content);
+        ntb_buffer_init(&email->content);
+
+        res = ntb_keyring_send_message(ipc->keyring,
+                                       &email->from_address,
+                                       (const struct ntb_address *)
+                                       email->to_addresses.data,
+                                       email->to_addresses.length /
+                                       sizeof (struct ntb_address),
+                                       email->content_encoding,
+                                       content,
+                                       &error);
+
+        ntb_blob_unref(content);
+
+        if (res) {
+                send_response(conn,
+                              email->request_id,
+                              NTB_IPC_PROTO_STATUS_SUCCESS,
+                              NULL);
+        } else {
+                if (error->domain == &ntb_keyring_error &&
+                    error->code == NTB_KEYRING_ERROR_UNKNOWN_FROM_ADDRESS)
+                        status = NTB_IPC_PROTO_STATUS_UNKNOWN_FROM_ADDRESS;
+                else
+                        status = NTB_IPC_PROTO_STATUS_GENERIC_ERROR;
+
+                send_response(conn,
+                              email->request_id,
+                              status,
+                              "%s",
+                              error->message);
+
+                ntb_error_free(error);
+        }
+}
+
+static void
+email_poll_cb(struct ntb_main_context_source *source,
+              int fd,
+              enum ntb_main_context_poll_flags flags,
+              void *user_data)
+{
+        struct ntb_ipc_email *email = user_data;
+        struct ntb_ipc_connection *conn = email->conn;
+        struct ntb_error *error = NULL;
+        uint8_t buf[512];
+        ssize_t got;
+
+        got = read(fd, buf, sizeof buf);
+
+        if (got == -1) {
+                send_response(conn,
+                              email->request_id,
+                              NTB_IPC_PROTO_STATUS_FD_ERROR,
+                              "Error reading from email file descriptor");
+                remove_email(email);
+        } else if (got == 0) {
+                send_email(email);
+                remove_email(email);
+        } else if (!ntb_mail_parser_parse(email->parser,
+                                          buf,
+                                          got,
+                                          &error)) {
+                send_response(conn,
+                              email->request_id,
+                              NTB_IPC_PROTO_STATUS_INVALID_EMAIL,
+                              "Error parsing email: %s",
+                              error->message);
+                ntb_error_free(error);
+                remove_email(email);
+        }
+}
+
+static int
+get_fd(struct ntb_ipc_connection *conn)
+{
+        int fd;
+
+        memcpy(&fd, conn->fd_queue.data, sizeof fd);
+        memmove(conn->fd_queue.data,
+                conn->fd_queue.data + sizeof fd,
+                conn->fd_queue.length - sizeof fd);
+        conn->fd_queue.length -= sizeof fd;
+
+        return fd;
+}
+
+static bool
+mail_parser_data_cb(enum ntb_mail_parser_event event,
+                    const uint8_t *data,
+                    size_t length,
+                    void *user_data,
+                    struct ntb_error **error)
+{
+        struct ntb_ipc_email *email = user_data;
+
+        switch (event) {
+        case NTB_MAIL_PARSER_EVENT_SOURCE:
+        case NTB_MAIL_PARSER_EVENT_DESTINATION:
+                assert(false);
+
+        case NTB_MAIL_PARSER_EVENT_SUBJECT:
+                ntb_buffer_append_string(&email->content,
+                                         "Subject:");
+                ntb_buffer_append(&email->content, data, length);
+                ntb_buffer_append_string(&email->content, "\nBody:");
+                email->content_encoding = 2;
+                break;
+
+        case NTB_MAIL_PARSER_EVENT_CONTENT:
+                ntb_buffer_append(&email->content, data, length);
+                break;
+        }
+
+        return true;
+}
+
+static bool
+mail_parser_address_cb(enum ntb_mail_parser_event event,
+                       const struct ntb_address *address,
+                       void *user_data,
+                       struct ntb_error **error)
+{
+        struct ntb_ipc_email *email = user_data;
+
+        switch (event) {
+        case NTB_MAIL_PARSER_EVENT_SOURCE:
+                email->from_address = *address;
+                break;
+
+        case NTB_MAIL_PARSER_EVENT_DESTINATION:
+                ntb_buffer_append(&email->to_addresses,
+                                  address,
+                                  sizeof *address);
+                break;
+
+        case NTB_MAIL_PARSER_EVENT_SUBJECT:
+        case NTB_MAIL_PARSER_EVENT_CONTENT:
+                assert(false);
+        }
+
+        return true;
+}
+
+static bool
+handle_email_command(struct ntb_ipc_connection *conn,
+                     uint32_t request_id,
+                     const uint8_t *data,
+                     uint32_t command_length)
+{
+        struct ntb_ipc_email *email;
+        struct ntb_error *error = NULL;
+        bool res;
+        int fd;
+
+        if (conn->fd_queue.length < sizeof fd)
+                return send_response(conn,
+                                     request_id,
+                                     NTB_IPC_PROTO_STATUS_INVALID_COMMAND,
+                                     "email command was sent without a "
+                                     "file descriptor argument");
+
+        fd = get_fd(conn);
+
+        if (!ntb_socket_set_nonblock(fd, &error)) {
+                res = send_response(conn,
+                                    request_id,
+                                    NTB_IPC_PROTO_STATUS_FD_ERROR,
+                                    "%s",
+                                    error->message);
+                ntb_error_free(error);
+                close(fd);
+                return res;
+        }
+
+        email = ntb_alloc(sizeof *email);
+        email->conn = conn;
+        email->fd = fd;
+        email->request_id = request_id;
+        email->source = ntb_main_context_add_poll(NULL,
+                                                  email->fd,
+                                                  NTB_MAIN_CONTEXT_POLL_IN,
+                                                  email_poll_cb,
+                                                  email);
+
+        email->parser = ntb_mail_parser_new(mail_parser_address_cb,
+                                            mail_parser_data_cb,
+                                            email);
+
+        ntb_buffer_init(&email->to_addresses);
+
+        ntb_list_insert(&conn->emails, &email->link);
+
+        ntb_blob_dynamic_init(&email->content,
+                              NTB_PROTO_INV_TYPE_MSG);
+
+        email->content_encoding = 1;
+
+        return true;
+}
+
 static struct ntb_ipc_command
 commands[] = {
+        { "email", handle_email_command }
 };
 
 
@@ -443,6 +699,8 @@ listen_source_cb(struct ntb_main_context_source *source,
         ntb_buffer_init(&conn->inbuf);
         ntb_buffer_init(&conn->outbuf);
         ntb_buffer_init(&conn->fd_queue);
+
+        ntb_list_init(&conn->emails);
 
         conn->source = ntb_main_context_add_poll(NULL,
                                                  sock,
