@@ -221,7 +221,7 @@ handle_to(struct ntb_mail_parser *parser,
                 ntb_set_error(error,
                               &ntb_mail_parser_error,
                               NTB_MAIL_PARSER_ERROR_INVALID_HEADER,
-                              "Multiple To headers encountered encountered");
+                              "Multiple To headers encountered");
                 return false;
         }
 
@@ -241,7 +241,7 @@ handle_cc(struct ntb_mail_parser *parser,
                 ntb_set_error(error,
                               &ntb_mail_parser_error,
                               NTB_MAIL_PARSER_ERROR_INVALID_HEADER,
-                              "Multiple Cc headers encountered encountered");
+                              "Multiple Cc headers encountered");
                 return false;
         }
 
@@ -261,7 +261,7 @@ handle_bcc(struct ntb_mail_parser *parser,
                 ntb_set_error(error,
                               &ntb_mail_parser_error,
                               NTB_MAIL_PARSER_ERROR_INVALID_HEADER,
-                              "Multiple Bcc headers encountered encountered");
+                              "Multiple Bcc headers encountered");
                 return false;
         }
 
@@ -703,7 +703,7 @@ ntb_mail_parser_end(struct ntb_mail_parser *parser,
                               &ntb_mail_parser_error,
                               NTB_MAIL_PARSER_ERROR_INVALID_HEADER,
                               "The mail ended before the end of the "
-                              "headers were encountered");
+                              "headers was encountered");
                 return false;
         }
 
