@@ -463,6 +463,22 @@ static bool
 handle_headers_end(struct ntb_mail_parser *parser,
                    struct ntb_error **error)
 {
+        if (!parser->had_from) {
+                ntb_set_error(error,
+                              &ntb_mail_parser_error,
+                              NTB_MAIL_PARSER_ERROR_MISSING_HEADER,
+                              "Missing From header");
+                return false;
+        }
+
+        if (!parser->had_to && !parser->had_cc && !parser->had_bcc) {
+                ntb_set_error(error,
+                              &ntb_mail_parser_error,
+                              NTB_MAIL_PARSER_ERROR_MISSING_HEADER,
+                              "Missing To, Cc or Bcc header");
+                return false;
+        }
+
         parser->state = NTB_MAIL_PARSER_CONTENT;
         return true;
 }
@@ -688,22 +704,6 @@ ntb_mail_parser_end(struct ntb_mail_parser *parser,
                               NTB_MAIL_PARSER_ERROR_INVALID_HEADER,
                               "The mail ended before the end of the "
                               "headers were encountered");
-                return false;
-        }
-
-        if (!parser->had_from) {
-                ntb_set_error(error,
-                              &ntb_mail_parser_error,
-                              NTB_MAIL_PARSER_ERROR_MISSING_HEADER,
-                              "Missing From header");
-                return false;
-        }
-
-        if (!parser->had_to && !parser->had_cc && !parser->had_bcc) {
-                ntb_set_error(error,
-                              &ntb_mail_parser_error,
-                              NTB_MAIL_PARSER_ERROR_MISSING_HEADER,
-                              "Missing To, Cc or Bcc header");
                 return false;
         }
 
