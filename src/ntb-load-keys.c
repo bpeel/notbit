@@ -542,6 +542,4 @@ ntb_load_keys(FILE *file,
         ntb_buffer_destroy(&data.address);
 
         ntb_ecc_free(data.ecc);
-
-        ntb_log("Finished loading private keys");
 }
