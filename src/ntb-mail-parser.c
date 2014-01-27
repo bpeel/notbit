@@ -675,6 +675,22 @@ ntb_mail_parser_parse(struct ntb_mail_parser *parser,
                 length -= processed;
         }
 
+        return true;
+}
+
+bool
+ntb_mail_parser_end(struct ntb_mail_parser *parser,
+                    struct ntb_error **error)
+{
+        if (parser->state != NTB_MAIL_PARSER_CONTENT) {
+                ntb_set_error(error,
+                              &ntb_mail_parser_error,
+                              NTB_MAIL_PARSER_ERROR_INVALID_HEADER,
+                              "The mail ended before the end of the "
+                              "headers were encountered");
+                return false;
+        }
+
         if (!parser->had_from) {
                 ntb_set_error(error,
                               &ntb_mail_parser_error,
@@ -691,13 +707,6 @@ ntb_mail_parser_parse(struct ntb_mail_parser *parser,
                 return false;
         }
 
-        return true;
-}
-
-bool
-ntb_mail_parser_end(struct ntb_mail_parser *parser,
-                    struct ntb_error **error)
-{
         return true;
 }
 

@@ -316,7 +316,16 @@ email_poll_cb(struct ntb_main_context_source *source,
                               "Error reading from email file descriptor");
                 remove_email(email);
         } else if (got == 0) {
-                send_email(email);
+                if (ntb_mail_parser_end(email->parser, &error)) {
+                        send_email(email);
+                } else {
+                        send_response(conn,
+                                      email->request_id,
+                                      NTB_IPC_PROTO_STATUS_INVALID_EMAIL,
+                                      "%s",
+                                      error->message);
+                        ntb_error_free(error);
+                }
                 remove_email(email);
         } else if (!ntb_mail_parser_parse(email->parser,
                                           buf,
