@@ -1363,6 +1363,7 @@ ntb_keyring_free(struct ntb_keyring *keyring)
 
         for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++)
                 ntb_key_unref(ntb_pointer_array_get(&keyring->keys, i));
+        ntb_buffer_destroy(&keyring->keys);
 
         ntb_pow_free(keyring->pow);
         ntb_crypto_free(keyring->crypto);
