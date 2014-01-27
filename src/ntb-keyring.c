@@ -49,6 +49,8 @@ struct ntb_keyring {
         struct ntb_list tasks;
         struct ntb_listener new_object_listener;
 
+        bool started;
+
         /* Hash table of pubkey blobs indexed by either the ripe
          * (for v2/3 keys) or the tag (v4 keys) */
         struct ntb_hash_table *pubkey_blob_table;
@@ -868,6 +870,10 @@ ntb_keyring_new(struct ntb_network *nw)
         keyring = ntb_alloc(sizeof *keyring);
 
         keyring->nw = nw;
+        keyring->started = false;
+
+        keyring->crypto = NULL;
+        keyring->pow = NULL;
 
         keyring->next_message_content_id = 0;
 
@@ -877,8 +883,6 @@ ntb_keyring_new(struct ntb_network *nw)
         ntb_signal_add(ntb_network_get_new_object_signal(nw),
                        &keyring->new_object_listener);
 
-        keyring->crypto = ntb_crypto_new();
-        keyring->pow = ntb_pow_new();
         ntb_buffer_init(&keyring->keys);
 
         ntb_list_init(&keyring->messages);
@@ -897,6 +901,17 @@ ntb_keyring_new(struct ntb_network *nw)
                                                         keyring);
 
         return keyring;
+}
+
+void
+ntb_keyring_start(struct ntb_keyring *keyring)
+{
+        if (keyring->started)
+                return;
+
+        keyring->started = true;
+        keyring->crypto = ntb_crypto_new();
+        keyring->pow = ntb_pow_new();
 }
 
 static void
@@ -1365,7 +1380,9 @@ ntb_keyring_free(struct ntb_keyring *keyring)
                 ntb_key_unref(ntb_pointer_array_get(&keyring->keys, i));
         ntb_buffer_destroy(&keyring->keys);
 
-        ntb_pow_free(keyring->pow);
-        ntb_crypto_free(keyring->crypto);
+        if (keyring->pow)
+                ntb_pow_free(keyring->pow);
+        if (keyring->crypto)
+                ntb_crypto_free(keyring->crypto);
         ntb_free(keyring);
 }

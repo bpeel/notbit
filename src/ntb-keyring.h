@@ -46,6 +46,9 @@ struct ntb_keyring *
 ntb_keyring_new(struct ntb_network *nw);
 
 void
+ntb_keyring_start(struct ntb_keyring *keyring);
+
+void
 ntb_keyring_load_store(struct ntb_keyring *keyring);
 
 bool

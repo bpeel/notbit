@@ -433,6 +433,7 @@ run_main_loop(struct ntb_network *nw,
         if (option_daemonize)
                 daemonize();
 
+        ntb_keyring_start(keyring);
         ntb_store_start(store);
         ntb_log_start();
 
