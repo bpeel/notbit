@@ -24,10 +24,19 @@
 
 #include "ntb-network.h"
 #include "ntb-key.h"
+#include "ntb-address.h"
+#include "ntb-error.h"
 
 struct ntb_keyring;
 
 struct ntb_keyring_cookie;
+
+extern struct ntb_error_domain
+ntb_keyring_error;
+
+enum ntb_keyring_error {
+        NTB_KEYRING_ERROR_UNKNOWN_FROM_ADDRESS
+};
 
 typedef void
 (* ntb_keyring_create_key_func)(struct ntb_key *key,
@@ -38,6 +47,15 @@ ntb_keyring_new(struct ntb_network *nw);
 
 void
 ntb_keyring_load_store(struct ntb_keyring *keyring);
+
+bool
+ntb_keyring_send_message(struct ntb_keyring *keyring,
+                         const struct ntb_address *from_address,
+                         const struct ntb_address *to_addresses,
+                         int n_to_addresses,
+                         int content_encoding,
+                         struct ntb_blob *content,
+                         struct ntb_error **error);
 
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,

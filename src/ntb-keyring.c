@@ -22,6 +22,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "ntb-keyring.h"
 #include "ntb-util.h"
@@ -57,6 +58,12 @@ struct ntb_keyring {
         struct ntb_list pubkey_blob_list;
 
         struct ntb_main_context_source *gc_source;
+
+        /* The message contents are given a unique id using this
+         * counter. The ID is used for the filename in the store */
+        uint64_t next_message_content_id;
+
+        struct ntb_list messages;
 };
 
 struct ntb_keyring_cookie {
@@ -78,6 +85,42 @@ struct ntb_keyring_task {
                         int64_t timestamp;
                 } msg;
         };
+};
+
+enum ntb_keyring_message_state {
+        NTB_KEYRING_MESSAGE_STATE_GENERATING_ACKDATA,
+        NTB_KEYRING_MESSAGE_STATE_LOADING_CONTENT,
+        NTB_KEYRING_MESSAGE_STATE_CALCULATING_ACKDATA_POW,
+        NTB_KEYRING_MESSAGE_STATE_CREATE_MSG_BLOB,
+        NTB_KEYRING_MESSAGE_STATE_CALCULATING_MSG_POW,
+        NTB_KEYRING_MESSAGE_STATE_AWAITING_ACKNOWLEDGEMENT
+};
+
+struct ntb_keyring_message {
+        struct ntb_keyring *keyring;
+
+        enum ntb_keyring_message_state state;
+
+        struct ntb_key *from_key;
+        struct ntb_address to_address;
+        struct ntb_key *to_key;
+
+        uint64_t content_id;
+        int content_encoding;
+
+        uint8_t ackdata[NTB_CRYPTO_ACKDATA_SIZE];
+
+        struct ntb_crypto_cookie *crypto_cookie;
+        struct ntb_pow_cookie *pow_cookie;
+        struct ntb_store_cookie *store_cookie;
+        struct ntb_blob *blob;
+
+        size_t blob_ackdata_offset;
+        uint32_t blob_ackdata_length;
+
+        int64_t last_send_time;
+
+        struct ntb_list link;
 };
 
 struct ntb_keyring_pubkey_blob {
@@ -102,6 +145,49 @@ _Static_assert(NTB_KEY_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
 
 NTB_SLICE_ALLOCATOR(struct ntb_keyring_pubkey_blob,
                     ntb_keyring_pubkey_blob_allocator);
+
+struct ntb_error_domain
+ntb_keyring_error;
+
+static void
+free_message(struct ntb_keyring_message *message)
+{
+        ntb_key_unref(message->from_key);
+
+        if (message->to_key)
+                ntb_key_unref(message->to_key);
+
+        if (message->crypto_cookie)
+                ntb_crypto_cancel_task(message->crypto_cookie);
+
+        if (message->pow_cookie)
+                ntb_pow_cancel(message->pow_cookie);
+
+        if (message->store_cookie)
+                ntb_store_cancel_task(message->store_cookie);
+
+        if (message->blob)
+                ntb_blob_unref(message->blob);
+
+        ntb_list_remove(&message->link);
+
+        ntb_free(message);
+}
+
+static void
+maybe_delete_message_content(struct ntb_keyring *keyring,
+                             uint64_t content_id)
+{
+        struct ntb_keyring_message *message;
+
+        /* Check if any messages are still using this content */
+        ntb_list_for_each(message, &keyring->messages, link) {
+                if (message->content_id == content_id)
+                        return;
+        }
+
+        ntb_store_delete_message_content(NULL, content_id);
+}
 
 static void
 save_keyring(struct ntb_keyring *keyring)
@@ -602,6 +688,49 @@ invalid:
 }
 
 static void
+message_acknowledged(struct ntb_keyring_message *message)
+{
+        struct ntb_keyring *keyring = message->keyring;
+        char to_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
+        uint64_t content_id;
+
+        ntb_address_encode(&message->to_address,
+                           to_address_string);
+        ntb_log("Received acknowledgement for message from %s",
+                to_address_string);
+
+        content_id = message->content_id;
+
+        free_message(message);
+
+        maybe_delete_message_content(keyring, content_id);
+}
+
+static bool
+check_msg_acknowledgement(struct ntb_keyring *keyring,
+                          const uint8_t *content,
+                          size_t content_length)
+{
+        struct ntb_keyring_message *message;
+
+        if (content_length != NTB_CRYPTO_ACKDATA_SIZE)
+                return false;
+
+        ntb_list_for_each(message, &keyring->messages, link) {
+                if (message->state !=
+                    NTB_KEYRING_MESSAGE_STATE_GENERATING_ACKDATA &&
+                    !memcmp(message->ackdata,
+                            content,
+                            NTB_CRYPTO_ACKDATA_SIZE)) {
+                        message_acknowledged(message);
+                        return true;
+                }
+        }
+
+        return false;
+}
+
+static void
 handle_msg(struct ntb_keyring *keyring,
            struct ntb_blob *blob)
 {
@@ -629,6 +758,11 @@ handle_msg(struct ntb_keyring *keyring,
                 ntb_log("Invalid msg command received");
                 return;
         }
+
+        if (check_msg_acknowledgement(keyring,
+                                      blob->data + header_length,
+                                      blob->size - header_length))
+            return;
 
         task = add_task(keyring);
         task->crypto_cookie =
@@ -735,6 +869,8 @@ ntb_keyring_new(struct ntb_network *nw)
 
         keyring->nw = nw;
 
+        keyring->next_message_content_id = 0;
+
         ntb_list_init(&keyring->tasks);
 
         keyring->new_object_listener.notify = new_object_cb;
@@ -744,6 +880,8 @@ ntb_keyring_new(struct ntb_network *nw)
         keyring->crypto = ntb_crypto_new();
         keyring->pow = ntb_pow_new();
         ntb_buffer_init(&keyring->keys);
+
+        ntb_list_init(&keyring->messages);
 
         ntb_list_init(&keyring->pubkey_blob_list);
         keyring->pubkey_blob_table =
@@ -796,6 +934,362 @@ create_key_cb(struct ntb_key *key,
         ntb_free(cookie);
 }
 
+static struct ntb_key *
+get_private_key_for_address(struct ntb_keyring *keyring,
+                            const struct ntb_address *address)
+{
+        struct ntb_key *key;
+        int i;
+
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
+                key = ntb_pointer_array_get(&keyring->keys, i);
+
+                if (ntb_key_has_private(key) &&
+                    ntb_address_equal(&key->address, address))
+                        return key;
+        }
+
+        return NULL;
+}
+
+static struct ntb_key *
+get_any_key_for_address(struct ntb_keyring *keyring,
+                        const struct ntb_address *address)
+{
+        struct ntb_key *key;
+        int i;
+
+        for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++) {
+                key = ntb_pointer_array_get(&keyring->keys, i);
+
+                if (ntb_address_equal(&key->address, address))
+                        return key;
+        }
+
+        return NULL;
+}
+
+static void
+msg_pow_cb(uint64_t nonce,
+           void *user_data)
+{
+        struct ntb_keyring_message *message = user_data;
+        struct ntb_keyring *keyring = message->keyring;
+
+        message->pow_cookie = NULL;
+
+        ntb_log("Finished calculating proof-of-work for msg. Nonce is %" PRIu64,
+                nonce);
+
+        nonce = NTB_UINT64_TO_BE(nonce);
+
+        memcpy(message->blob->data, &nonce, sizeof nonce);
+
+        ntb_network_add_blob(keyring->nw,
+                             message->blob,
+                             NTB_NETWORK_SKIP_VALIDATION,
+                             "outgoing message");
+
+        ntb_blob_unref(message->blob);
+        message->blob = NULL;
+
+        message->state = NTB_KEYRING_MESSAGE_STATE_AWAITING_ACKNOWLEDGEMENT;
+}
+
+static void
+create_msg_blob_cb(struct ntb_blob *blob,
+                   void *user_data)
+{
+        struct ntb_keyring_message *message = user_data;
+        struct ntb_keyring *keyring = message->keyring;
+
+        message->crypto_cookie = NULL;
+
+        ntb_blob_unref(message->blob);
+        message->blob = ntb_blob_ref(blob);
+
+        ntb_log("Doing proof-of-work calculation for msg");
+
+        message->state = NTB_KEYRING_MESSAGE_STATE_CALCULATING_MSG_POW;
+
+        message->pow_cookie =
+                ntb_pow_calculate(keyring->pow,
+                                  blob->data + sizeof (uint64_t),
+                                  blob->size - sizeof (uint64_t),
+                                  NTB_PROTO_MIN_EXTRA_BYTES,
+                                  NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE,
+                                  msg_pow_cb,
+                                  message);
+}
+
+static void
+ackdata_pow_cb(uint64_t nonce,
+               void *user_data)
+{
+        uint8_t hash[SHA512_DIGEST_LENGTH];
+        struct ntb_keyring_message *message = user_data;
+        struct ntb_keyring *keyring = message->keyring;
+
+        message->pow_cookie = NULL;
+
+        ntb_log("Finished calculating proof-of-work for acknowledgement data. "
+                "Nonce is %" PRIu64,
+                nonce);
+
+        nonce = NTB_UINT64_TO_BE(nonce);
+
+        memcpy(message->blob->data +
+               message->blob_ackdata_offset +
+               NTB_PROTO_HEADER_SIZE,
+               &nonce,
+               sizeof nonce);
+
+        SHA512(message->blob->data + message->blob_ackdata_offset +
+               NTB_PROTO_HEADER_SIZE,
+               message->blob_ackdata_length - NTB_PROTO_HEADER_SIZE,
+               hash);
+        memcpy(message->blob->data + message->blob_ackdata_offset + 20,
+               hash,
+               4);
+
+        message->last_send_time =
+                ntb_main_context_get_wall_clock(NULL) +
+                rand() % 600 - 300;
+
+        message->state = NTB_KEYRING_MESSAGE_STATE_CREATE_MSG_BLOB;
+
+        message->crypto_cookie =
+                ntb_crypto_create_msg_blob(keyring->crypto,
+                                           message->last_send_time,
+                                           message->from_key,
+                                           message->to_key,
+                                           message->blob,
+                                           create_msg_blob_cb,
+                                           message);
+}
+
+static void
+add_ackdata_to_message(struct ntb_keyring_message *message,
+                       size_t message_offset,
+                       struct ntb_buffer *buffer)
+{
+        uint32_t msg_length, payload_length, payload_length_be;
+        size_t ack_offset;
+
+        /* Leave space for the acknowledgement length. This is a
+         * varint but we should never need a length that would tip it
+         * over a single byte */
+        ntb_buffer_set_length(buffer, buffer->length + 1);
+
+        ack_offset = buffer->length;
+
+        ntb_buffer_append(buffer, ntb_proto_magic, 4);
+        ntb_buffer_append(buffer, "msg\0\0\0\0\0\0\0\0\0", 12);
+
+        /* Leave space for the message length, checksum and POW */
+        ntb_buffer_set_length(buffer,
+                              buffer->length +
+                              sizeof (uint32_t) +
+                              sizeof (uint32_t) +
+                              sizeof (uint64_t));
+
+        ntb_proto_add_64(buffer,
+                         ntb_main_context_get_wall_clock(NULL) +
+                         rand() % 600 - 300);
+        ntb_proto_add_var_int(buffer, message->from_key->address.stream);
+        ntb_buffer_append(buffer, message->ackdata, NTB_CRYPTO_ACKDATA_SIZE);
+
+        msg_length = buffer->length - ack_offset;
+
+        /* If this fails then the length won't fit in a byte and we
+         * haven't reserved enough space */
+        assert(msg_length < 0xfd);
+
+        buffer->data[ack_offset - 1] = msg_length;
+
+        payload_length = msg_length - NTB_PROTO_HEADER_SIZE;
+        payload_length_be = NTB_UINT32_TO_BE(payload_length);
+
+        memcpy(buffer->data + ack_offset + 16,
+               &payload_length_be,
+               sizeof payload_length_be);
+
+        message->blob_ackdata_offset = ack_offset - message_offset;
+        message->blob_ackdata_length = msg_length;
+}
+
+static void
+load_message_content_cb(struct ntb_blob *content_blob,
+                        void *user_data)
+{
+        struct ntb_keyring_message *message = user_data;
+        struct ntb_keyring *keyring = message->keyring;
+        struct ntb_key *from_key = message->from_key;
+        struct ntb_buffer buffer;
+        size_t message_offset;
+
+        message->store_cookie = NULL;
+
+        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
+
+        message_offset = buffer.length;
+
+        /* Build the unencrypted message */
+
+        ntb_proto_add_var_int(&buffer, 1 /* message version */);
+        ntb_proto_add_var_int(&buffer, message->from_key->address.version);
+        ntb_proto_add_var_int(&buffer, message->from_key->address.stream);
+        ntb_proto_add_32(&buffer, NTB_PROTO_PUBKEY_BEHAVIORS);
+        ntb_proto_add_public_key(&buffer, from_key->signing_key);
+        ntb_proto_add_public_key(&buffer, from_key->encryption_key);
+        if (message->from_key->address.version >= 3) {
+                ntb_proto_add_var_int(&buffer, from_key->nonce_trials_per_byte);
+                ntb_proto_add_var_int(&buffer,
+                                      from_key->payload_length_extra_bytes);
+        }
+        ntb_buffer_append(&buffer,
+                          message->to_address.ripe,
+                          RIPEMD160_DIGEST_LENGTH);
+        ntb_proto_add_var_int(&buffer, message->content_encoding);
+
+        ntb_proto_add_var_int(&buffer, content_blob->size);
+        ntb_buffer_append(&buffer, content_blob->data, content_blob->size);
+
+        add_ackdata_to_message(message, message_offset, &buffer);
+
+        message->blob = ntb_blob_dynamic_end(&buffer);
+
+        message->state = NTB_KEYRING_MESSAGE_STATE_CALCULATING_ACKDATA_POW;
+
+        ntb_log("Doing proof-of-work calculation for acknowledgement data");
+
+        message->pow_cookie =
+                ntb_pow_calculate(keyring->pow,
+                                  message->blob->data +
+                                  message->blob_ackdata_offset +
+                                  NTB_PROTO_HEADER_SIZE +
+                                  sizeof (uint64_t),
+                                  message->blob_ackdata_length -
+                                  NTB_PROTO_HEADER_SIZE -
+                                  sizeof (uint64_t),
+                                  NTB_PROTO_MIN_EXTRA_BYTES,
+                                  NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE,
+                                  ackdata_pow_cb,
+                                  message);
+}
+
+static void
+generate_ackdata_cb(const uint8_t *ackdata,
+                    void *user_data)
+{
+        struct ntb_keyring_message *message = user_data;
+        uint64_t content_id = message->content_id;
+
+        memcpy(message->ackdata, ackdata, NTB_CRYPTO_ACKDATA_SIZE);
+
+        message->crypto_cookie = NULL;
+
+        if (message->to_key == NULL) {
+                /* FIXME! */
+                ntb_log("FIXME: The public key isn't available for this "
+                        "message so it will be abandoned");
+                free_message(message);
+                maybe_delete_message_content(message->keyring, content_id);
+                return;
+        }
+
+        message->state = NTB_KEYRING_MESSAGE_STATE_LOADING_CONTENT;
+
+        message->store_cookie =
+                ntb_store_load_message_content(NULL,
+                                               message->content_id,
+                                               load_message_content_cb,
+                                               message);
+}
+
+static struct ntb_keyring_message *
+create_message(struct ntb_keyring *keyring,
+               struct ntb_key *from_key,
+               const struct ntb_address *to_address,
+               int content_encoding,
+               uint64_t content_id)
+{
+        struct ntb_keyring_message *message;
+
+        message = ntb_alloc(sizeof *message);
+
+        message->keyring = keyring;
+
+        message->from_key = ntb_key_ref(from_key);
+
+        message->to_address = *to_address;
+
+        message->to_key = get_any_key_for_address(keyring, to_address);
+
+        if (message->to_key)
+                ntb_key_ref(message->to_key);
+
+        message->content_encoding = content_encoding;
+        message->content_id = content_id;
+
+        message->pow_cookie = NULL;
+        message->crypto_cookie = NULL;
+
+        message->last_send_time = 0;
+
+        ntb_list_insert(&keyring->messages, &message->link);
+
+        return message;
+}
+
+bool
+ntb_keyring_send_message(struct ntb_keyring *keyring,
+                         const struct ntb_address *from_address,
+                         const struct ntb_address *to_addresses,
+                         int n_to_addresses,
+                         int content_encoding,
+                         struct ntb_blob *content,
+                         struct ntb_error **error)
+{
+        struct ntb_key *from_key;
+        uint64_t content_id;
+        struct ntb_keyring_message *message;
+        int i;
+
+        ntb_return_val_if_fail(n_to_addresses >= 1, false);
+
+        from_key = get_private_key_for_address(keyring, from_address);
+
+        if (from_key == NULL) {
+                ntb_set_error(error,
+                              &ntb_keyring_error,
+                              NTB_KEYRING_ERROR_UNKNOWN_FROM_ADDRESS,
+                              "The private key for the from address is not "
+                              "available");
+                return false;
+        }
+
+        content_id = keyring->next_message_content_id++;
+
+        ntb_store_save_message_content(NULL, content_id, content);
+
+        for (i = 0; i < n_to_addresses; i++) {
+                message = create_message(keyring,
+                                         from_key,
+                                         to_addresses + i,
+                                         content_encoding,
+                                         content_id);
+
+                message->state = NTB_KEYRING_MESSAGE_STATE_GENERATING_ACKDATA;
+                message->crypto_cookie =
+                        ntb_crypto_generate_ackdata(keyring->crypto,
+                                                    generate_ackdata_cb,
+                                                    message);
+        }
+
+        return true;
+}
+
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,
                        const char *label,
@@ -845,6 +1339,15 @@ free_pubkey_blobs(struct ntb_keyring *keyring)
         ntb_hash_table_free(keyring->pubkey_blob_table);
 }
 
+static void
+free_messages(struct ntb_keyring *keyring)
+{
+        struct ntb_keyring_message *message, *tmp;
+
+        ntb_list_for_each_safe(message, tmp, &keyring->messages, link)
+                free_message(message);
+}
+
 void
 ntb_keyring_free(struct ntb_keyring *keyring)
 {
@@ -856,6 +1359,7 @@ ntb_keyring_free(struct ntb_keyring *keyring)
 
         free_pubkey_blobs(keyring);
         cancel_tasks(keyring);
+        free_messages(keyring);
 
         for (i = 0; i < ntb_pointer_array_length(&keyring->keys); i++)
                 ntb_key_unref(ntb_pointer_array_get(&keyring->keys, i));
