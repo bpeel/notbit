@@ -39,6 +39,11 @@ struct ntb_ecc {
         BIGNUM bn, bn2;
         EC_GROUP *group;
         EC_POINT *pub_key_point;
+
+        /* Used only between encrypt_begin/end */
+        size_t ciphertext_offset;
+        uint8_t ecdh_keybuffer[SHA512_DIGEST_LENGTH];
+        EVP_CIPHER_CTX cipher_ctx;
 };
 
 static void
@@ -274,35 +279,28 @@ encode_pubkey(struct ntb_ecc *ecc,
 }
 
 void
-ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
-                           const EC_POINT *public_key,
-                           const uint8_t *data_in,
-                           size_t data_in_length,
-                           struct ntb_buffer *data_out)
+ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
+                                 const EC_POINT *public_key,
+                                 struct ntb_buffer *data_out)
 {
-        uint8_t ecdh_keybuffer[SHA512_DIGEST_LENGTH];
         EC_KEY *ephemeral_key;
         int ecdh_keylen;
         const EVP_CIPHER *cipher = EVP_aes_256_cbc();
-        EVP_CIPHER_CTX cipher_ctx;
+        size_t iv_offset;
         int int_result;
-        void *pointer_result;
         int iv_length;
-        int out_length;
-        size_t iv_offset, ciphertext_offset;
-        unsigned int hmac_len;
 
-        assert(EVP_CIPHER_key_length(cipher) == sizeof ecdh_keybuffer / 2);
+        assert(EVP_CIPHER_key_length(cipher) == sizeof ecc->ecdh_keybuffer / 2);
 
         ephemeral_key = ntb_ecc_create_random_key(ecc);
 
         ECDH_set_method(ephemeral_key, ECDH_OpenSSL());
-        ecdh_keylen = ECDH_compute_key(ecdh_keybuffer,
-                                       sizeof ecdh_keybuffer,
+        ecdh_keylen = ECDH_compute_key(ecc->ecdh_keybuffer,
+                                       sizeof ecc->ecdh_keybuffer,
                                        public_key,
                                        ephemeral_key,
                                        kdf_sha512);
-        assert(ecdh_keylen == sizeof ecdh_keybuffer);
+        assert(ecdh_keylen == sizeof ecc->ecdh_keybuffer);
 
         /* Add the initialisation vector to data_out */
         iv_offset = data_out->length;
@@ -317,22 +315,33 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
         EC_KEY_free(ephemeral_key);
 
         /* Add the ciphertext to data_out */
-        ciphertext_offset = data_out->length;
-        EVP_CIPHER_CTX_init(&cipher_ctx);
+        ecc->ciphertext_offset = data_out->length;
+        EVP_CIPHER_CTX_init(&ecc->cipher_ctx);
 
         /* The first half of the ecdh key is used for encryption */
-        int_result = EVP_EncryptInit_ex(&cipher_ctx,
+        int_result = EVP_EncryptInit_ex(&ecc->cipher_ctx,
                                         cipher,
                                         NULL, /* default implementation */
-                                        ecdh_keybuffer,
+                                        ecc->ecdh_keybuffer,
                                         data_out->data + iv_offset);
         assert(int_result);
+}
+
+void
+ntb_ecc_encrypt_update(struct ntb_ecc *ecc,
+                       const uint8_t *data_in,
+                       size_t data_in_length,
+                       struct ntb_buffer *data_out)
+{
+        const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+        int int_result;
+        int out_length;
 
         out_length = data_in_length + EVP_CIPHER_block_size(cipher);
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_EncryptUpdate(&cipher_ctx,
+        int_result = EVP_EncryptUpdate(&ecc->cipher_ctx,
                                        data_out->data + data_out->length,
                                        &out_length,
                                        data_in,
@@ -340,19 +349,30 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
         assert(int_result);
 
         data_out->length += out_length;
+}
+
+void
+ntb_ecc_encrypt_end(struct ntb_ecc *ecc,
+                    struct ntb_buffer *data_out)
+{
+        const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+        int int_result;
+        int out_length;
+        void *pointer_result;
+        unsigned int hmac_len;
 
         out_length = EVP_CIPHER_block_size(cipher);
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_EncryptFinal_ex(&cipher_ctx,
+        int_result = EVP_EncryptFinal_ex(&ecc->cipher_ctx,
                                          data_out->data + data_out->length,
                                          &out_length);
         assert(int_result);
 
         data_out->length += out_length;
 
-        EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+        EVP_CIPHER_CTX_cleanup(&ecc->cipher_ctx);
 
         /* Add the HMAC to data_out */
         ntb_buffer_ensure_size(data_out,
@@ -360,16 +380,29 @@ ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
         /* The second half of the ecdh key is used for the HMAC */
         hmac_len = data_out->size - data_out->length;
         pointer_result = HMAC(EVP_sha256(),
-                              ecdh_keybuffer + sizeof ecdh_keybuffer / 2,
-                              sizeof ecdh_keybuffer / 2,
-                              data_out->data + ciphertext_offset,
-                              data_out->length - ciphertext_offset,
+                              ecc->ecdh_keybuffer +
+                              sizeof ecc->ecdh_keybuffer / 2,
+                              sizeof ecc->ecdh_keybuffer / 2,
+                              data_out->data + ecc->ciphertext_offset,
+                              data_out->length - ecc->ciphertext_offset,
                               data_out->data + data_out->length,
                               &hmac_len);
         assert(pointer_result);
         assert(hmac_len == SHA256_DIGEST_LENGTH);
 
         data_out->length += SHA256_DIGEST_LENGTH;
+}
+
+void
+ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
+                           const EC_POINT *public_key,
+                           const uint8_t *data_in,
+                           size_t data_in_length,
+                           struct ntb_buffer *data_out)
+{
+        ntb_ecc_encrypt_with_point_begin(ecc, public_key, data_out);
+        ntb_ecc_encrypt_update(ecc, data_in, data_in_length, data_out);
+        ntb_ecc_encrypt_end(ecc, data_out);
 }
 
 static bool

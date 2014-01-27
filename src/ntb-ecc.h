@@ -65,6 +65,21 @@ void
 ntb_ecc_free(struct ntb_ecc *ecc);
 
 void
+ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
+                                 const EC_POINT *public_key,
+                                 struct ntb_buffer *data_out);
+
+void
+ntb_ecc_encrypt_update(struct ntb_ecc *ecc,
+                       const uint8_t *data_in,
+                       size_t data_in_length,
+                       struct ntb_buffer *data_out);
+
+void
+ntb_ecc_encrypt_end(struct ntb_ecc *ecc,
+                    struct ntb_buffer *data_out);
+
+void
 ntb_ecc_encrypt_with_point(struct ntb_ecc *ecc,
                            const EC_POINT *public_key,
                            const uint8_t *data_in,
