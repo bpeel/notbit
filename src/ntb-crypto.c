@@ -53,6 +53,7 @@ struct ntb_crypto {
 enum ntb_crypto_cookie_type {
         NTB_CRYPTO_COOKIE_CREATE_KEY,
         NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB,
+        NTB_CRYPTO_COOKIE_CREATE_MSG_BLOB,
         NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY,
         NTB_CRYPTO_COOKIE_DECRYPT_MSG,
         NTB_CRYPTO_COOKIE_GENERATE_ACKDATA
@@ -86,6 +87,14 @@ struct ntb_crypto_cookie {
                         struct ntb_key *key;
                         struct ntb_blob *blob;
                 } create_pubkey_blob;
+
+                struct {
+                        struct ntb_key *from_key;
+                        struct ntb_key *to_key;
+                        struct ntb_blob *content;
+                        struct ntb_blob *result;
+                        int64_t timestamp;
+                } create_msg_blob;
 
                 struct {
                         uint8_t version;
@@ -155,6 +164,16 @@ unref_cookie(struct ntb_crypto_cookie *cookie)
                                 ntb_key_unref(cookie->create_pubkey_blob.key);
                         if (cookie->create_pubkey_blob.blob)
                                 ntb_blob_unref(cookie->create_pubkey_blob.blob);
+                        break;
+                case NTB_CRYPTO_COOKIE_CREATE_MSG_BLOB:
+                        if (cookie->create_msg_blob.from_key)
+                                ntb_key_unref(cookie->create_msg_blob.from_key);
+                        if (cookie->create_msg_blob.to_key)
+                                ntb_key_unref(cookie->create_msg_blob.to_key);
+                        if (cookie->create_msg_blob.content)
+                                ntb_blob_unref(cookie->create_msg_blob.content);
+                        if (cookie->create_msg_blob.result)
+                                ntb_blob_unref(cookie->create_msg_blob.result);
                         break;
                 case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
                         if (cookie->create_public_key.key)
@@ -410,6 +429,55 @@ handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
 }
 
 static void
+handle_create_msg_blob(struct ntb_crypto_cookie *cookie)
+{
+        struct ntb_crypto *crypto = cookie->crypto;
+        struct ntb_key *from_key = cookie->create_msg_blob.from_key;
+        struct ntb_key *to_key = cookie->create_msg_blob.to_key;
+        struct ntb_blob *content = cookie->create_msg_blob.content;
+        const EC_POINT *encryption_key;
+        struct ntb_buffer signature;
+        struct ntb_buffer buf;
+
+        ntb_blob_dynamic_init(&buf, NTB_PROTO_INV_TYPE_MSG);
+
+        /* Leave space for the nonce. The caller will have to
+         * calculate this */
+        ntb_buffer_set_length(&buf, buf.length + sizeof (uint64_t));
+
+        ntb_proto_add_64(&buf, cookie->create_msg_blob.timestamp);
+        ntb_proto_add_var_int(&buf, to_key->address.stream);
+
+        encryption_key = EC_KEY_get0_public_key(to_key->encryption_key);
+
+        ntb_ecc_encrypt_with_point_begin(crypto->ecc,
+                                         encryption_key,
+                                         &buf);
+        ntb_ecc_encrypt_update(crypto->ecc,
+                               content->data,
+                               content->size,
+                               &buf);
+
+        ntb_buffer_init(&signature);
+
+        append_signature(&signature,
+                         from_key,
+                         content->data,
+                         content->size);
+
+        ntb_ecc_encrypt_update(crypto->ecc,
+                               signature.data,
+                               signature.length,
+                               &buf);
+
+        ntb_buffer_destroy(&signature);
+
+        ntb_ecc_encrypt_end(crypto->ecc, &buf);
+
+        cookie->create_msg_blob.result = ntb_blob_dynamic_end(&buf);
+}
+
+static void
 handle_create_public_key(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_crypto *crypto = cookie->crypto;
@@ -568,6 +636,7 @@ idle_cb(struct ntb_main_context_source *source,
         struct ntb_crypto *crypto = cookie->crypto;
         ntb_crypto_create_key_func create_key_func;
         ntb_crypto_create_pubkey_blob_func create_pubkey_blob_func;
+        ntb_crypto_create_msg_blob_func create_msg_blob_func;
         ntb_crypto_decrypt_msg_func decrypt_msg_func;
         ntb_crypto_generate_ackdata_func generate_ackdata_func;
 
@@ -580,6 +649,11 @@ idle_cb(struct ntb_main_context_source *source,
                 create_pubkey_blob_func = cookie->func;
                 create_pubkey_blob_func(cookie->create_pubkey_blob.blob,
                                         cookie->user_data);
+                break;
+        case NTB_CRYPTO_COOKIE_CREATE_MSG_BLOB:
+                create_msg_blob_func = cookie->func;
+                create_msg_blob_func(cookie->create_msg_blob.result,
+                                     cookie->user_data);
                 break;
         case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
                 create_key_func = cookie->func;
@@ -646,6 +720,9 @@ thread_func(void *user_data)
                                 break;
                         case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
                                 handle_create_pubkey_blob(cookie);
+                                break;
+                        case NTB_CRYPTO_COOKIE_CREATE_MSG_BLOB:
+                                handle_create_msg_blob(cookie);
                                 break;
                         case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
                                 handle_create_public_key(cookie);
@@ -739,6 +816,34 @@ ntb_crypto_create_pubkey_blob(struct ntb_crypto *crypto,
                             user_data);
         cookie->create_pubkey_blob.key = ntb_key_ref(key);
         cookie->create_pubkey_blob.blob = NULL;
+
+        pthread_mutex_unlock(&crypto->mutex);
+
+        return cookie;
+}
+
+struct ntb_crypto_cookie *
+ntb_crypto_create_msg_blob(struct ntb_crypto *crypto,
+                           int64_t timestamp,
+                           struct ntb_key *from_key,
+                           struct ntb_key *to_key,
+                           struct ntb_blob *content,
+                           ntb_crypto_create_msg_blob_func callback,
+                           void *user_data)
+{
+        struct ntb_crypto_cookie *cookie;
+
+        pthread_mutex_lock(&crypto->mutex);
+
+        cookie = new_cookie(crypto,
+                            NTB_CRYPTO_COOKIE_CREATE_MSG_BLOB,
+                            callback,
+                            user_data);
+        cookie->create_msg_blob.timestamp = timestamp;
+        cookie->create_msg_blob.from_key = ntb_key_ref(from_key);
+        cookie->create_msg_blob.to_key = ntb_key_ref(to_key);
+        cookie->create_msg_blob.content = ntb_blob_ref(content);
+        cookie->create_msg_blob.result = NULL;
 
         pthread_mutex_unlock(&crypto->mutex);
 
