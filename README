@@ -60,7 +60,7 @@ Importing addresses
 ===================
 
 Notbit doesn't currently have any interface to create
-addresses. However, it can import the addresses from the offical
+addresses. However, it can import the addresses from the official
 Bitmessage client. To do this, make sure Notbit is not currently
 running and then type:
 
