@@ -15,6 +15,8 @@ notbit_SOURCES = \
 	ntb-address.h \
 	ntb-base58.c \
 	ntb-base58.h \
+	ntb-base64.c \
+	ntb-base64.h \
 	ntb-blob.c \
 	ntb-blob.h \
 	ntb-buffer.c \

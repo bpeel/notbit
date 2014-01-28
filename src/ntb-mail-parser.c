@@ -24,6 +24,7 @@
 #include "ntb-buffer.h"
 #include "ntb-parse-content-type.h"
 #include "ntb-parse-addresses.h"
+#include "ntb-base64.h"
 
 struct ntb_error_domain
 ntb_mail_parser_error;
@@ -62,6 +63,11 @@ static struct {
         { "content-transfer-encoding", NTB_MAIL_PARSER_TRANSFER_ENCODING }
 };
 
+enum ntb_mail_parser_encoding {
+        NTB_MAIL_PARSER_ENCODING_RAW,
+        NTB_MAIL_PARSER_ENCODING_BASE64
+};
+
 struct ntb_mail_parser {
         enum ntb_mail_parser_state state;
         enum ntb_mail_parser_header current_header;
@@ -79,6 +85,10 @@ struct ntb_mail_parser {
         ntb_mail_parser_address_cb address_cb;
         ntb_mail_parser_data_cb data_cb;
         void *cb_user_data;
+
+        enum ntb_mail_parser_encoding encoding;
+
+        struct ntb_base64_data base64_data;
 };
 
 struct ntb_mail_parser *
@@ -98,6 +108,8 @@ ntb_mail_parser_new(ntb_mail_parser_address_cb address_cb,
         parser->had_content_type = false;
         parser->had_transfer_encoding = false;
         parser->had_subject = false;
+
+        parser->encoding = NTB_MAIL_PARSER_ENCODING_RAW;
 
         parser->data_cb = data_cb;
         parser->address_cb = address_cb;
@@ -407,8 +419,12 @@ handle_transfer_encoding(struct ntb_mail_parser *parser,
 
         parser->had_transfer_encoding = true;
 
-        if (!is_header(&parser->buffer, "7bit") &&
-            !is_header(&parser->buffer, "8bit")) {
+        if (is_header(&parser->buffer, "base64")) {
+                parser->encoding = NTB_MAIL_PARSER_ENCODING_BASE64;
+        } else if (is_header(&parser->buffer, "7bit") ||
+                   is_header(&parser->buffer, "8bit")) {
+                parser->encoding = NTB_MAIL_PARSER_ENCODING_RAW;
+        } else {
                 ntb_set_error(error,
                               &ntb_mail_parser_error,
                               NTB_MAIL_PARSER_ERROR_INVALID_TRANSFER_ENCODING,
@@ -480,6 +496,16 @@ handle_headers_end(struct ntb_mail_parser *parser,
         }
 
         parser->state = NTB_MAIL_PARSER_CONTENT;
+
+        switch (parser->encoding) {
+        case NTB_MAIL_PARSER_ENCODING_BASE64:
+                ntb_base64_decode_start(&parser->base64_data);
+                break;
+
+        case NTB_MAIL_PARSER_ENCODING_RAW:
+                break;
+        }
+
         return true;
 }
 
@@ -619,10 +645,10 @@ handle_check_continuation(struct ntb_mail_parser *parser,
 }
 
 static ssize_t
-handle_content(struct ntb_mail_parser *parser,
-               const uint8_t *data,
-               size_t length,
-               struct ntb_error **error)
+handle_content_raw(struct ntb_mail_parser *parser,
+                   const uint8_t *data,
+                   size_t length,
+                   struct ntb_error **error)
 {
         if (!parser->data_cb(NTB_MAIL_PARSER_EVENT_CONTENT,
                              data,
@@ -632,6 +658,63 @@ handle_content(struct ntb_mail_parser *parser,
                 return -1;
 
         return length;
+}
+
+static ssize_t
+handle_content_base64(struct ntb_mail_parser *parser,
+                      const uint8_t *data,
+                      size_t length_in,
+                      struct ntb_error **error)
+{
+        size_t length = length_in;
+        size_t chunk_size;
+        ssize_t got;
+        uint8_t buf[512];
+
+        while (length > 0) {
+                chunk_size = MIN(sizeof buf * 4 / 3, length);
+
+                got = ntb_base64_decode(&parser->base64_data,
+                                        data,
+                                        chunk_size,
+                                        buf,
+                                        error);
+
+                if (got == -1)
+                        return -1;
+
+                if (!parser->data_cb(NTB_MAIL_PARSER_EVENT_CONTENT,
+                                     buf,
+                                     got,
+                                     parser->cb_user_data,
+                                     error))
+                        return -1;
+
+
+                length -= chunk_size;
+                data += chunk_size;
+        }
+
+        return length_in;
+}
+
+static ssize_t
+handle_content(struct ntb_mail_parser *parser,
+               const uint8_t *data,
+               size_t length,
+               struct ntb_error **error)
+{
+        switch (parser->encoding) {
+        case NTB_MAIL_PARSER_ENCODING_BASE64:
+                return handle_content_base64(parser, data, length, error);
+
+        case NTB_MAIL_PARSER_ENCODING_RAW:
+                return handle_content_raw(parser, data, length, error);
+        }
+
+        assert(false);
+
+        return -1;
 }
 
 bool
@@ -698,6 +781,9 @@ bool
 ntb_mail_parser_end(struct ntb_mail_parser *parser,
                     struct ntb_error **error)
 {
+        ssize_t got;
+        uint8_t buf[3];
+
         if (parser->state != NTB_MAIL_PARSER_CONTENT) {
                 ntb_set_error(error,
                               &ntb_mail_parser_error,
@@ -705,6 +791,25 @@ ntb_mail_parser_end(struct ntb_mail_parser *parser,
                               "The mail ended before the end of the "
                               "headers was encountered");
                 return false;
+        }
+
+        switch (parser->encoding) {
+        case NTB_MAIL_PARSER_ENCODING_BASE64:
+                got = ntb_base64_decode_end(&parser->base64_data, buf, error);
+                if (got == -1)
+                        return false;
+
+                if (!parser->data_cb(NTB_MAIL_PARSER_EVENT_CONTENT,
+                                     buf,
+                                     got,
+                                     parser->cb_user_data,
+                                     error))
+                        return false;
+
+                break;
+
+        case NTB_MAIL_PARSER_ENCODING_RAW:
+                break;
         }
 
         return true;
