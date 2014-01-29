@@ -89,9 +89,8 @@ be rejected.
 Currently the email must be in either UTF-8 or us-ascii. The charset
 attribute in the content-type will be checked to verify this. It is
 expected that a later version will accept other character sets and
-convert them to UTF-8 on the fly. It currently also only supports the
-transfer encodings 7bit, 8bit and base64. It is expected that
-quoted-printable will be added shortly as that is widely used.
+convert them to UTF-8 on the fly. The content transfer encoding must
+be either 7bit, 8bit, base64 or quoted-printable.
 
 If a subject header is present then the message will be sent with the
 ‘SIMPLE’ encoding rather than ‘TRIVIAL’ and the subject will be

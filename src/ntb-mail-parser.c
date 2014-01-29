@@ -25,6 +25,7 @@
 #include "ntb-parse-content-type.h"
 #include "ntb-parse-addresses.h"
 #include "ntb-base64.h"
+#include "ntb-quoted-printable.h"
 
 struct ntb_error_domain
 ntb_mail_parser_error;
@@ -65,7 +66,8 @@ static struct {
 
 enum ntb_mail_parser_encoding {
         NTB_MAIL_PARSER_ENCODING_RAW,
-        NTB_MAIL_PARSER_ENCODING_BASE64
+        NTB_MAIL_PARSER_ENCODING_BASE64,
+        NTB_MAIL_PARSER_ENCODING_QUOTED_PRINTABLE
 };
 
 struct ntb_mail_parser {
@@ -88,7 +90,10 @@ struct ntb_mail_parser {
 
         enum ntb_mail_parser_encoding encoding;
 
-        struct ntb_base64_data base64_data;
+        union {
+                struct ntb_base64_data base64_data;
+                struct ntb_quoted_printable_data qp_data;
+        };
 };
 
 struct ntb_mail_parser *
@@ -421,6 +426,8 @@ handle_transfer_encoding(struct ntb_mail_parser *parser,
 
         if (is_header(&parser->buffer, "base64")) {
                 parser->encoding = NTB_MAIL_PARSER_ENCODING_BASE64;
+        } else if (is_header(&parser->buffer, "quoted-printable")) {
+                parser->encoding = NTB_MAIL_PARSER_ENCODING_QUOTED_PRINTABLE;
         } else if (is_header(&parser->buffer, "7bit") ||
                    is_header(&parser->buffer, "8bit")) {
                 parser->encoding = NTB_MAIL_PARSER_ENCODING_RAW;
@@ -500,6 +507,10 @@ handle_headers_end(struct ntb_mail_parser *parser,
         switch (parser->encoding) {
         case NTB_MAIL_PARSER_ENCODING_BASE64:
                 ntb_base64_decode_start(&parser->base64_data);
+                break;
+
+        case NTB_MAIL_PARSER_ENCODING_QUOTED_PRINTABLE:
+                ntb_quoted_printable_decode_start(&parser->qp_data);
                 break;
 
         case NTB_MAIL_PARSER_ENCODING_RAW:
@@ -690,6 +701,42 @@ handle_content_base64(struct ntb_mail_parser *parser,
                                      error))
                         return -1;
 
+                length -= chunk_size;
+                data += chunk_size;
+        }
+
+        return length_in;
+}
+
+static ssize_t
+handle_content_quoted_printable(struct ntb_mail_parser *parser,
+                                const uint8_t *data,
+                                size_t length_in,
+                                struct ntb_error **error)
+{
+        size_t length = length_in;
+        size_t chunk_size;
+        ssize_t got;
+        uint8_t buf[512];
+
+        while (length > 0) {
+                chunk_size = MIN(sizeof buf, length);
+
+                got = ntb_quoted_printable_decode(&parser->qp_data,
+                                                  data,
+                                                  chunk_size,
+                                                  buf,
+                                                  error);
+
+                if (got == -1)
+                        return -1;
+
+                if (!parser->data_cb(NTB_MAIL_PARSER_EVENT_CONTENT,
+                                     buf,
+                                     got,
+                                     parser->cb_user_data,
+                                     error))
+                        return -1;
 
                 length -= chunk_size;
                 data += chunk_size;
@@ -707,6 +754,12 @@ handle_content(struct ntb_mail_parser *parser,
         switch (parser->encoding) {
         case NTB_MAIL_PARSER_ENCODING_BASE64:
                 return handle_content_base64(parser, data, length, error);
+
+        case NTB_MAIL_PARSER_ENCODING_QUOTED_PRINTABLE:
+                return handle_content_quoted_printable(parser,
+                                                       data,
+                                                       length,
+                                                       error);
 
         case NTB_MAIL_PARSER_ENCODING_RAW:
                 return handle_content_raw(parser, data, length, error);
@@ -807,6 +860,9 @@ ntb_mail_parser_end(struct ntb_mail_parser *parser,
                         return false;
 
                 break;
+
+        case NTB_MAIL_PARSER_ENCODING_QUOTED_PRINTABLE:
+                return ntb_quoted_printable_decode_end(&parser->qp_data, error);
 
         case NTB_MAIL_PARSER_ENCODING_RAW:
                 break;
