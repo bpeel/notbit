@@ -70,6 +70,7 @@ struct ntb_ipc_connection {
         struct ntb_buffer fd_queue;
 
         struct ntb_list emails;
+        struct ntb_list tasks;
 
         struct ntb_list link;
 
@@ -94,6 +95,16 @@ struct ntb_ipc_email {
         struct ntb_mail_parser *parser;
 
         struct ntb_list link;
+};
+
+struct ntb_ipc_task {
+        struct ntb_ipc_connection *conn;
+
+        struct ntb_keyring_cookie *keyring_cookie;
+
+        struct ntb_list link;
+
+        int request_id;
 };
 
 struct ntb_ipc_command {
@@ -137,13 +148,30 @@ remove_email(struct ntb_ipc_email *email)
 }
 
 static void
-remove_connection(struct ntb_ipc_connection *conn)
+remove_emails(struct ntb_ipc_connection *conn)
 {
         struct ntb_ipc_email *email, *tmp;
 
         ntb_list_for_each_safe(email, tmp, &conn->emails, link)
                 remove_email(email);
+}
 
+static void
+cancel_tasks(struct ntb_ipc_connection *conn)
+{
+        struct ntb_ipc_task *task, *tmp;
+
+        ntb_list_for_each_safe(task, tmp, &conn->tasks, link) {
+                ntb_keyring_cancel_task(task->keyring_cookie);
+                ntb_free(task);
+        }
+}
+
+static void
+remove_connection(struct ntb_ipc_connection *conn)
+{
+        remove_emails(conn);
+        cancel_tasks(conn);
         close_fd_queue(conn);
         ntb_buffer_destroy(&conn->fd_queue);
         ntb_buffer_destroy(&conn->inbuf);
@@ -166,7 +194,8 @@ update_poll(struct ntb_ipc_connection *conn)
         if (!conn->write_finished &&
             conn->read_finished &&
             conn->outbuf.length == 0 &&
-            ntb_list_empty(&conn->emails)) {
+            ntb_list_empty(&conn->emails) &&
+            ntb_list_empty(&conn->tasks)) {
                 if (shutdown(conn->sock, SHUT_WR) == -1) {
                         ntb_log("shutdown for IPC connection failed: %s",
                                 strerror(errno));
@@ -472,9 +501,142 @@ handle_email_command(struct ntb_ipc_connection *conn,
         return true;
 }
 
+static void
+create_key_cb(struct ntb_key *key,
+              void *user_data)
+{
+        struct ntb_ipc_task *task = user_data;
+        struct ntb_ipc_connection *conn = task->conn;
+        uint32_t request_id = task->request_id;
+        char address[NTB_ADDRESS_MAX_LENGTH + 1];
+
+        ntb_list_remove(&task->link);
+        ntb_free(task);
+
+        ntb_address_encode(&key->address, address);
+
+        begin_send_response(conn, request_id, NTB_IPC_PROTO_STATUS_SUCCESS);
+        ntb_proto_add_var_int(&conn->outbuf, key->address.version);
+        ntb_proto_add_var_int(&conn->outbuf, key->address.stream);
+        ntb_buffer_append(&conn->outbuf,
+                          key->address.ripe,
+                          RIPEMD160_DIGEST_LENGTH);
+        ntb_proto_add_var_str(&conn->outbuf, address);
+        end_send_response(conn);
+}
+
+static bool
+label_is_valid(const struct ntb_proto_var_str *label_str)
+{
+        size_t i;
+
+        /* The label can't contain newline characters or it will break
+         * the keys.dat file. We might as well disallow all control
+         * characters */
+        for (i = 0; i < label_str->length; i++) {
+                if ((label_str->data[i] & 0xff) < ' ')
+                        return false;
+        }
+
+        return true;
+}
+
+static bool
+handle_keygen_command(struct ntb_ipc_connection *conn,
+                      uint32_t request_id,
+                      const uint8_t *data,
+                      uint32_t command_length)
+{
+        struct ntb_ipc *ipc = conn->ipc;
+        struct ntb_proto_var_str label_str;
+        struct ntb_ipc_task *task;
+        uint64_t version, stream;
+        ssize_t header_size;
+        uint8_t zeroes;
+        char *label;
+
+        header_size = ntb_proto_get_command(data,
+                                            command_length,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &version,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &stream,
+
+                                            NTB_PROTO_ARGUMENT_8,
+                                            &zeroes,
+
+                                            NTB_PROTO_ARGUMENT_VAR_STR,
+                                            &label_str,
+
+                                            NTB_PROTO_ARGUMENT_END);
+
+        if (header_size == -1) {
+                return send_response(conn,
+                                     request_id,
+                                     NTB_IPC_PROTO_STATUS_INVALID_COMMAND,
+                                     "The keygen command is invalid");
+        }
+
+        if (version == 0) {
+                version = 4;
+        } else if (version < 2 || version > 4) {
+                return send_response(conn,
+                                     request_id,
+                                     NTB_IPC_PROTO_STATUS_UNSUPPORTED,
+                                     "The requested key version is not "
+                                     "supported");
+        }
+
+        if (stream != 1) {
+                return send_response(conn,
+                                     request_id,
+                                     NTB_IPC_PROTO_STATUS_UNSUPPORTED,
+                                     "The requested stream is not supported");
+        }
+
+        if (zeroes > 2) {
+                return send_response(conn,
+                                     request_id,
+                                     NTB_IPC_PROTO_STATUS_UNSUPPORTED,
+                                     "The requested number of zeroes is not "
+                                     "supported");
+        }
+
+        if (!label_is_valid(&label_str)) {
+                return send_response(conn,
+                                     request_id,
+                                     NTB_IPC_PROTO_STATUS_INVALID_COMMAND,
+                                     "The new key label contains "
+                                     "invalid characters");
+        }
+
+        task = ntb_alloc(sizeof *task);
+        task->request_id = request_id;
+        task->conn = conn;
+
+        label = ntb_alloc(label_str.length + 1);
+        memcpy(label, label_str.data, label_str.length);
+        label[label_str.length] = '\0';
+
+        task->keyring_cookie = ntb_keyring_create_key(ipc->keyring,
+                                                      label,
+                                                      zeroes,
+                                                      create_key_cb,
+                                                      task);
+
+        ntb_free(label);
+
+        ntb_list_insert(&conn->tasks, &task->link);
+
+        return true;
+}
+
 static struct ntb_ipc_command
 commands[] = {
-        { "email", handle_email_command }
+        { "email", handle_email_command },
+        { "keygen", handle_keygen_command }
 };
 
 
@@ -713,6 +875,7 @@ listen_source_cb(struct ntb_main_context_source *source,
         ntb_buffer_init(&conn->fd_queue);
 
         ntb_list_init(&conn->emails);
+        ntb_list_init(&conn->tasks);
 
         conn->source = ntb_main_context_add_poll(NULL,
                                                  sock,

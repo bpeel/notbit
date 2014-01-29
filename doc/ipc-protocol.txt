@@ -102,3 +102,38 @@ other clients conforming to the protocol.
 
 The response is sent immediately after the email is parsed and it does
 not wait until the message hits the network and is actually sent.
+
+== ‘keygen’ command
+
+The keygen command generates a new address. The payload of the request
+is like this:
+
+┌──┬──────────┬────────────┬────────────────────────────────────────────────┐
+│? │version   │var_int     │The version number to use for the public key or │
+│  │          │            │zero to use the latest version.                 │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │stream    │var_int     │The stream number that the address should be on.│
+│  │          │            │This must be 1.                                 │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│1 │zeroes    │uchar       │Minimum number of leading zeroes to have in the │
+│  │          │            │address. Only 0, 1 or 2 will be accepted. A     │
+│  │          │            │higher number will make the address shorter.    │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │label     │var_str     │A name for the key                              │
+└──┴──────────┴────────────┴────────────────────────────────────────────────┘
+
+If the status code in the response is zero then it will have the
+following data:
+
+┌──┬──────────┬────────────┬────────────────────────────────────────────────┐
+│? │version   │var_int     │The version number of the generated key         │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │stream    │var_int     │The stream number that the address is be on     │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│20│ripe      │uchar[]     │The RIPE of the public keys combined with the   │
+│  │          │            │version number and stream. See the Bitmessage   │
+│  │          │            │protocol description to see how this is         │
+│  │          │            │calculated.                                     │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │address   │var_str     │The human-readable address as ASCII characters  │
+└──┴──────────┴────────────┴────────────────────────────────────────────────┘
