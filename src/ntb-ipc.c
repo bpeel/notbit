@@ -72,6 +72,9 @@ struct ntb_ipc_connection {
         struct ntb_list emails;
 
         struct ntb_list link;
+
+        /* Used for building up a response command */
+        size_t response_old_length;
 };
 
 /* This represents an email that is being read from a file descriptor
@@ -210,6 +213,26 @@ process_control_data(struct ntb_ipc_connection *conn,
         return true;
 }
 
+static void
+begin_send_response(struct ntb_ipc_connection *conn,
+                    uint32_t request_id,
+                    enum ntb_ipc_proto_status status)
+{
+        conn->response_old_length = conn->outbuf.length;
+
+        ntb_ipc_proto_begin_command(&conn->outbuf, "response", request_id);
+
+        ntb_proto_add_32(&conn->outbuf, status);
+}
+
+static bool
+end_send_response(struct ntb_ipc_connection *conn)
+{
+        ntb_ipc_proto_end_command(&conn->outbuf, conn->response_old_length);
+
+        return update_poll(conn);
+}
+
 static bool
 send_response(struct ntb_ipc_connection *conn,
               uint32_t request_id,
@@ -217,35 +240,15 @@ send_response(struct ntb_ipc_connection *conn,
               const char *format,
               ...)
 {
-        uint32_t command_length;
-        size_t old_length;
         va_list ap;
 
-        request_id = NTB_UINT32_TO_BE(request_id);
+        begin_send_response(conn, request_id, status);
 
-        ntb_buffer_append(&conn->outbuf, "response\0\0\0", 12);
-        ntb_buffer_append(&conn->outbuf, &request_id, sizeof request_id);
+        va_start(ap, format);
+        ntb_buffer_append_vprintf(&conn->outbuf, format, ap);
+        va_end(ap);
 
-        /* Reserve space for the length */
-        ntb_buffer_set_length(&conn->outbuf, conn->outbuf.length + 4);
-        old_length = conn->outbuf.length;
-
-        ntb_proto_add_32(&conn->outbuf, status);
-
-        if (format) {
-                va_start(ap, format);
-                ntb_buffer_append_vprintf(&conn->outbuf, format, ap);
-                va_end(ap);
-        }
-
-        command_length = conn->outbuf.length - old_length;
-        command_length = NTB_UINT32_TO_BE(command_length);
-
-        memcpy(conn->outbuf.data + old_length - 4,
-               &command_length,
-               sizeof command_length);
-
-        return update_poll(conn);
+        return end_send_response(conn);
 }
 
 static void
@@ -274,10 +277,10 @@ send_email(struct ntb_ipc_email *email)
         ntb_blob_unref(content);
 
         if (res) {
-                send_response(conn,
-                              email->request_id,
-                              NTB_IPC_PROTO_STATUS_SUCCESS,
-                              NULL);
+                begin_send_response(conn,
+                                    email->request_id,
+                                    NTB_IPC_PROTO_STATUS_SUCCESS);
+                end_send_response(conn);
         } else {
                 if (error->domain == &ntb_keyring_error &&
                     error->code == NTB_KEYRING_ERROR_UNKNOWN_FROM_ADDRESS)
