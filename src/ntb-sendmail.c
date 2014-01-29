@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "ntb-sendmail.h"
 #include "ntb-util.h"
 #include "ntb-ipc-sockaddr.h"
 #include "ntb-file-error.h"
@@ -287,7 +288,7 @@ read_commands(struct response_state *state,
 }
 
 int
-main(int argc, char **argv)
+ntb_sendmail(int argc, char **argv)
 {
         struct ntb_error *error = NULL;
         struct response_state response_state;

@@ -1,6 +1,5 @@
 bin_PROGRAMS = \
 	notbit \
-	notbit-sendmail \
 	$(NULL)
 
 noinst_PROGRAMS = dump-store
@@ -27,6 +26,8 @@ notbit_SOURCES = \
 	ntb-cpus.h \
 	ntb-crypto.c \
 	ntb-crypto.h \
+	ntb-daemon.c \
+	ntb-daemon.h \
 	ntb-ecc.c \
 	ntb-ecc.h \
 	ntb-error.c \
@@ -70,6 +71,8 @@ notbit_SOURCES = \
 	ntb-quoted-printable.c \
 	ntb-quoted-printable.h \
 	ntb-ref-count.h \
+	ntb-sendmail.c \
+	ntb-sendmail.h \
 	ntb-signal.h \
 	ntb-slab.c \
 	ntb-slab.h \
@@ -90,26 +93,6 @@ notbit_LDFLAGS = \
 	-pthread \
 	$(NULL)
 
-notbit_sendmail_SOURCES = \
-	ntb-buffer.c \
-	ntb-buffer.h \
-	ntb-error.c \
-	ntb-error.h \
-	ntb-file-error.c \
-	ntb-file-error.h \
-	ntb-sendmail.c \
-	ntb-ipc-proto.h \
-	ntb-ipc-sockaddr.c \
-	ntb-ipc-sockaddr.h \
-	ntb-util.c \
-	ntb-util.h \
-	$(NULL)
-
-notbit_sendmail_LDFLAGS = \
-	$(NOTBIT_EXTRA_LIBS) \
-	-pthread \
-	$(NULL)
-
 dump_store_SOURCES = \
 	ntb-buffer.c \
 	ntb-buffer.h \
@@ -120,4 +103,23 @@ dump_store_SOURCES = \
 
 dump_store_LDFLAGS = \
 	-pthread \
+	$(NULL)
+
+NOTBIT_LINKS = \
+	notbit-sendmail$(EXEEXT) \
+	$(NULL)
+
+notbit-sendmail$(EXEEXT): notbit
+	$(AM_V_GEN)$(RM) $@ && $(LN_S) $< $@
+
+install-exec-hook:
+	for x in $(NOTBIT_LINKS); do \
+	  $(RM) $(DESTDIR)$(bindir)/$$x; \
+	  $(LN_S) notbit $(DESTDIR)$(bindir)/$$x || exit 1; \
+	done
+
+all-local: $(NOTBIT_LINKS)
+
+CLEANFILES = \
+	$(NOTBIT_LINKS) \
 	$(NULL)

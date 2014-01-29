@@ -7,6 +7,7 @@ AM_CONFIG_HEADER([config.h])
 AC_GNU_SOURCE
 
 AC_PROG_CC
+AC_PROG_LN_S
 
 AM_INIT_AUTOMAKE([1.9 foreign no-dist-gzip dist-xz tar-ustar])
 

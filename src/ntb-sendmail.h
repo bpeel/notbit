@@ -16,30 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "config.h"
-
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-#include "ntb-daemon.h"
-#include "ntb-sendmail.h"
+#ifndef NTB_SENDMAIL_H
+#define NTB_SENDMAIL_H
 
 int
-main(int argc, char **argv)
-{
-        const char *bn;
+ntb_sendmail(int argc, char **argv);
 
-        for (bn = argv[0] + strlen(argv[0]);
-             bn > argv[0] && bn[-1] != '/';
-             bn--);
-
-        if (!strcmp(bn, "notbit-sendmail")) {
-                return ntb_sendmail(argc, argv);
-        } else if (!strcmp(bn, "notbit")) {
-                return ntb_daemon(argc, argv);
-        } else {
-                fprintf(stderr, "Unknown executable name “%s”\n", argv[0]);
-                return EXIT_FAILURE;
-        }
-}
+#endif /* NTB_SENDMAIL_H */
