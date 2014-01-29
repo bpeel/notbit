@@ -38,6 +38,8 @@ notbit_SOURCES = \
 	ntb-hash-table.h \
 	ntb-ipc.c \
 	ntb-ipc.h \
+	ntb-ipc-client.c \
+	ntb-ipc-client.h \
 	ntb-ipc-proto.c \
 	ntb-ipc-proto.h \
 	ntb-ipc-sockaddr.c \
