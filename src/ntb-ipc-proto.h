@@ -19,6 +19,8 @@
 #ifndef NTB_IPC_PROTO_H
 #define NTB_IPC_PROTO_H
 
+#include "ntb-buffer.h"
+
 enum ntb_ipc_proto_status {
         NTB_IPC_PROTO_STATUS_SUCCESS = 0,
         NTB_IPC_PROTO_STATUS_GENERIC_ERROR,
@@ -27,5 +29,14 @@ enum ntb_ipc_proto_status {
         NTB_IPC_PROTO_STATUS_INVALID_EMAIL,
         NTB_IPC_PROTO_STATUS_UNKNOWN_FROM_ADDRESS
 };
+
+void
+ntb_ipc_proto_begin_command(struct ntb_buffer *buffer,
+                            const char *name,
+                            uint32_t request_id);
+
+void
+ntb_ipc_proto_end_command(struct ntb_buffer *buffer,
+                          size_t command_start);
 
 #endif /* NTB_IPC_PROTO_H */
