@@ -1249,6 +1249,8 @@ create_message(struct ntb_keyring *keyring,
 
         message->pow_cookie = NULL;
         message->crypto_cookie = NULL;
+        message->store_cookie = NULL;
+        message->blob = NULL;
 
         message->last_send_time = 0;
 
