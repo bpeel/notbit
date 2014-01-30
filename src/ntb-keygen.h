@@ -16,28 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef NTB_IPC_PROTO_H
-#define NTB_IPC_PROTO_H
+#ifndef NTB_KEYGEN_H
+#define NTB_KEYGEN_H
 
-#include "ntb-buffer.h"
+int
+ntb_keygen(int argc, char **argv);
 
-enum ntb_ipc_proto_status {
-        NTB_IPC_PROTO_STATUS_SUCCESS = 0,
-        NTB_IPC_PROTO_STATUS_GENERIC_ERROR,
-        NTB_IPC_PROTO_STATUS_INVALID_COMMAND,
-        NTB_IPC_PROTO_STATUS_FD_ERROR,
-        NTB_IPC_PROTO_STATUS_INVALID_EMAIL,
-        NTB_IPC_PROTO_STATUS_UNKNOWN_FROM_ADDRESS,
-        NTB_IPC_PROTO_STATUS_UNSUPPORTED
-};
-
-void
-ntb_ipc_proto_begin_command(struct ntb_buffer *buffer,
-                            const char *name,
-                            uint32_t request_id);
-
-void
-ntb_ipc_proto_end_command(struct ntb_buffer *buffer,
-                          size_t command_start);
-
-#endif /* NTB_IPC_PROTO_H */
+#endif /* NTB_KEYGEN_H */

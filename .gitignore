@@ -22,6 +22,7 @@
 /src/Makefile.in
 /src/notbit
 /src/notbit-sendmail
+/src/notbit-keygen
 /src/dump-store
 
 *.o

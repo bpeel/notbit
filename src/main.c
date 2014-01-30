@@ -24,6 +24,7 @@
 
 #include "ntb-daemon.h"
 #include "ntb-sendmail.h"
+#include "ntb-keygen.h"
 
 int
 main(int argc, char **argv)
@@ -36,6 +37,8 @@ main(int argc, char **argv)
 
         if (!strcmp(bn, "notbit-sendmail")) {
                 return ntb_sendmail(argc, argv);
+        } else if (!strcmp(bn, "notbit-keygen")) {
+                return ntb_keygen(argc, argv);
         } else if (!strcmp(bn, "notbit")) {
                 return ntb_daemon(argc, argv);
         } else {

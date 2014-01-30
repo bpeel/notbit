@@ -46,6 +46,8 @@ notbit_SOURCES = \
 	ntb-ipc-sockaddr.h \
 	ntb-key.c \
 	ntb-key.h \
+	ntb-keygen.c \
+	ntb-keygen.h \
 	ntb-keyring.c \
 	ntb-keyring.h \
 	ntb-list.c \
@@ -110,9 +112,13 @@ dump_store_LDFLAGS = \
 
 NOTBIT_LINKS = \
 	notbit-sendmail$(EXEEXT) \
+	notbit-keygen$(EXEEXT) \
 	$(NULL)
 
 notbit-sendmail$(EXEEXT): notbit
+	$(AM_V_GEN)$(RM) $@ && $(LN_S) $< $@
+
+notbit-keygen$(EXEEXT): notbit
 	$(AM_V_GEN)$(RM) $@ && $(LN_S) $< $@
 
 install-exec-hook:

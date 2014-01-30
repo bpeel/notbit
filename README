@@ -56,13 +56,26 @@ can see the logging messages by typing:
 If you want to exit the daemon you can type ‘killall notbit’. This
 will do a graceful shutdown.
 
+Creating an address
+===================
+
+Once Notbit is running you can type ‘notbit-keygen’ to create a new
+address. The new address will be printed on the standard out. The
+private keys for the address are saved in notbit's config files so you
+can immediately start receiving messages to this address. If you want
+to spend a bit of extra processing time in order to get a shorter
+address you can also pass the ‘-z’ option to notbit-keygen. The
+‘-l <label>’ option can be used to specify a label for the key. There
+are also other less useful options which can be seen in the help by
+typing ‘notbit-keygen -h’.
+
 Importing addresses
 ===================
 
-Notbit doesn't currently have any interface to create
-addresses. However, it can import the addresses from the official
-Bitmessage client. To do this, make sure Notbit is not currently
-running and then type:
+If you already have some addresses from the official PyBitmessage
+client you can import these directly by copying over the keys.dat.
+file. To do this, make sure Notbit is not currently running and then
+type:
 
  cp ~/.config/PyBitmessage/keys.dat ~/.local/share/notbit/
 
