@@ -25,6 +25,8 @@
 
 #include "ntb-address.h"
 #include "ntb-base58.h"
+#include "ntb-buffer.h"
+#include "ntb-proto.h"
 #include "ntb-ecc.h"
 
 static void
@@ -179,4 +181,40 @@ ntb_address_from_network_keys(struct ntb_address *address,
         SHA512_Final(sha_hash, &sha_ctx);
 
         RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address->ripe);
+}
+
+void
+ntb_address_get_tag(const struct ntb_address *address,
+                    uint8_t *tag,
+                    uint8_t *tag_private_key)
+{
+        struct ntb_buffer buffer;
+        uint8_t hash1[SHA512_DIGEST_LENGTH];
+        uint8_t hash2[SHA512_DIGEST_LENGTH];
+        SHA512_CTX sha_ctx;
+
+        ntb_buffer_init(&buffer);
+        ntb_proto_add_var_int(&buffer, address->version);
+        ntb_proto_add_var_int(&buffer, address->stream);
+
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, buffer.data, buffer.length);
+
+        ntb_buffer_destroy(&buffer);
+
+        SHA512_Update(&sha_ctx, address->ripe, RIPEMD160_DIGEST_LENGTH);
+        SHA512_Final(hash1, &sha_ctx);
+
+        SHA512_Init(&sha_ctx);
+        SHA512_Update(&sha_ctx, hash1, SHA512_DIGEST_LENGTH);
+        SHA512_Final(hash2, &sha_ctx);
+
+        if (tag) {
+                memcpy(tag,
+                       hash2 + NTB_ECC_PRIVATE_KEY_SIZE,
+                       NTB_ADDRESS_TAG_SIZE);
+        }
+        if (tag_private_key) {
+                memcpy(tag_private_key, hash2, NTB_ECC_PRIVATE_KEY_SIZE);
+        }
 }

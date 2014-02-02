@@ -41,6 +41,8 @@ struct ntb_address {
  */
 #define NTB_ADDRESS_MAX_LENGTH 39
 
+#define NTB_ADDRESS_TAG_SIZE 32
+
 void
 ntb_address_encode(const struct ntb_address *address,
                    char *output);
@@ -59,5 +61,10 @@ ntb_address_from_network_keys(struct ntb_address *address,
                               uint8_t stream,
                               const uint8_t *public_signing_key,
                               const uint8_t *public_encryption_key);
+
+void
+ntb_address_get_tag(const struct ntb_address *address,
+                    uint8_t *tag,
+                    uint8_t *tag_private_key);
 
 #endif /* NTB_ADDRESS_H */

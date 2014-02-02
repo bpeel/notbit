@@ -33,13 +33,11 @@
  * thread-safe so that the key can be passed off to the store thread
  * to be written to disk. */
 
-#define NTB_KEY_TAG_SIZE 32
-
 struct ntb_key {
         struct ntb_ref_count ref_count;
 
         struct ntb_address address;
-        uint8_t tag[NTB_KEY_TAG_SIZE];
+        uint8_t tag[NTB_ADDRESS_TAG_SIZE];
         uint8_t tag_private_key[NTB_ECC_PRIVATE_KEY_SIZE];
 
         char *label;

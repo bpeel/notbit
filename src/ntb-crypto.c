@@ -368,7 +368,7 @@ create_v4_key(struct ntb_crypto *crypto,
                           behaviors_offset);
         ntb_buffer_append(&encrypted_buffer,
                           key->tag,
-                          NTB_KEY_TAG_SIZE);
+                          NTB_ADDRESS_TAG_SIZE);
 
         ntb_ecc_encrypt_with_point(crypto->ecc,
                                    tag_public_key_point,

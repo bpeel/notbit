@@ -28,34 +28,6 @@
 #include "ntb-buffer.h"
 #include "ntb-proto.h"
 
-static void
-generate_tag(struct ntb_key *key)
-{
-        struct ntb_buffer buffer;
-        uint8_t hash1[SHA512_DIGEST_LENGTH];
-        uint8_t hash2[SHA512_DIGEST_LENGTH];
-        SHA512_CTX sha_ctx;
-
-        ntb_buffer_init(&buffer);
-        ntb_proto_add_var_int(&buffer, key->address.version);
-        ntb_proto_add_var_int(&buffer, key->address.stream);
-
-        SHA512_Init(&sha_ctx);
-        SHA512_Update(&sha_ctx, buffer.data, buffer.length);
-
-        ntb_buffer_destroy(&buffer);
-
-        SHA512_Update(&sha_ctx, key->address.ripe, RIPEMD160_DIGEST_LENGTH);
-        SHA512_Final(hash1, &sha_ctx);
-
-        SHA512_Init(&sha_ctx);
-        SHA512_Update(&sha_ctx, hash1, SHA512_DIGEST_LENGTH);
-        SHA512_Final(hash2, &sha_ctx);
-
-        memcpy(key->tag_private_key, hash2, NTB_ECC_PRIVATE_KEY_SIZE);
-        memcpy(key->tag, hash2 + NTB_ECC_PRIVATE_KEY_SIZE, NTB_KEY_TAG_SIZE);
-}
-
 static struct ntb_key *
 new_key(const char *label,
         uint64_t version,
@@ -110,7 +82,7 @@ ntb_key_new_with_public(struct ntb_ecc *ecc,
 
         memcpy(key->address.ripe, address->ripe, RIPEMD160_DIGEST_LENGTH);
 
-        generate_tag(key);
+        ntb_address_get_tag(&key->address, key->tag, key->tag_private_key);
 
         return key;
 }
@@ -153,7 +125,7 @@ ntb_key_new(struct ntb_ecc *ecc,
 
         RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, key->address.ripe);
 
-        generate_tag(key);
+        ntb_address_get_tag(&key->address, key->tag, key->tag_private_key);
 
         return key;
 }

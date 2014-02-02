@@ -25,6 +25,7 @@
 #include "ntb-error.h"
 #include "ntb-key.h"
 #include "ntb-blob.h"
+#include "ntb-address.h"
 
 struct ntb_crypto;
 

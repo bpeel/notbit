@@ -139,7 +139,7 @@ struct ntb_keyring_pubkey_blob {
 
 _Static_assert(RIPEMD160_DIGEST_LENGTH <= NTB_PROTO_HASH_LENGTH,
                "The ripe is too long to fit in a hash");
-_Static_assert(NTB_KEY_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
+_Static_assert(NTB_ADDRESS_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
                "The tag is too long to fit in a hash");
 
 /* Time in minutes between each garbage collection run */
@@ -378,7 +378,7 @@ handle_getpubkey_with_tag(struct ntb_keyring *keyring,
                 if (!ntb_key_has_private(key))
                         continue;
 
-                if (!memcmp(key->tag, tag, NTB_KEY_TAG_SIZE)) {
+                if (!memcmp(key->tag, tag, NTB_ADDRESS_TAG_SIZE)) {
                         if (key->address.version != address_version ||
                             key->address.stream != stream_number) {
                                 ntb_log("getpubkey requested for key with the "
@@ -444,7 +444,7 @@ handle_getpubkey(struct ntb_keyring *keyring,
                                            stream_number,
                                            ripe_or_tag);
         } else {
-                if (blob->size - header_length < NTB_KEY_TAG_SIZE) {
+                if (blob->size - header_length < NTB_ADDRESS_TAG_SIZE) {
                         ntb_log("Invalid getpubkey message received");
                         return;
                 }
@@ -478,9 +478,9 @@ handle_pubkey(struct ntb_keyring *keyring,
                 memcpy(pubkey_blob->ripe_or_tag,
                        pubkey.tag,
                        NTB_PROTO_HASH_LENGTH);
-                memset(pubkey_blob->ripe_or_tag + NTB_KEY_TAG_SIZE,
+                memset(pubkey_blob->ripe_or_tag + NTB_ADDRESS_TAG_SIZE,
                        0,
-                       NTB_PROTO_HASH_LENGTH - NTB_KEY_TAG_SIZE);
+                       NTB_PROTO_HASH_LENGTH - NTB_ADDRESS_TAG_SIZE);
         } else {
                 ntb_address_from_network_keys(&address,
                                               pubkey.address_version,
