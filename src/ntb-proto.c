@@ -469,10 +469,7 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
 
         msg->sig = data;
 
-        if (data_length < msg->sig_length)
-                return false;
-
-        if (data_length > msg->sig_length)
+        if (data_length != msg->sig_length)
                 return false;
 
         return true;
