@@ -37,6 +37,12 @@ enum ntb_network_add_object_flags {
         NTB_NETWORK_DELAY = (1 << 1)
 };
 
+enum ntb_network_object_location {
+        NTB_NETWORK_OBJECT_LOCATION_NOWHERE,
+        NTB_NETWORK_OBJECT_LOCATION_STORE,
+        NTB_NETWORK_OBJECT_LOCATION_MEMORY
+};
+
 struct ntb_network;
 
 struct ntb_network *
@@ -75,6 +81,11 @@ ntb_network_get_new_object_signal(struct ntb_network *nw);
 void
 ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
                                             bool value);
+
+enum ntb_network_object_location
+ntb_network_get_object(struct ntb_network *nw,
+                       const uint8_t *hash,
+                       struct ntb_blob **blob);
 
 void
 ntb_network_free(struct ntb_network *nw);

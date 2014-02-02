@@ -1585,6 +1585,30 @@ ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
         maybe_queue_connect(nw, true /* use idle */);
 }
 
+enum ntb_network_object_location
+ntb_network_get_object(struct ntb_network *nw,
+                       const uint8_t *hash,
+                       struct ntb_blob **blob)
+{
+        struct ntb_network_inventory *inv;
+
+        inv = ntb_hash_table_get(nw->inventory_hash, hash);
+
+        if (inv == NULL ||
+            inv->state != NTB_NETWORK_INV_STATE_ACCEPTED)
+                return NTB_NETWORK_OBJECT_LOCATION_NOWHERE;
+
+        if (inv->blob) {
+                if (blob)
+                        *blob = inv->blob;
+                return NTB_NETWORK_OBJECT_LOCATION_MEMORY;
+        } else {
+                if (blob)
+                        *blob = NULL;
+                return NTB_NETWORK_OBJECT_LOCATION_STORE;
+        }
+}
+
 static void
 free_listen_sockets(struct ntb_network *nw)
 {
