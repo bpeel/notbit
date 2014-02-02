@@ -93,6 +93,13 @@ ntb_crypto_create_public_key(struct ntb_crypto *crypto,
                              void *user_data);
 
 struct ntb_crypto_cookie *
+ntb_crypto_check_pubkey(struct ntb_crypto *crypto,
+                        const struct ntb_address *address,
+                        struct ntb_blob *blob,
+                        ntb_crypto_create_key_func callback,
+                        void *user_data);
+
+struct ntb_crypto_cookie *
 ntb_crypto_decrypt_msg(struct ntb_crypto *crypto,
                        struct ntb_blob *msg,
                        struct ntb_key * const *keys,
