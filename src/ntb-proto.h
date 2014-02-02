@@ -101,6 +101,9 @@ struct ntb_proto_pubkey {
         uint64_t signature_length;
         const uint8_t *signature;
 
+        size_t signed_data_length;
+        const uint8_t *signed_data;
+
         const uint8_t *tag;
 
         size_t encrypted_data_length;

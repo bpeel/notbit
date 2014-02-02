@@ -523,18 +523,25 @@ process_v3_pubkey_parts(const uint8_t *data,
                                       NTB_PROTO_ARGUMENT_VAR_INT,
                                       &pubkey->extra_bytes,
 
-                                      NTB_PROTO_ARGUMENT_VAR_INT,
-                                      &pubkey->signature_length,
-
                                       NTB_PROTO_ARGUMENT_END);
 
         if (header_length == -1)
                 return false;
 
-        if (message_length < header_length + pubkey->signature_length)
+        data += header_length;
+        message_length -= header_length;
+
+        pubkey->signed_data_length = data - pubkey->signed_data;
+
+        if (!ntb_proto_get_var_int(&data,
+                                   &message_length,
+                                   &pubkey->signature_length))
                 return false;
 
-        pubkey->signature = data + header_length;
+        if (message_length != pubkey->signature_length)
+                return false;
+
+        pubkey->signature = data;
 
         return true;
 }
@@ -555,10 +562,11 @@ process_v4_pubkey_parts(const uint8_t *data,
 }
 
 bool
-ntb_proto_get_pubkey(const uint8_t *data,
+ntb_proto_get_pubkey(const uint8_t *data_start,
                      uint32_t message_length,
                      struct ntb_proto_pubkey *pubkey)
 {
+        const uint8_t *data = data_start;
         ssize_t header_length;
 
         memset(pubkey, 0, sizeof *pubkey);
@@ -592,6 +600,8 @@ ntb_proto_get_pubkey(const uint8_t *data,
                                                message_length,
                                                pubkey);
         case 3:
+                pubkey->signed_data = data_start + sizeof (uint64_t);
+
                 return process_v3_pubkey_parts(data,
                                                message_length,
                                                pubkey);
