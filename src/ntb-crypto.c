@@ -428,6 +428,42 @@ handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
         }
 }
 
+static bool
+check_signature_for_data(struct ntb_crypto *crypto,
+                         const uint8_t *network_public_key,
+                         const uint8_t *data,
+                         size_t data_length,
+                         const uint8_t *signature,
+                         size_t signature_length)
+{
+        uint8_t public_key[NTB_ECC_PUBLIC_KEY_SIZE];
+        EC_KEY *key;
+        uint8_t digest[SHA_DIGEST_LENGTH];
+        int verify_result;
+
+        SHA1(data, data_length, digest);
+
+        /* The keys on the network have the 0x04 prefix stripped so we
+         * need to add it back on */
+        public_key[0] = 0x04;
+        memcpy(public_key + 1, network_public_key, NTB_ECC_PUBLIC_KEY_SIZE - 1);
+
+        key = ntb_ecc_create_key_with_public(crypto->ecc,
+                                             NULL, /* private key */
+                                             public_key);
+
+        verify_result = ECDSA_verify(0, /* type, ignored */
+                                     digest,
+                                     sizeof digest,
+                                     signature,
+                                     signature_length,
+                                     key);
+
+        EC_KEY_free(key);
+
+        return verify_result == 1;
+}
+
 static void
 handle_create_msg_blob(struct ntb_crypto_cookie *cookie)
 {
@@ -505,10 +541,6 @@ static void
 check_signature_in_decrypted_msg(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_proto_decrypted_msg msg;
-        uint8_t public_key[NTB_ECC_PUBLIC_KEY_SIZE];
-        EC_KEY *key;
-        uint8_t digest[SHA_DIGEST_LENGTH];
-        int verify_result;
 
         ntb_log("Successfully decrypted a message using the key “%s”",
                 cookie->decrypt_msg.chosen_key->label);
@@ -520,29 +552,12 @@ check_signature_in_decrypted_msg(struct ntb_crypto_cookie *cookie)
                 goto invalid;
         }
 
-        SHA1(cookie->decrypt_msg.result->data, msg.signed_data_length, digest);
-
-        /* The keys on the network have the 0x04 prefix stripped so we
-         * need to add it back on */
-        public_key[0] = 0x04;
-        memcpy(public_key + 1,
-               msg.sender_signing_key,
-               NTB_ECC_PUBLIC_KEY_SIZE - 1);
-
-        key = ntb_ecc_create_key_with_public(cookie->crypto->ecc,
-                                             NULL, /* private key */
-                                             public_key);
-
-        verify_result = ECDSA_verify(0, /* type, ignored */
-                                     digest,
-                                     sizeof digest,
-                                     msg.sig,
-                                     msg.sig_length,
-                                     key);
-
-        EC_KEY_free(key);
-
-        if (verify_result != 1) {
+        if (!check_signature_for_data(cookie->crypto,
+                                      msg.sender_signing_key,
+                                      cookie->decrypt_msg.result->data,
+                                      msg.signed_data_length,
+                                      msg.sig,
+                                      msg.sig_length)) {
                 ntb_log("The signature in the decrypted message is invalid");
                 goto invalid;
         }
