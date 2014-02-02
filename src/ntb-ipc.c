@@ -622,6 +622,8 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
 
         task->keyring_cookie = ntb_keyring_create_key(ipc->keyring,
                                                       label,
+                                                      version,
+                                                      stream,
                                                       zeroes,
                                                       create_key_cb,
                                                       task);

@@ -64,6 +64,8 @@ ntb_crypto_new(void);
 struct ntb_crypto_cookie *
 ntb_crypto_create_key(struct ntb_crypto *crypto,
                       const char *label,
+                      int version,
+                      int stream,
                       int leading_zeroes,
                       ntb_crypto_create_key_func callback,
                       void *user_data);

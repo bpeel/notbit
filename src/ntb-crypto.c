@@ -81,6 +81,8 @@ struct ntb_crypto_cookie {
                 struct {
                         struct ntb_key *key;
                         char *label;
+                        int version;
+                        int stream;
                         int leading_zeroes;
                 } create_key;
 
@@ -274,8 +276,8 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         } while (count_leading_zeroes(address.ripe) <
                  cookie->create_key.leading_zeroes);
 
-        address.version = 4;
-        address.stream = 1;
+        address.version = cookie->create_key.version;
+        address.stream = cookie->create_key.stream;
 
         cookie->create_key.key =
                 ntb_key_new_with_public(crypto->ecc,
@@ -933,6 +935,8 @@ ntb_crypto_new(void)
 struct ntb_crypto_cookie *
 ntb_crypto_create_key(struct ntb_crypto *crypto,
                       const char *label,
+                      int version,
+                      int stream,
                       int leading_zeroes,
                       ntb_crypto_create_key_func callback,
                       void *user_data)
@@ -946,6 +950,8 @@ ntb_crypto_create_key(struct ntb_crypto *crypto,
                             callback,
                             user_data);
         cookie->create_key.label = ntb_strdup(label);
+        cookie->create_key.version = version;
+        cookie->create_key.stream = stream;
         cookie->create_key.leading_zeroes = leading_zeroes;
         cookie->create_key.key = NULL;
 
