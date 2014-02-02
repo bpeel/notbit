@@ -465,7 +465,10 @@ handle_pubkey(struct ntb_keyring *keyring,
         struct ntb_keyring_pubkey_blob *insert_pos;
         struct ntb_address address;
 
-        if (!ntb_proto_get_pubkey(blob->data, blob->size, &pubkey))
+        if (!ntb_proto_get_pubkey(false, /* not decrypted */
+                                  blob->data,
+                                  blob->size,
+                                  &pubkey))
                 return;
 
         pubkey_blob = ntb_slice_alloc(&ntb_keyring_pubkey_blob_allocator);

@@ -208,7 +208,8 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
                             struct ntb_proto_decrypted_msg *msg);
 
 bool
-ntb_proto_get_pubkey(const uint8_t *data,
+ntb_proto_get_pubkey(bool decrypted,
+                     const uint8_t *data,
                      uint32_t length,
                      struct ntb_proto_pubkey *pubkey);
 

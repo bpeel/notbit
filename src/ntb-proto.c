@@ -562,7 +562,8 @@ process_v4_pubkey_parts(const uint8_t *data,
 }
 
 bool
-ntb_proto_get_pubkey(const uint8_t *data_start,
+ntb_proto_get_pubkey(bool decrypted,
+                     const uint8_t *data_start,
                      uint32_t message_length,
                      struct ntb_proto_pubkey *pubkey)
 {
@@ -599,16 +600,20 @@ ntb_proto_get_pubkey(const uint8_t *data_start,
                 return process_v2_pubkey_parts(data,
                                                message_length,
                                                pubkey);
+        case 4:
+                if (!decrypted) {
+                        return process_v4_pubkey_parts(data,
+                                                       message_length,
+                                                       pubkey);
+                }
+                /* flow through */
         case 3:
                 pubkey->signed_data = data_start + sizeof (uint64_t);
 
                 return process_v3_pubkey_parts(data,
                                                message_length,
                                                pubkey);
-        case 4:
-                return process_v4_pubkey_parts(data,
-                                               message_length,
-                                               pubkey);
+
         default:
                 return false;
         }
