@@ -114,3 +114,8 @@ below:
                        object store. Defaults to $XDG_DATA_HOME/notbit
  -m <maildir>          Specify the maildir to save messages to.
                        Defaults to $HOME/.maildir
+Contact
+=======
+
+If you have any comments or suggestions for notbit, please contact me
+on BM-NBPc2YUHUYrfGEUzsQapnTDXvhNDp2eh.
