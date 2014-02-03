@@ -401,22 +401,24 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
         data += (NTB_ECC_PUBLIC_KEY_SIZE - 1) * 2;
         data_length -= (NTB_ECC_PUBLIC_KEY_SIZE - 1) * 2;
 
-        header_size = ntb_proto_get_command(data,
-                                            data_length,
+        if (msg->sender_address_version >= 3) {
+                header_size = ntb_proto_get_command(data,
+                                                    data_length,
 
-                                            NTB_PROTO_ARGUMENT_VAR_INT,
-                                            &msg->nonce_trials_per_byte,
+                                                    NTB_PROTO_ARGUMENT_VAR_INT,
+                                                    &msg->nonce_trials_per_byte,
 
-                                            NTB_PROTO_ARGUMENT_VAR_INT,
-                                            &msg->extra_bytes,
+                                                    NTB_PROTO_ARGUMENT_VAR_INT,
+                                                    &msg->extra_bytes,
 
-                                            NTB_PROTO_ARGUMENT_END);
+                                                    NTB_PROTO_ARGUMENT_END);
 
-        if (header_size == -1)
-                return false;
+                if (header_size == -1)
+                        return false;
 
-        data += header_size;
-        data_length -= header_size;
+                data += header_size;
+                data_length -= header_size;
+        }
 
         if (data_length < RIPEMD160_DIGEST_LENGTH)
                 return false;
