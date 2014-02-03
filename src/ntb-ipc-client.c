@@ -336,6 +336,7 @@ ntb_ipc_client_get_response(int sock,
         if (response_state.error) {
                 ntb_error_propagate(error, response_state.error);
                 response_state.error = NULL;
+                res = false;
         } else {
                 res = true;
         }
