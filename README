@@ -1,5 +1,5 @@
 Intro
-=====
+━━━━━
 
 Notbit is a minimal client for the Bitmessage network. It is designed
 to work as a daemon with no UI. The idea is that it will store
@@ -13,14 +13,14 @@ however able to fully participate as a peer in the network and forward
 on messages so running the client will aid the network.
 
 Disclaimer
-==========
+━━━━━━━━━━
 
 I am not a cryptography expert and I don't know whether Notbit or the
 Bitmessage protocol is actually safe for secure communications. I
 wouldn't recommend using for anything highly sensitive.
 
 Dependencies
-============
+━━━━━━━━━━━━
 
 Notbit requires Linux. It will not work on other Unices because it is
 using some Linux-specific features such as epoll and abstract
@@ -30,7 +30,7 @@ Fedora you will need to build libcrypto from source because they don't
 ship ECC due to patent concerns.
 
 Building
-========
+━━━━━━━━
 
 First you will need to install the build dependencies for your
 system. The main one to install is libopenssl-devel to get
@@ -49,7 +49,7 @@ This will install notbit into your home directory. The executable will
 be in ~/bin which is typically already in your search path.
 
 Running Notbit
-==============
+━━━━━━━━━━━━━━
 
 Once notbit is built you can run it by just typing ‘notbit’. By
 default this will output logging messages to stdout. It will
@@ -64,7 +64,7 @@ If you want to exit the daemon you can type ‘killall notbit’. This
 will do a graceful shutdown.
 
 Creating an address
-===================
+━━━━━━━━━━━━━━━━━━━
 
 Once Notbit is running you can type ‘notbit-keygen’ to create a new
 address. The new address will be printed on the standard out. The
@@ -77,7 +77,7 @@ are also other less useful options which can be seen in the help by
 typing ‘notbit-keygen -h’.
 
 Importing addresses
-===================
+━━━━━━━━━━━━━━━━━━━
 
 If you already have some addresses from the official PyBitmessage
 client you can import these directly by copying over the keys.dat.
@@ -87,7 +87,7 @@ type:
  cp ~/.config/PyBitmessage/keys.dat ~/.local/share/notbit/
 
 Reading messages
-================
+━━━━━━━━━━━━━━━━
 
 If Notbit receives a message for one of the addresses in keys.dat it
 will write it out in maildir format. maildir is a standard format
@@ -95,7 +95,7 @@ which can be read by most mail programs such as mutt. By default the
 maildir will be ~/.maildir. You can change this with the -m option.
 
 Options
-=======
+━━━━━━━
 
 Notbit has some command line options to configure it. These are listed
 below:
@@ -121,8 +121,9 @@ below:
                        object store. Defaults to $XDG_DATA_HOME/notbit
  -m <maildir>          Specify the maildir to save messages to.
                        Defaults to $HOME/.maildir
+
 Contact
-=======
+━━━━━━━
 
 If you have any comments or suggestions for notbit, please contact me
 on BM-NBPc2YUHUYrfGEUzsQapnTDXvhNDp2eh.
