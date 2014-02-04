@@ -12,6 +12,13 @@ not yet send messages but it is at least able to receive them. It is
 however able to fully participate as a peer in the network and forward
 on messages so running the client will aid the network.
 
+Disclaimer
+==========
+
+I am not a cryptography expert and I don't know whether Notbit or the
+Bitmessage protocol is actually safe for secure communications. I
+wouldn't recommend using for anything highly sensitive.
+
 Dependencies
 ============
 
