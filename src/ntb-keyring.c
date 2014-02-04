@@ -870,7 +870,9 @@ new_object_cb(struct ntb_listener *listener,
               void *data)
 {
         struct ntb_keyring *keyring =
-                ntb_container_of(listener, keyring, new_object_listener);
+                ntb_container_of(listener,
+                                 struct ntb_keyring,
+                                 new_object_listener);
         struct ntb_blob *blob = data;
 
         switch (blob->type) {
@@ -900,8 +902,12 @@ remove_pubkey_blob(struct ntb_keyring *keyring,
         if (!pubkey_blob->in_list)
                 return;
 
-        prev = ntb_container_of(pubkey_blob->link.prev, pubkey_blob, link);
-        next = ntb_container_of(pubkey_blob->link.next, pubkey_blob, link);
+        prev = ntb_container_of(pubkey_blob->link.prev,
+                                struct ntb_keyring_pubkey_blob,
+                                link);
+        next = ntb_container_of(pubkey_blob->link.next,
+                                struct ntb_keyring_pubkey_blob,
+                                link);
 
         ntb_list_remove(&pubkey_blob->link);
 

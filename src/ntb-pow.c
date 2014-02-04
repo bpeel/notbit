@@ -248,7 +248,9 @@ thread_func(void *user_data)
                 if (pow->quit)
                         break;
 
-                cookie = ntb_container_of(pow->queue.next, cookie, link);
+                cookie = ntb_container_of(pow->queue.next,
+                                          struct ntb_pow_cookie,
+                                          link);
 
                 cookie->ref_count++;
 

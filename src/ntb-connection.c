@@ -702,7 +702,9 @@ load_cb(struct ntb_blob *blob,
 
         assert(!ntb_list_empty(&conn->objects_to_load));
 
-        entry = ntb_container_of(conn->objects_to_load.next, entry, link);
+        entry = ntb_container_of(conn->objects_to_load.next,
+                                 struct ntb_connection_queue_entry,
+                                 link);
 
         assert(entry->blob == NULL);
 
@@ -735,7 +737,9 @@ maybe_queue_load(struct ntb_connection *conn)
         if (ntb_list_empty(&conn->objects_to_load))
                 return;
 
-        entry = ntb_container_of(conn->objects_to_load.next, entry, link);
+        entry = ntb_container_of(conn->objects_to_load.next,
+                                 struct ntb_connection_queue_entry,
+                                 link);
         conn->load_cookie = ntb_store_load_blob(NULL, /* default store */
                                                 entry->hash,
                                                 load_cb,
@@ -788,7 +792,9 @@ add_ready_objects(struct ntb_connection *conn)
          * enough to hold all of them */
         while (conn->out_buf.length < 1024 &&
                !ntb_list_empty(&conn->ready_objects)) {
-                entry = ntb_container_of(conn->ready_objects.next, entry, link);
+                entry = ntb_container_of(conn->ready_objects.next,
+                                         struct ntb_connection_queue_entry,
+                                         link);
                 type = entry->blob->type;
                 command_name = ntb_proto_get_command_name_for_type(type);
 

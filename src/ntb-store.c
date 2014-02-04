@@ -1212,7 +1212,9 @@ store_thread_func(void *user_data)
                 if (store->quit && ntb_list_empty(&store->queue))
                         break;
 
-                task = ntb_container_of(store->queue.next, task, link);
+                task = ntb_container_of(store->queue.next,
+                                        struct ntb_store_task,
+                                        link);
                 ntb_list_remove(&task->link);
 
                 if (task->type == NTB_STORE_TASK_TYPE_LOAD_BLOB) {

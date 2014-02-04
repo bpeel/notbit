@@ -855,7 +855,9 @@ thread_func(void *user_data)
                 if (crypto->quit)
                         break;
 
-                cookie = ntb_container_of(crypto->queue.next, cookie, link);
+                cookie = ntb_container_of(crypto->queue.next,
+                                          struct ntb_crypto_cookie,
+                                          link);
 
                 /* The cookie would have had a reference for being in
                  * the queue. We'll steal this reference */

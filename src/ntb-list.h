@@ -79,32 +79,37 @@ ntb_list_empty(struct ntb_list *list);
 void
 ntb_list_insert_list(struct ntb_list *list, struct ntb_list *other);
 
-#ifdef __GNUC__
-#define ntb_container_of(ptr, sample, member)                           \
-  (__typeof__(sample))((char *)(ptr)    -                               \
-                       ((char *)&(sample)->member - (char *)(sample)))
-#else
-#define ntb_container_of(ptr, sample, member)                   \
-  (void *)((char *)(ptr)        -                               \
-           ((char *)&(sample)->member - (char *)(sample)))
-#endif
+/* This assigns to iterator first so that taking a reference to it
+ * later in the second step won't be an undefined operation. It
+ * assigns the value of list_node rather than 0 so that it is possible
+ * have list_node be based on the previous value of iterator. In that
+ * respect iterator is just used as a convenient temporary variable.
+ * The compiler optimises all of this down to a single subtraction by
+ * a constant */
+#define ntb_list_set_iterator(list_node, iterator, member)              \
+        ((iterator) = (void *) (list_node),                             \
+         (iterator) = (void *) ((char *) (iterator) -                   \
+                                (((char *) &(iterator)->member) -       \
+                                 (char *) (iterator))))
+
+#define ntb_container_of(ptr, type, member)                     \
+        (type *) ((char *) (ptr) - offsetof (type, member))
 
 #define ntb_list_for_each(pos, head, member)                            \
-  for (pos = 0, pos = ntb_container_of((head)->next, pos, member);      \
-       &pos->member != (head);                                          \
-       pos = ntb_container_of(pos->member.next, pos, member))
+        for (ntb_list_set_iterator ((head)->next, pos, member);         \
+             &pos->member != (head);                                    \
+             ntb_list_set_iterator (pos->member.next, pos, member))
 
 #define ntb_list_for_each_safe(pos, tmp, head, member)                  \
-  for (pos = 0, tmp = 0,                                                \
-         pos = ntb_container_of((head)->next, pos, member),             \
-         tmp = ntb_container_of((pos)->member.next, tmp, member);       \
-       &pos->member != (head);                                          \
-       pos = tmp,                                                       \
-         tmp = ntb_container_of(pos->member.next, tmp, member))
+        for (ntb_list_set_iterator ((head)->next, pos, member),         \
+                     ntb_list_set_iterator ((pos)->member.next, tmp, member); \
+             &pos->member != (head);                                    \
+             pos = tmp,                                                 \
+                     ntb_list_set_iterator (pos->member.next, tmp, member))
 
 #define ntb_list_for_each_reverse(pos, head, member)                    \
-  for (pos = 0, pos = ntb_container_of((head)->prev, pos, member);      \
-       &pos->member != (head);                                          \
-       pos = ntb_container_of(pos->member.prev, pos, member))
+        for (ntb_list_set_iterator ((head)->prev, pos, member);         \
+             &pos->member != (head);                                    \
+             ntb_list_set_iterator (pos->member.prev, pos, member))
 
 #endif /* NTB_LIST_H */

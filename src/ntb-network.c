@@ -413,7 +413,7 @@ send_version_to_peer(struct ntb_network *nw,
         } else {
                 listen_socket =
                         ntb_container_of(nw->listen_sockets.next,
-                                         listen_socket,
+                                         struct ntb_network_listen_socket,
                                          link);
                 local_port = listen_socket->address.port;
         }
@@ -1121,7 +1121,9 @@ connection_event_cb(struct ntb_listener *listener,
 {
         struct ntb_connection_event *event = data;
         struct ntb_network_peer *peer =
-                ntb_container_of(listener, peer, event_listener);
+                ntb_container_of(listener,
+                                 struct ntb_network_peer,
+                                 event_listener);
         struct ntb_network *nw = peer->network;
 
         switch (event->type) {
