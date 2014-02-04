@@ -162,3 +162,62 @@ ntb_base64_decode_end(struct ntb_base64_data *data,
 
         return 0;
 }
+
+static int
+to_alphabet_value(int value)
+{
+        if (value < 26)
+                return value + 'A';
+        else if (value < 52)
+                return value - 26 + 'a';
+        else if (value < 62)
+                return value - 52 + '0';
+        else if (value == 62)
+                return '+';
+        else
+                return '/';
+}
+
+size_t
+ntb_base64_encode(const uint8_t *data_in,
+                  size_t data_in_length,
+                  char *data_out)
+{
+        char *out = data_out;
+        int value;
+
+        while (data_in_length >= 3) {
+                value = data_in[0] << 16 | data_in[1] << 8 | data_in[2];
+
+                *(out++) = to_alphabet_value(value >> 18);
+                *(out++) = to_alphabet_value((value >> 12) & 63);
+                *(out++) = to_alphabet_value((value >> 6) & 63);
+                *(out++) = to_alphabet_value(value & 63);
+
+                data_in += 3;
+                data_in_length -= 3;
+        }
+
+        switch (data_in_length) {
+        case 0:
+                break;
+
+        case 1:
+                value = data_in[0] << 16;
+                *(out++) = to_alphabet_value(value >> 18);
+                *(out++) = to_alphabet_value((value >> 12) & 63);
+                *(out++) = '=';
+                *(out++) = '=';
+                break;
+
+        case 2:
+                value = (data_in[0] << 16) | (data_in[1] << 8);
+                *(out++) = to_alphabet_value(value >> 18);
+                *(out++) = to_alphabet_value((value >> 12) & 63);
+                *(out++) = to_alphabet_value((value >> 6) & 63);
+                *(out++) = '=';
+                break;
+        }
+
+        return out - data_out;
+}

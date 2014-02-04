@@ -52,4 +52,9 @@ ntb_base64_decode_end(struct ntb_base64_data *data,
                       uint8_t *buffer,
                       struct ntb_error **error);
 
+size_t
+ntb_base64_encode(const uint8_t *data_in,
+                  size_t data_in_length,
+                  char *data_out);
+
 #endif /* NTB_BASE64_H */
