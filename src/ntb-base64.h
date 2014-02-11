@@ -37,6 +37,9 @@ struct ntb_base64_data {
         int value;
 };
 
+#define NTB_BASE64_MAX_INPUT_FOR_SIZE(input_size) \
+        ((size_t) (input_size) * 4 / 3)
+
 void
 ntb_base64_decode_start(struct ntb_base64_data *data);
 

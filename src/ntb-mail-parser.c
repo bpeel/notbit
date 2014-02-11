@@ -683,7 +683,8 @@ handle_content_base64(struct ntb_mail_parser *parser,
         uint8_t buf[512];
 
         while (length > 0) {
-                chunk_size = MIN(sizeof buf * 4 / 3, length);
+                chunk_size = MIN(NTB_BASE64_MAX_INPUT_FOR_SIZE(sizeof buf),
+                                 length);
 
                 got = ntb_base64_decode(&parser->base64_data,
                                         data,
