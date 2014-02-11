@@ -30,6 +30,8 @@ notbit_SOURCES = \
 	ntb-daemon.h \
 	ntb-ecc.c \
 	ntb-ecc.h \
+	ntb-encoded-words.c \
+	ntb-encoded-words.h \
 	ntb-error.c \
 	ntb-error.h \
 	ntb-file-error.c \

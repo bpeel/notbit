@@ -26,6 +26,7 @@
 #include "ntb-parse-addresses.h"
 #include "ntb-base64.h"
 #include "ntb-quoted-printable.h"
+#include "ntb-encoded-words.h"
 
 struct ntb_error_domain
 ntb_mail_parser_error;
@@ -200,6 +201,9 @@ handle_subject(struct ntb_mail_parser *parser,
         }
 
         parser->had_subject = true;
+
+        parser->buffer.length = ntb_encoded_words_decode(parser->buffer.data,
+                                                         parser->buffer.length);
 
         return parser->data_cb(NTB_MAIL_PARSER_EVENT_SUBJECT,
                                parser->buffer.data,
