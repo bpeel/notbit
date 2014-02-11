@@ -501,7 +501,9 @@ handle_headers_end(struct ntb_mail_parser *parser,
                 break;
 
         case NTB_MAIL_PARSER_ENCODING_QUOTED_PRINTABLE:
-                ntb_quoted_printable_decode_start(&parser->qp_data);
+                ntb_quoted_printable_decode_start(&parser->qp_data,
+                                                  /* underscore_is_space */
+                                                  false);
                 break;
 
         case NTB_MAIL_PARSER_ENCODING_RAW:

@@ -31,9 +31,11 @@ struct ntb_error_domain
 ntb_quoted_printable_error;
 
 void
-ntb_quoted_printable_decode_start(struct ntb_quoted_printable_data *data)
+ntb_quoted_printable_decode_start(struct ntb_quoted_printable_data *data,
+                                  bool underscore_is_space)
 {
         data->state = NTB_QUOTED_PRINTABLE_STATE_OCTET;
+        data->underscore_is_space = underscore_is_space;
 }
 
 static int
@@ -67,6 +69,26 @@ invalid_escape_error(struct ntb_error **error)
         return -1;
 }
 
+static void
+output_octets(struct ntb_quoted_printable_data *data,
+              const uint8_t *octets,
+              size_t length)
+{
+        if (data->underscore_is_space) {
+                while (length > 0) {
+                        if (*octets == '_')
+                                *(data->out++) = ' ';
+                        else
+                                *(data->out++) = *octets;
+                        octets++;
+                        length--;
+                }
+        } else {
+                memcpy(data->out, octets, length);
+                data->out += length;
+        }
+}
+
 static ssize_t
 handle_octet(struct ntb_quoted_printable_data *data,
              const uint8_t *in_buffer,
@@ -78,13 +100,11 @@ handle_octet(struct ntb_quoted_printable_data *data,
         equals = memchr(in_buffer, '=', length);
 
         if (equals == NULL) {
-                memcpy(data->out, in_buffer, length);
-                data->out += length;
+                output_octets(data, in_buffer, length);
                 return length;
         }
 
-        memcpy(data->out, in_buffer, equals - in_buffer);
-        data->out += equals - in_buffer;
+        output_octets(data, in_buffer, equals - in_buffer);
 
         data->state = NTB_QUOTED_PRINTABLE_STATE_QUOTE_START;
 

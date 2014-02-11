@@ -53,10 +53,12 @@ struct ntb_quoted_printable_data {
         enum ntb_quoted_printable_state state;
         int nibble;
         uint8_t *out;
+        bool underscore_is_space;
 };
 
 void
-ntb_quoted_printable_decode_start(struct ntb_quoted_printable_data *state);
+ntb_quoted_printable_decode_start(struct ntb_quoted_printable_data *state,
+                                  bool underscore_is_space);
 
 ssize_t
 ntb_quoted_printable_decode(struct ntb_quoted_printable_data *state,
