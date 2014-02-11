@@ -123,15 +123,6 @@ ntb_mail_parser_new(ntb_mail_parser_address_cb address_cb,
         return parser;
 }
 
-static char
-ascii_tolower(char ch)
-{
-        if (ch >= 'A' && ch <= 'Z')
-                return ch - 'A' + 'a';
-        else
-                return ch;
-}
-
 static bool
 ascii_islwsp(char ch)
 {
@@ -145,7 +136,7 @@ ascii_casecmp(const char *a,
         int cmp;
 
         while (*a && *b) {
-                cmp = ascii_tolower(*a) - ascii_tolower(*b);
+                cmp = ntb_ascii_tolower(*a) - ntb_ascii_tolower(*b);
 
                 if (cmp)
                         return cmp;
@@ -170,7 +161,7 @@ is_header(const struct ntb_buffer *buffer,
         size_t i;
 
         for (i = 0; i < buffer->length; i++) {
-                ch = ascii_tolower(buffer->data[i]);
+                ch = ntb_ascii_tolower(buffer->data[i]);
                 if (ch != *name)
                         return false;
                 name++;

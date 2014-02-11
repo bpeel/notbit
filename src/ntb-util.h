@@ -124,6 +124,15 @@ ntb_warning(const char *format, ...);
 int
 ntb_close(int fd);
 
+static inline char
+ntb_ascii_tolower(char ch)
+{
+        if (ch >= 'A' && ch <= 'Z')
+                return ch - 'A' + 'a';
+        else
+                return ch;
+}
+
 pthread_t
 ntb_create_thread(void *(* thread_func)(void *),
                   void *user_data);
