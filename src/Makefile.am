@@ -95,9 +95,12 @@ notbit_SOURCES = \
 	$(NULL)
 
 notbit_LDFLAGS = \
+	-pthread \
+	$(NULL)
+
+notbit_LDADD = \
 	$(LIBCRYPTO_LIBS) \
 	$(NOTBIT_EXTRA_LIBS) \
-	-pthread \
 	$(NULL)
 
 dump_store_SOURCES = \
