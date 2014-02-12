@@ -6,6 +6,7 @@ ACLOCAL_AMFLAGS = -I build/autotools ${ACLOCAL_FLAGS}
 SUBDIRS = \
 	doc \
 	src \
+	build \
 	$(NULL)
 
 EXTRA_DIST = \
