@@ -1719,6 +1719,8 @@ ntb_keyring_free(struct ntb_keyring *keyring)
 {
         int i;
 
+        save_keyring(keyring);
+
         ntb_main_context_remove_source(keyring->gc_source);
 
         ntb_list_remove(&keyring->new_object_listener.link);

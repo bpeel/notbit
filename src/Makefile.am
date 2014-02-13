@@ -48,6 +48,8 @@ notbit_SOURCES = \
 	ntb-ipc-sockaddr.h \
 	ntb-key.c \
 	ntb-key.h \
+	ntb-key-value.c \
+	ntb-key-value.h \
 	ntb-keygen.c \
 	ntb-keygen.h \
 	ntb-keyring.c \

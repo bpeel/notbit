@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2014  Neil Roberts
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include <errno.h>
 
 #include "ntb-load-keys.h"
+#include "ntb-key-value.h"
 #include "ntb-buffer.h"
 #include "ntb-proto.h"
 #include "ntb-ecc.h"
@@ -35,37 +36,7 @@
 #include "ntb-base58.h"
 #include "ntb-address.h"
 
-enum ntb_load_keys_state {
-        NTB_LOAD_KEYS_STATE_HEADER_START,
-        NTB_LOAD_KEYS_STATE_BAD_HEADER_START,
-        NTB_LOAD_KEYS_STATE_READING_HEADER,
-        NTB_LOAD_KEYS_STATE_END_HEADER_LINE,
-        NTB_LOAD_KEYS_STATE_END_HEADER_LINE2,
-        NTB_LOAD_KEYS_STATE_FIELD_START,
-        NTB_LOAD_KEYS_STATE_READING_FIELD_NAME,
-        NTB_LOAD_KEYS_STATE_WAITING_EQUALS,
-        NTB_LOAD_KEYS_STATE_BAD_FIELD,
-        NTB_LOAD_KEYS_STATE_WAITING_VALUE_START,
-        NTB_LOAD_KEYS_STATE_READING_VALUE,
-};
-
-enum ntb_load_keys_field {
-        NTB_LOAD_KEYS_FIELD_LABEL,
-        NTB_LOAD_KEYS_FIELD_ENABLED,
-        NTB_LOAD_KEYS_FIELD_DECOY,
-        NTB_LOAD_KEYS_FIELD_NONCE_TRIALS_PER_BYTE,
-        NTB_LOAD_KEYS_FIELD_PAYLOAD_LENGTH_EXTRA_BYTES,
-        NTB_LOAD_KEYS_FIELD_PRIV_SIGNING_KEY,
-        NTB_LOAD_KEYS_FIELD_PRIV_ENCRYPTION_KEY,
-        NTB_LOAD_KEYS_FIELD_PUB_SIGNING_KEY,
-        NTB_LOAD_KEYS_FIELD_PUB_ENCRYPTION_KEY,
-        NTB_LOAD_KEYS_FIELD_LAST_PUBKEY_SEND_TIME
-};
-
 struct ntb_load_keys_data {
-        enum ntb_load_keys_state state;
-        enum ntb_load_keys_field field;
-
         struct ntb_ecc *ecc;
 
         ntb_load_keys_func func;
@@ -73,9 +44,6 @@ struct ntb_load_keys_data {
 
         struct ntb_buffer label;
         struct ntb_buffer address;
-        struct ntb_buffer tmp_buf;
-
-        int line_num;
 
         int nonce_trials_per_byte;
         int payload_length_extra_bytes;
@@ -96,9 +64,7 @@ struct ntb_load_keys_data {
 static void
 reset_data(struct ntb_load_keys_data *data)
 {
-        data->state = NTB_LOAD_KEYS_STATE_HEADER_START;
         data->label.length = 0;
-        data->tmp_buf.length = 0;
         data->address.length = 0;
         data->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
         data->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
@@ -127,9 +93,6 @@ flush_key(struct ntb_load_keys_data *data)
              !data->has_public_encryption_key))
                 return;
 
-        ntb_buffer_ensure_size(&data->address, data->address.length + 1);
-        data->address.data[data->address.length] = '\0';
-
         if (!ntb_address_decode(&address,
                                 (const char *) data->address.data)) {
                 ntb_log("Address is invalid “%s”",
@@ -137,9 +100,6 @@ flush_key(struct ntb_load_keys_data *data)
                 address.version = 4;
                 address.stream = 1;
         }
-
-        ntb_buffer_ensure_size(&data->label, data->label.length + 1);
-        data->label.data[data->label.length] = '\0';
 
         if (has_private_keys) {
                 key = ntb_key_new(data->ecc,
@@ -178,58 +138,9 @@ flush_key(struct ntb_load_keys_data *data)
 }
 
 static bool
-parse_bool_value(struct ntb_load_keys_data *data,
-                 bool *result)
-{
-        if (!strcmp((const char *) data->tmp_buf.data, "true")) {
-                *result = true;
-                return true;
-        }
-
-        if (!strcmp((const char *) data->tmp_buf.data, "false")) {
-                *result = false;
-                return true;
-        }
-
-        ntb_log("Invalid boolean value on line %i", data->line_num);
-
-        return false;
-}
-
-static bool
-parse_int_value(struct ntb_load_keys_data *data,
-                int64_t max,
-                int64_t *result)
-{
-        long long int value;
-        char *tail;
-
-        errno = 0;
-
-        value = strtoll((const char *) data->tmp_buf.data, &tail, 10);
-
-        if (errno ||
-            tail == (const char *) data->tmp_buf.data ||
-            *tail ||
-            value < 0) {
-                ntb_log("Invalid integer value on line %i in keys.dat",
-                        data->line_num);
-                return false;
-        }
-
-        if (value > max) {
-                ntb_log("Value too big on line %i in keys.dat",
-                        data->line_num);
-                return false;
-        }
-
-        *result = value;
-
-        return true;
-}
-
-static bool
 parse_wif(struct ntb_load_keys_data *data,
+          int line_number,
+          const char *value,
           uint8_t *result)
 {
         uint8_t key_buf[1 + NTB_ECC_PRIVATE_KEY_SIZE + 4];
@@ -237,14 +148,14 @@ parse_wif(struct ntb_load_keys_data *data,
         uint8_t hash2[SHA256_DIGEST_LENGTH];
         ssize_t key_length;
 
-        key_length = ntb_base58_decode((const char *) data->tmp_buf.data,
-                                       data->tmp_buf.length,
+        key_length = ntb_base58_decode(value,
+                                       strlen(value),
                                        key_buf,
                                        sizeof key_buf);
 
         if (key_length == -1) {
                 ntb_log("Invalid private key on line %i",
-                        data->line_num);
+                        line_number);
                 return false;
         }
 
@@ -253,7 +164,7 @@ parse_wif(struct ntb_load_keys_data *data,
 
         if (key_buf[0] != 0x80) {
                 ntb_log("Private key on line %i does not have the right prefix",
-                        data->line_num);
+                        line_number);
                 return false;
         }
 
@@ -262,7 +173,7 @@ parse_wif(struct ntb_load_keys_data *data,
 
         if (memcmp(key_buf + 1 + NTB_ECC_PRIVATE_KEY_SIZE, hash2, 4)) {
                 ntb_log("Checksum does not match for private key on line %i",
-                        data->line_num);
+                        line_number);
                 return false;
         }
 
@@ -273,24 +184,26 @@ parse_wif(struct ntb_load_keys_data *data,
 
 static bool
 parse_public_key(struct ntb_load_keys_data *data,
+                 int line_number,
+                 const char *value,
                  uint8_t *result)
 {
         ssize_t key_length;
 
-        key_length = ntb_base58_decode((const char *) data->tmp_buf.data,
-                                       data->tmp_buf.length,
+        key_length = ntb_base58_decode(value,
+                                       strlen(value),
                                        result,
                                        NTB_ECC_PUBLIC_KEY_SIZE);
 
         if (key_length != NTB_ECC_PUBLIC_KEY_SIZE) {
                 ntb_log("Invalid public key on line %i",
-                        data->line_num);
+                        line_number);
                 return false;
         }
 
         if (result[0] != 0x04) {
                 ntb_log("Public key on line %i does not have the right prefix",
-                        data->line_num);
+                        line_number);
                 return false;
         }
 
@@ -298,209 +211,92 @@ parse_public_key(struct ntb_load_keys_data *data,
 }
 
 static void
-process_value(struct ntb_load_keys_data *data)
+process_property(struct ntb_load_keys_data *data,
+                 int line_number,
+                 const char *key,
+                 const char *value)
 {
         int64_t int_value;
         bool bool_value;
 
-        while (data->tmp_buf.length > 0 &&
-               data->tmp_buf.data[data->tmp_buf.length - 1] == ' ')
-                data->tmp_buf.length--;
-
-        ntb_buffer_ensure_size(&data->tmp_buf, data->tmp_buf.length + 1);
-        data->tmp_buf.data[data->tmp_buf.length] = '\0';
-
-        switch (data->field) {
-        case NTB_LOAD_KEYS_FIELD_LABEL:
+        if (!strcmp(key, "label")) {
                 ntb_buffer_set_length(&data->label, 0);
-                ntb_buffer_append(&data->label,
-                                  data->tmp_buf.data,
-                                  data->tmp_buf.length);
-                return;
-
-        case NTB_LOAD_KEYS_FIELD_ENABLED:
-                if (parse_bool_value(data, &bool_value))
+                ntb_buffer_append_string(&data->label, value);
+        } else if (!strcmp(key, "enabled")) {
+                if (ntb_key_value_parse_bool_value(line_number,
+                                                   value,
+                                                   &bool_value))
                         data->enabled = bool_value;
-                return;
-        case NTB_LOAD_KEYS_FIELD_DECOY:
-                if (parse_bool_value(data, &bool_value))
+        } else if (!strcmp(key, "decoy")) {
+                if (ntb_key_value_parse_bool_value(line_number,
+                                                   value,
+                                                   &bool_value))
                         data->decoy = bool_value;
-                return;
-        case NTB_LOAD_KEYS_FIELD_NONCE_TRIALS_PER_BYTE:
-                if (parse_int_value(data, INT_MAX, &int_value))
+        } else if (!strcmp(key, "noncetrialsperbyte")) {
+                if (ntb_key_value_parse_int_value(line_number,
+                                                  value,
+                                                  INT_MAX,
+                                                  &int_value))
                         data->nonce_trials_per_byte = int_value;
-                return;
-        case NTB_LOAD_KEYS_FIELD_PAYLOAD_LENGTH_EXTRA_BYTES:
-                if (parse_int_value(data, INT_MAX, &int_value))
+        } else if (!strcmp(key, "payloadlengthextrabytes")) {
+                if (ntb_key_value_parse_int_value(line_number,
+                                                  value,
+                                                  INT_MAX,
+                                                  &int_value))
                         data->payload_length_extra_bytes = int_value;
-                return;
-        case NTB_LOAD_KEYS_FIELD_PRIV_SIGNING_KEY:
-                if (parse_wif(data, data->private_signing_key))
+        } else if (!strcmp(key, "privsigningkey")) {
+                if (parse_wif(data,
+                              line_number,
+                              value,
+                              data->private_signing_key))
                         data->has_private_signing_key = true;
-                return;
-        case NTB_LOAD_KEYS_FIELD_PRIV_ENCRYPTION_KEY:
-                if (parse_wif(data, data->private_encryption_key))
+        } else if (!strcmp(key, "privencryptionkey")) {
+                if (parse_wif(data,
+                              line_number,
+                              value,
+                              data->private_encryption_key))
                         data->has_private_encryption_key = true;
-                return;
-        case NTB_LOAD_KEYS_FIELD_PUB_SIGNING_KEY:
-                if (parse_public_key(data, data->public_signing_key))
+        } else if (!strcmp(key, "pubsigningkey")) {
+                if (parse_public_key(data,
+                                     line_number,
+                                     value,
+                                     data->public_signing_key))
                         data->has_public_signing_key = true;
-                return;
-        case NTB_LOAD_KEYS_FIELD_PUB_ENCRYPTION_KEY:
-                if (parse_public_key(data, data->public_encryption_key))
+        } else if (!strcmp(key, "pubencryptionkey")) {
+                if (parse_public_key(data,
+                                     line_number,
+                                     value,
+                                     data->public_encryption_key))
                         data->has_public_encryption_key = true;
-                return;
-        case NTB_LOAD_KEYS_FIELD_LAST_PUBKEY_SEND_TIME:
-                if (parse_int_value(data, INT64_MAX, &int_value))
+        } else if (!strcmp(key, "lastpubkeysendtime")) {
+                if (ntb_key_value_parse_int_value(line_number,
+                                                  value,
+                                                  INT64_MAX,
+                                                  &int_value))
                         data->last_pubkey_send_time = int_value;
-                return;
         }
-
-        ntb_fatal("Invalid field reached");
 }
 
 static void
-set_state_from_field_name(struct ntb_load_keys_data *data)
+key_value_event_cb(enum ntb_key_value_event event,
+                   int line_number,
+                   const char *key,
+                   const char *value,
+                   void *user_data)
 {
-        const char *field_name;
+        struct ntb_load_keys_data *data = user_data;
 
-        ntb_buffer_append_c(&data->tmp_buf, '\0');
+        switch (event) {
+        case NTB_KEY_VALUE_EVENT_HEADER:
+                flush_key(data);
+                data->address.length = 0;
+                ntb_buffer_append_string(&data->address, value);
+                break;
 
-        field_name = (const char *) data->tmp_buf.data;
-
-        data->state = NTB_LOAD_KEYS_STATE_WAITING_VALUE_START;
-
-        if (!strcmp(field_name, "label"))
-                data->field = NTB_LOAD_KEYS_FIELD_LABEL;
-        else if (!strcmp(field_name, "enabled"))
-                data->field = NTB_LOAD_KEYS_FIELD_ENABLED;
-        else if (!strcmp(field_name, "decoy"))
-                data->field = NTB_LOAD_KEYS_FIELD_DECOY;
-        else if (!strcmp(field_name, "noncetrialsperbyte"))
-                data->field = NTB_LOAD_KEYS_FIELD_NONCE_TRIALS_PER_BYTE;
-        else if (!strcmp(field_name, "payloadlengthextrabytes"))
-                data->field = NTB_LOAD_KEYS_FIELD_PAYLOAD_LENGTH_EXTRA_BYTES;
-        else if (!strcmp(field_name, "privsigningkey"))
-                data->field = NTB_LOAD_KEYS_FIELD_PRIV_SIGNING_KEY;
-        else if (!strcmp(field_name, "privencryptionkey"))
-                data->field = NTB_LOAD_KEYS_FIELD_PRIV_ENCRYPTION_KEY;
-        else if (!strcmp(field_name, "pubsigningkey"))
-                data->field = NTB_LOAD_KEYS_FIELD_PUB_SIGNING_KEY;
-        else if (!strcmp(field_name, "pubencryptionkey"))
-                data->field = NTB_LOAD_KEYS_FIELD_PUB_ENCRYPTION_KEY;
-        else if (!strcmp(field_name, "lastpubkeysendtime"))
-                data->field = NTB_LOAD_KEYS_FIELD_LAST_PUBKEY_SEND_TIME;
-        else
-                data->state = NTB_LOAD_KEYS_STATE_BAD_FIELD;
-
-        data->tmp_buf.length = 0;
-}
-
-static void
-handle_byte(struct ntb_load_keys_data *data,
-            int ch)
-{
-        switch (data->state) {
-        case NTB_LOAD_KEYS_STATE_HEADER_START:
-                if (ch == '[') {
-                        data->state = NTB_LOAD_KEYS_STATE_READING_HEADER;
-                        data->address.length = 0;
-                } else if (ch != ' ' && ch != '\n') {
-                        ntb_log("Invalid header on line %i in keys.dat",
-                                data->line_num);
-                        data->state = NTB_LOAD_KEYS_STATE_BAD_HEADER_START;
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_BAD_HEADER_START:
-                if (ch == '\n')
-                        data->state = NTB_LOAD_KEYS_STATE_HEADER_START;
-                return;
-        case NTB_LOAD_KEYS_STATE_READING_HEADER:
-                if (ch == '\n') {
-                        ntb_log("Invalid header on line %i in keys.dat",
-                                data->line_num);
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                } else if (ch == ']') {
-                        data->state = NTB_LOAD_KEYS_STATE_END_HEADER_LINE;
-                } else {
-                        ntb_buffer_append_c(&data->address, ch);
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_END_HEADER_LINE:
-                if (ch == '\n') {
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                } else if (ch != ' ') {
-                        ntb_log("Junk after header on line %i in keys.data",
-                                data->line_num);
-                        data->state = NTB_LOAD_KEYS_STATE_END_HEADER_LINE2;
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_END_HEADER_LINE2:
-                if (ch == '\n')
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                return;
-        case NTB_LOAD_KEYS_STATE_FIELD_START:
-                if (ch == '[') {
-                        flush_key(data);
-                        data->state = NTB_LOAD_KEYS_STATE_READING_HEADER;
-                        data->address.length = 0;
-                } else if (ch != ' ' && ch != '\n') {
-                        ntb_buffer_set_length(&data->tmp_buf, 1);
-                        data->tmp_buf.data[0] = ch;
-                        data->state = NTB_LOAD_KEYS_STATE_READING_FIELD_NAME;
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_READING_FIELD_NAME:
-                if (ch == ' ') {
-                        data->state = NTB_LOAD_KEYS_STATE_WAITING_EQUALS;
-                } else if (ch == '=') {
-                        set_state_from_field_name(data);
-                } else if (ch == '\n') {
-                        ntb_log("Invalid line %i in keys.dat",
-                                data->line_num);
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                } else {
-                        ntb_buffer_append_c(&data->tmp_buf, ch);
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_WAITING_EQUALS:
-                if (ch == '=') {
-                        set_state_from_field_name(data);
-                } else if (ch == '\n') {
-                        ntb_log("Invalid line %i in keys.dat",
-                                data->line_num);
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                } else if (ch != ' ') {
-                        ntb_log("Invalid line %i in keys.dat",
-                                data->line_num);
-                        data->state = NTB_LOAD_KEYS_STATE_BAD_FIELD;
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_WAITING_VALUE_START:
-                if (ch == '\n') {
-                        process_value(data);
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                } else if (ch != ' ') {
-                        ntb_buffer_set_length(&data->tmp_buf, 1);
-                        data->tmp_buf.data[0] = ch;
-                        data->state = NTB_LOAD_KEYS_STATE_READING_VALUE;
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_READING_VALUE:
-                if (ch == '\n') {
-                        process_value(data);
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                } else {
-                        ntb_buffer_append_c(&data->tmp_buf, ch);
-                }
-                return;
-        case NTB_LOAD_KEYS_STATE_BAD_FIELD:
-                if (ch == '\n')
-                        data->state = NTB_LOAD_KEYS_STATE_FIELD_START;
-                return;
+        case NTB_KEY_VALUE_EVENT_PROPERTY:
+                process_property(data, line_number, key, value);
+                break;
         }
-
-        ntb_fatal("Invalid state reached");
 }
 
 void
@@ -509,16 +305,12 @@ ntb_load_keys(FILE *file,
               void *user_data)
 {
         struct ntb_load_keys_data data;
-        int ch;
 
         ntb_log("Loading keys");
-
-        data.line_num = 1;
 
         data.ecc = ntb_ecc_new();
 
         ntb_buffer_init(&data.label);
-        ntb_buffer_init(&data.tmp_buf);
         ntb_buffer_init(&data.address);
 
         data.func = func;
@@ -526,19 +318,11 @@ ntb_load_keys(FILE *file,
 
         reset_data(&data);
 
-        while ((ch = fgetc(file)) != EOF) {
-                handle_byte(&data, ch);
-
-                if (ch == '\n')
-                        data.line_num++;
-        }
-
-        handle_byte(&data, '\n');
+        ntb_key_value_load(file, key_value_event_cb, &data);
 
         flush_key(&data);
 
         ntb_buffer_destroy(&data.label);
-        ntb_buffer_destroy(&data.tmp_buf);
         ntb_buffer_destroy(&data.address);
 
         ntb_ecc_free(data.ecc);
