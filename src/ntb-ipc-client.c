@@ -215,7 +215,7 @@ handle_response(struct response_state *state,
                 set_response_error(state,
                                    &ntb_ipc_client_error,
                                    NTB_IPC_CLIENT_ERROR_COMMAND_FAILED,
-                                   "command failed: %*s",
+                                   "command failed: %.*s",
                                    data_length - 4,
                                    data + 4);
                 /* The data wasn't invalid so we can return true and
