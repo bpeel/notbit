@@ -135,6 +135,8 @@ struct ntb_proto_pubkey {
 /* We send acknowledgements */
 #define NTB_PROTO_PUBKEY_BEHAVIORS UINT32_C(0x00000001)
 
+#define NTB_PROTO_ACKDATA_SIZE 32
+
 extern const uint8_t
 ntb_proto_magic[4];
 

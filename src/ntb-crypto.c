@@ -122,7 +122,7 @@ struct ntb_crypto_cookie {
                 } decrypt_msg;
 
                 struct {
-                        uint8_t ackdata[NTB_CRYPTO_ACKDATA_SIZE];
+                        uint8_t ackdata[NTB_PROTO_ACKDATA_SIZE];
                 } generate_ackdata;
         };
 };
@@ -772,7 +772,7 @@ handle_generate_ackdata(struct ntb_crypto_cookie *cookie)
         int result;
 
         result = RAND_bytes(cookie->generate_ackdata.ackdata,
-                            NTB_CRYPTO_ACKDATA_SIZE);
+                            NTB_PROTO_ACKDATA_SIZE);
         assert(result);
 }
 

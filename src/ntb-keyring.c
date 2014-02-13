@@ -115,7 +115,7 @@ struct ntb_keyring_message {
         uint64_t content_id;
         int content_encoding;
 
-        uint8_t ackdata[NTB_CRYPTO_ACKDATA_SIZE];
+        uint8_t ackdata[NTB_PROTO_ACKDATA_SIZE];
 
         struct ntb_crypto_cookie *crypto_cookie;
         struct ntb_pow_cookie *pow_cookie;
@@ -796,7 +796,7 @@ check_msg_acknowledgement(struct ntb_keyring *keyring,
 {
         struct ntb_keyring_message *message;
 
-        if (content_length != NTB_CRYPTO_ACKDATA_SIZE)
+        if (content_length != NTB_PROTO_ACKDATA_SIZE)
                 return false;
 
         ntb_list_for_each(message, &keyring->messages, link) {
@@ -804,7 +804,7 @@ check_msg_acknowledgement(struct ntb_keyring *keyring,
                     NTB_KEYRING_MESSAGE_STATE_GENERATING_ACKDATA &&
                     !memcmp(message->ackdata,
                             content,
-                            NTB_CRYPTO_ACKDATA_SIZE)) {
+                            NTB_PROTO_ACKDATA_SIZE)) {
                         message_acknowledged(message);
                         return true;
                 }
@@ -1204,7 +1204,7 @@ add_ackdata_to_message(struct ntb_keyring_message *message,
                          ntb_main_context_get_wall_clock(NULL) +
                          rand() % 600 - 300);
         ntb_proto_add_var_int(buffer, message->from_key->address.stream);
-        ntb_buffer_append(buffer, message->ackdata, NTB_CRYPTO_ACKDATA_SIZE);
+        ntb_buffer_append(buffer, message->ackdata, NTB_PROTO_ACKDATA_SIZE);
 
         msg_length = buffer->length - ack_offset;
 
@@ -1539,7 +1539,7 @@ generate_ackdata_cb(const uint8_t *ackdata,
 {
         struct ntb_keyring_message *message = user_data;
 
-        memcpy(message->ackdata, ackdata, NTB_CRYPTO_ACKDATA_SIZE);
+        memcpy(message->ackdata, ackdata, NTB_PROTO_ACKDATA_SIZE);
 
         message->crypto_cookie = NULL;
 

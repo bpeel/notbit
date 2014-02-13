@@ -56,8 +56,6 @@ typedef void
                                      void *user_data);
 
 
-#define NTB_CRYPTO_ACKDATA_SIZE 32
-
 struct ntb_crypto *
 ntb_crypto_new(void);
 
