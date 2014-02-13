@@ -125,9 +125,8 @@ struct ntb_keyring_message {
         size_t blob_ackdata_offset;
         uint32_t blob_ackdata_length;
 
-        /* Depending on the state, this is either the last time we
-         * sent the message or the getpubkey request */
-        int64_t last_send_time;
+        int64_t last_getpubkey_send_time;
+        int64_t last_msg_send_time;
 
         /* pubkey that we are current trying. This is only set when
          * the state is NTB_KEYRING_MESSAGE_STATE_TRYING_PUBKEY */
@@ -1160,7 +1159,7 @@ ackdata_pow_cb(uint64_t nonce,
                hash,
                4);
 
-        message->last_send_time =
+        message->last_msg_send_time =
                 ntb_main_context_get_wall_clock(NULL) +
                 rand() % 600 - 300;
 
@@ -1168,7 +1167,7 @@ ackdata_pow_cb(uint64_t nonce,
 
         message->crypto_cookie =
                 ntb_crypto_create_msg_blob(keyring->crypto,
-                                           message->last_send_time,
+                                           message->last_msg_send_time,
                                            message->from_key,
                                            message->to_key,
                                            message->blob,
@@ -1347,7 +1346,7 @@ send_getpubkey_request(struct ntb_keyring_message *message)
 
         /* Don't do anything if the getpubkey request is still in the
          * network */
-        if (now - message->last_send_time <
+        if (now - message->last_getpubkey_send_time <
             ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_GETPUBKEY)) {
                 message->state = NTB_KEYRING_MESSAGE_STATE_AWAITING_PUBKEY;
                 return;
@@ -1361,9 +1360,9 @@ send_getpubkey_request(struct ntb_keyring_message *message)
         /* Leave space for the nonce */
         ntb_buffer_set_length(&buffer, buffer.length + sizeof (uint64_t));
 
-        message->last_send_time = now + rand() % 600 - 300;
+        message->last_getpubkey_send_time = now + rand() % 600 - 300;
 
-        ntb_proto_add_64(&buffer, message->last_send_time);
+        ntb_proto_add_64(&buffer, message->last_getpubkey_send_time);
         ntb_proto_add_var_int(&buffer, message->to_address.version);
         ntb_proto_add_var_int(&buffer, message->to_address.stream);
 
@@ -1581,7 +1580,8 @@ create_message(struct ntb_keyring *keyring,
         message->blob = NULL;
         message->trying_pubkey_blob = NULL;
 
-        message->last_send_time = 0;
+        message->last_getpubkey_send_time = 0;
+        message->last_msg_send_time = 0;
 
         if (message->to_address.version < 4) {
                 memcpy(message->ripe_or_tag,
