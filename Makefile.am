@@ -10,5 +10,6 @@ SUBDIRS = \
 	$(NULL)
 
 EXTRA_DIST = \
+	autogen.sh \
 	README \
 	$(NULL)
