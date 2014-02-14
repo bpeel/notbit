@@ -1237,6 +1237,15 @@ load_message_content_cb(struct ntb_blob *content_blob,
         size_t message_offset;
 
         message->store_cookie = NULL;
+
+        /* If the content has disappeared then there's nothing we can
+         * do with the message so we'll abandon it */
+        if (content_blob == NULL) {
+                free_message(message);
+                save_messages(keyring);
+                return;
+        }
+
         if (message->blob) {
                 ntb_blob_unref(message->blob);
                 message->blob = NULL;
