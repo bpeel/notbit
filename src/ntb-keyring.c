@@ -709,6 +709,7 @@ decrypt_msg_cb(struct ntb_key *key,
         struct ntb_address sender_address;
         char sender_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
         char to_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
+        int64_t timestamp = task->msg.timestamp;
 
         task->crypto_cookie = NULL;
 
@@ -759,7 +760,7 @@ decrypt_msg_cb(struct ntb_key *key,
         send_acknowledgement(keyring, msg.ack, msg.ack_length);
 
         ntb_store_save_message(NULL, /* default store */
-                               task->msg.timestamp,
+                               timestamp,
                                sender_address_string,
                                to_address_string,
                                blob);
