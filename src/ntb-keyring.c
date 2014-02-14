@@ -166,9 +166,19 @@ ntb_keyring_error;
 static void
 load_public_key_for_message(struct ntb_keyring_message *message);
 
+static void
+post_message(struct ntb_keyring_message *message);
+
 static bool
 try_pubkey_blob_for_message(struct ntb_keyring_message *message,
                             struct ntb_keyring_pubkey_blob *pubkey_blob);
+
+static struct ntb_keyring_message *
+create_message(struct ntb_keyring *keyring,
+               struct ntb_key *from_key,
+               const struct ntb_address *to_address,
+               int content_encoding,
+               uint64_t content_id);
 
 static void
 unref_pubkey_blob(struct ntb_keyring_pubkey_blob *pubkey)
@@ -242,6 +252,68 @@ save_keyring(struct ntb_keyring *keyring)
         ntb_store_save_keys(NULL /* default store */,
                             (struct ntb_key **) keyring->keys.data,
                             ntb_pointer_array_length(&keyring->keys));
+}
+
+static void
+add_outgoing(struct ntb_keyring_message *message,
+             struct ntb_buffer *buffer)
+{
+        struct ntb_store_outgoing *outgoing;
+        size_t old_length = buffer->length;
+
+        ntb_buffer_set_length(buffer,
+                              buffer->length +
+                              sizeof (struct ntb_store_outgoing));
+        outgoing = (struct ntb_store_outgoing *) (buffer->data + old_length);
+
+        outgoing->from_address = message->from_key->address;
+        outgoing->to_address = message->to_address;
+        memcpy(outgoing->ackdata, message->ackdata, NTB_PROTO_ACKDATA_SIZE);
+        outgoing->content_id = message->content_id;
+        outgoing->content_encoding = message->content_encoding;
+        outgoing->last_getpubkey_send_time = message->last_getpubkey_send_time;
+        outgoing->last_msg_send_time = message->last_msg_send_time;
+
+        /* If we are in the middle of calculating the POW then the
+         * send time will have been updated but we won't have actually
+         * sent the object yet. Therefore we'll reset the last send
+         * time so that when we restart it will try resending
+         * immediately */
+        switch (message->state) {
+        case NTB_KEYRING_MESSAGE_STATE_CALCULATING_GETPUBKEY_POW:
+                outgoing->last_getpubkey_send_time = 0;
+                break;
+
+        case NTB_KEYRING_MESSAGE_STATE_CALCULATING_ACKDATA_POW:
+        case NTB_KEYRING_MESSAGE_STATE_CALCULATING_MSG_POW:
+                outgoing->last_msg_send_time = 0;
+                break;
+
+        default:
+                break;
+        }
+}
+
+static void
+save_messages(struct ntb_keyring *keyring)
+{
+        struct ntb_buffer buffer;
+        struct ntb_keyring_message *message;
+        struct ntb_blob *blob;
+
+        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
+
+        ntb_list_for_each(message, &keyring->messages, link) {
+                if (message->state !=
+                    NTB_KEYRING_MESSAGE_STATE_GENERATING_ACKDATA)
+                        add_outgoing(message, &buffer);
+        }
+
+        blob = ntb_blob_dynamic_end(&buffer);
+
+        ntb_store_save_outgoings(NULL /* default store */, blob);
+
+        ntb_blob_unref(blob);
 }
 
 static void
@@ -787,6 +859,8 @@ message_acknowledged(struct ntb_keyring_message *message)
         free_message(message);
 
         maybe_delete_message_content(keyring, content_id);
+
+        save_messages(keyring);
 }
 
 static bool
@@ -1006,41 +1080,6 @@ ntb_keyring_start(struct ntb_keyring *keyring)
         keyring->pow = ntb_pow_new();
 }
 
-static void
-for_each_pubkey_blob_cb(const uint8_t *hash,
-                        int64_t timestamp,
-                        struct ntb_blob *blob,
-                        void *user_data)
-{
-        struct ntb_keyring *keyring = user_data;
-
-        handle_pubkey(keyring, blob);
-}
-
-void
-ntb_keyring_load_store(struct ntb_keyring *keyring)
-{
-        ntb_store_for_each_pubkey_blob(NULL,
-                                       for_each_pubkey_blob_cb,
-                                       keyring);
-}
-
-static void
-create_key_cb(struct ntb_key *key,
-              void *user_data)
-{
-        struct ntb_keyring_cookie *cookie = user_data;
-        struct ntb_keyring *keyring = cookie->keyring;
-
-        add_key(keyring, key);
-        save_keyring(keyring);
-
-        if (cookie->func)
-                cookie->func(key, cookie->user_data);
-
-        ntb_free(cookie);
-}
-
 static struct ntb_key *
 get_private_key_for_address(struct ntb_keyring *keyring,
                             const struct ntb_address *address)
@@ -1077,6 +1116,83 @@ get_any_key_for_address(struct ntb_keyring *keyring,
 }
 
 static void
+for_each_pubkey_blob_cb(const uint8_t *hash,
+                        int64_t timestamp,
+                        struct ntb_blob *blob,
+                        void *user_data)
+{
+        struct ntb_keyring *keyring = user_data;
+
+        handle_pubkey(keyring, blob);
+}
+
+static void
+for_each_outgoing_cb(const struct ntb_store_outgoing *outgoing,
+                     void *user_data)
+{
+        struct ntb_keyring *keyring = user_data;
+        struct ntb_keyring_message *message;
+        struct ntb_key *from_key;
+        char from_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
+
+        if (outgoing->content_id >= keyring->next_message_content_id)
+                keyring->next_message_content_id = outgoing->content_id + 1;
+
+        from_key = get_private_key_for_address(keyring,
+                                               &outgoing->from_address);
+        if (from_key == NULL) {
+                ntb_address_encode(&outgoing->from_address,
+                                   from_address_string);
+                ntb_log("Skipping saved message from %s because the private "
+                        "key is no longer available",
+                        from_address_string);
+                return;
+        }
+
+        message = create_message(keyring,
+                                 from_key,
+                                 &outgoing->to_address,
+                                 outgoing->content_encoding,
+                                 outgoing->content_id);
+
+        message->last_getpubkey_send_time = outgoing->last_getpubkey_send_time;
+        message->last_msg_send_time = outgoing->last_msg_send_time;
+        memcpy(message->ackdata, outgoing->ackdata, NTB_PROTO_ACKDATA_SIZE);
+
+        if (message->to_key == NULL)
+                load_public_key_for_message(message);
+        else
+                post_message(message);
+}
+
+void
+ntb_keyring_load_store(struct ntb_keyring *keyring)
+{
+        ntb_store_for_each_pubkey_blob(NULL,
+                                       for_each_pubkey_blob_cb,
+                                       keyring);
+        ntb_store_for_each_outgoing(NULL,
+                                    for_each_outgoing_cb,
+                                    keyring);
+}
+
+static void
+create_key_cb(struct ntb_key *key,
+              void *user_data)
+{
+        struct ntb_keyring_cookie *cookie = user_data;
+        struct ntb_keyring *keyring = cookie->keyring;
+
+        add_key(keyring, key);
+        save_keyring(keyring);
+
+        if (cookie->func)
+                cookie->func(key, cookie->user_data);
+
+        ntb_free(cookie);
+}
+
+static void
 msg_pow_cb(uint64_t nonce,
            void *user_data)
 {
@@ -1101,6 +1217,8 @@ msg_pow_cb(uint64_t nonce,
         message->blob = NULL;
 
         message->state = NTB_KEYRING_MESSAGE_STATE_AWAITING_ACKNOWLEDGEMENT;
+
+        save_messages(keyring);
 }
 
 static void
@@ -1301,6 +1419,16 @@ load_message_content_cb(struct ntb_blob *content_blob,
 static void
 post_message(struct ntb_keyring_message *message)
 {
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+
+        /* Don't do anything if the msg is still in the network */
+        if (now - message->last_msg_send_time <
+            ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_MSG)) {
+                message->state =
+                        NTB_KEYRING_MESSAGE_STATE_AWAITING_ACKNOWLEDGEMENT;
+                return;
+        }
+
         message->state = NTB_KEYRING_MESSAGE_STATE_LOADING_CONTENT;
 
         message->store_cookie =
@@ -1336,6 +1464,8 @@ getpubkey_pow_cb(uint64_t nonce,
         message->blob = NULL;
 
         message->state = NTB_KEYRING_MESSAGE_STATE_AWAITING_PUBKEY;
+
+        save_messages(keyring);
 }
 
 static void
@@ -1547,6 +1677,8 @@ generate_ackdata_cb(const uint8_t *ackdata,
                 load_public_key_for_message(message);
         else
                 post_message(message);
+
+        save_messages(message->keyring);
 }
 
 static struct ntb_keyring_message *
@@ -1599,7 +1731,7 @@ create_message(struct ntb_keyring *keyring,
                        NTB_PROTO_HASH_LENGTH - NTB_ADDRESS_TAG_SIZE);
         }
 
-        ntb_list_insert(&keyring->messages, &message->link);
+        ntb_list_insert(keyring->messages.prev, &message->link);
 
         return message;
 }
@@ -1719,6 +1851,7 @@ ntb_keyring_free(struct ntb_keyring *keyring)
 {
         int i;
 
+        save_messages(keyring);
         save_keyring(keyring);
 
         ntb_main_context_remove_source(keyring->gc_source);

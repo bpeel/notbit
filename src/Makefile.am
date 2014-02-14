@@ -58,6 +58,8 @@ notbit_SOURCES = \
 	ntb-list.h \
 	ntb-load-keys.c \
 	ntb-load-keys.h \
+	ntb-load-outgoings.c \
+	ntb-load-outgoings.h \
 	ntb-log.c \
 	ntb-log.h \
 	ntb-mail-parser.c \

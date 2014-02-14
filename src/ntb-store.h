@@ -25,6 +25,7 @@
 #include "ntb-error.h"
 #include "ntb-netaddress.h"
 #include "ntb-key.h"
+#include "ntb-proto.h"
 
 /* The store is used to do all of the disk I/O. The actions are stored
  * in a queue and then executed in a separate thread */
@@ -48,6 +49,16 @@ struct ntb_store_addr {
         struct ntb_netaddress address;
 };
 
+struct ntb_store_outgoing {
+        struct ntb_address from_address;
+        struct ntb_address to_address;
+        uint8_t ackdata[NTB_PROTO_ACKDATA_SIZE];
+        uint64_t content_id;
+        int content_encoding;
+        int64_t last_getpubkey_send_time;
+        int64_t last_msg_send_time;
+};
+
 typedef void
 (* ntb_store_for_each_blob_func)(enum ntb_proto_inv_type type,
                                  const uint8_t *hash,
@@ -67,6 +78,10 @@ typedef void
 typedef void
 (* ntb_store_for_each_key_func)(struct ntb_key *key,
                                 void *user_data);
+
+typedef void
+(* ntb_store_for_each_outgoing_func)(const struct ntb_store_outgoing *outgoing,
+                                     void *user_data);
 
 /* This is called when a load is complete. If the load succeeded then
  * blob will point to the contents. If it failed the callback will
@@ -113,6 +128,10 @@ ntb_store_save_keys(struct ntb_store *store,
                     int n_keys);
 
 void
+ntb_store_save_outgoings(struct ntb_store *store,
+                         struct ntb_blob *blob);
+
+void
 ntb_store_save_message(struct ntb_store *store,
                        int64_t timestamp,
                        const char *from_address,
@@ -153,6 +172,11 @@ void
 ntb_store_for_each_key(struct ntb_store *store,
                        ntb_store_for_each_key_func func,
                        void *user_data);
+
+void
+ntb_store_for_each_outgoing(struct ntb_store *store,
+                            ntb_store_for_each_outgoing_func func,
+                            void *user_data);
 
 struct ntb_store_cookie *
 ntb_store_load_blob(struct ntb_store *store,

@@ -44,6 +44,7 @@
 #include "ntb-base64.h"
 #include "ntb-address.h"
 #include "ntb-load-keys.h"
+#include "ntb-load-outgoings.h"
 
 struct ntb_error_domain
 ntb_store_error;
@@ -79,6 +80,7 @@ enum ntb_store_task_type {
         NTB_STORE_TASK_TYPE_LOAD_BLOB,
         NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST,
         NTB_STORE_TASK_TYPE_SAVE_KEYS,
+        NTB_STORE_TASK_TYPE_SAVE_OUTGOINGS,
         NTB_STORE_TASK_TYPE_SAVE_MESSAGE,
         NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT,
         NTB_STORE_TASK_TYPE_LOAD_MESSAGE_CONTENT,
@@ -110,6 +112,10 @@ struct ntb_store_task {
                         struct ntb_key **keys;
                         int n_keys;
                 } save_keys;
+
+                struct {
+                        struct ntb_blob *blob;
+                } save_outgoings;
 
                 struct {
                         int64_t timestamp;
@@ -165,6 +171,9 @@ NTB_SLICE_ALLOCATOR(struct ntb_store_cookie, ntb_store_cookie_allocator);
 /* ceil(log₅₈(2 ** (NTB_ECC_PUBLIC_KEY_SIZE × 8))) */
 /* The added four is for the checksum, and the 1 for the 0x80 prefix */
 #define NTB_STORE_MAX_PUBLIC_KEY_LENGTH 89
+
+/* ceil(log₅₈(2 ** (NTB_PROTO_ACKDATA_SIZE × 8))) */
+#define NTB_STORE_MAX_ACKDATA_LENGTH 44
 
 static struct ntb_store *ntb_store_default = NULL;
 
@@ -796,6 +805,82 @@ handle_save_keys(struct ntb_store *store,
 }
 
 static void
+write_outgoing(const struct ntb_store_outgoing *outgoing,
+               FILE *out)
+{
+        char from_address[NTB_ADDRESS_MAX_LENGTH + 1];
+        char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
+        char ackdata[NTB_STORE_MAX_ACKDATA_LENGTH + 1];
+        ssize_t ackdata_length;
+
+        ntb_address_encode(&outgoing->from_address, from_address);
+        ntb_address_encode(&outgoing->to_address, to_address);
+        ackdata_length = ntb_base58_encode(outgoing->ackdata,
+                                           NTB_PROTO_ACKDATA_SIZE,
+                                           ackdata);
+
+        assert(ackdata_length <= NTB_STORE_MAX_ACKDATA_LENGTH);
+
+        ackdata[ackdata_length] = '\0';
+
+        fprintf(out,
+                "[message]\n"
+                "fromaddress = %s\n"
+                "toaddress = %s\n"
+                "ackdata = %s\n"
+                "contentid = %" PRIu64 "\n"
+                "contentencoding = %i\n"
+                "lastgetpubkeysendtime = %" PRIi64 "\n"
+                "lastmsgsendtime = %" PRIi64 "\n"
+                "\n",
+                from_address,
+                to_address,
+                ackdata,
+                outgoing->content_id,
+                outgoing->content_encoding,
+                outgoing->last_getpubkey_send_time,
+                outgoing->last_msg_send_time);
+}
+
+static void
+handle_save_outgoings(struct ntb_store *store,
+                      struct ntb_store_task *task)
+{
+        struct ntb_blob *blob = task->save_outgoings.blob;
+        const struct ntb_store_outgoing *outgoings =
+                (const struct ntb_store_outgoing *) blob->data;
+        FILE *out;
+        size_t i;
+
+        ntb_log("Saving outgoing messages");
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf,
+                                 "outgoing-messages.dat.tmp");
+
+        out = fopen((char *) store->filename_buf.data, "w");
+
+        if (out == NULL) {
+                ntb_log("Error opening %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        for (i = 0; i < blob->size / sizeof *outgoings; i++)
+                write_outgoing(outgoings + i, out);
+
+        if (fclose(out) == EOF) {
+                ntb_log("Error writing to %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        rename_tmp_file(store);
+}
+
+static void
 generate_maildir_name(struct ntb_store *store,
                       struct ntb_buffer *buffer)
 {
@@ -1181,6 +1266,9 @@ free_task(struct ntb_store *store,
                         ntb_key_unref(task->save_keys.keys[i]);
                 ntb_free(task->save_keys.keys);
                 break;
+        case NTB_STORE_TASK_TYPE_SAVE_OUTGOINGS:
+                ntb_blob_unref(task->save_outgoings.blob);
+                break;
         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
                 ntb_blob_unref(task->save_message.blob);
                 break;
@@ -1241,6 +1329,9 @@ store_thread_func(void *user_data)
                                 break;
                         case NTB_STORE_TASK_TYPE_SAVE_KEYS:
                                 handle_save_keys(store, task);
+                                break;
+                        case NTB_STORE_TASK_TYPE_SAVE_OUTGOINGS:
+                                handle_save_outgoings(store, task);
                                 break;
                         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
                                 handle_save_message(store, task);
@@ -1515,6 +1606,24 @@ ntb_store_save_keys(struct ntb_store *store,
                 task->save_keys.keys[i] = ntb_key_ref(keys[i]);
 
         task->save_keys.n_keys = n_keys;
+
+        pthread_mutex_unlock(&store->mutex);
+}
+
+void
+ntb_store_save_outgoings(struct ntb_store *store,
+                         struct ntb_blob *blob)
+{
+        struct ntb_store_task *task;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        pthread_mutex_lock(&store->mutex);
+
+        task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_OUTGOINGS);
+
+        task->save_outgoings.blob = ntb_blob_ref(blob);
 
         pthread_mutex_unlock(&store->mutex);
 }
@@ -1864,6 +1973,145 @@ ntb_store_for_each_key(struct ntb_store *store,
         fclose(file);
 }
 
+struct for_each_outgoing_data {
+        ntb_store_for_each_outgoing_func func;
+        void *user_data;
+        struct ntb_buffer used_content_ids;
+};
+
+static void
+for_each_outgoing_cb(const struct ntb_store_outgoing *outgoing,
+                     void *user_data)
+{
+        struct for_each_outgoing_data *data = user_data;
+
+        data->func(outgoing, data->user_data);
+
+        ntb_buffer_append(&data->used_content_ids,
+                          &outgoing->content_id,
+                          sizeof outgoing->content_id);
+}
+
+static void
+maybe_delete_outgoing(struct ntb_store *store,
+                      const char *filename,
+                      const uint64_t *used_content_ids,
+                      size_t n_used_content_ids)
+{
+        const char *bn = filename + store->directory_len + 9;
+        long long int content_id_ll;
+        uint64_t content_id;
+        char *tail;
+        size_t i;
+
+        errno = 0;
+        content_id_ll = strtoll(bn, &tail, 16);
+
+        /* Don't delete the file if the name doesn't look like a
+         * hexadecimal number */
+        if (errno ||
+            tail == bn ||
+            content_id_ll < 0 ||
+            content_id_ll > UINT64_MAX)
+                return;
+
+        content_id = content_id_ll;
+
+        if (*tail) {
+                /* Don't delete the file unless it is a temporary file
+                 * that we probably created */
+                if (strcmp(tail, ".tmp"))
+                        return;
+        } else {
+                /* Don't delete the file if it is in use */
+                for (i = 0; i < n_used_content_ids; i++)
+                        if (used_content_ids[i] == content_id)
+                                return;
+        }
+
+        if (unlink(filename) == -1)
+                ntb_log("Error deleting %s: %s",
+                        filename,
+                        strerror(errno));
+}
+
+static void
+delete_unused_outgoings(struct ntb_store *store,
+                        const uint64_t *used_content_ids,
+                        size_t n_used_content_ids)
+{
+        DIR *dir;
+        struct dirent *dirent;
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "outgoing");
+
+        dir = opendir((char *) store->filename_buf.data);
+        if (dir == NULL) {
+                ntb_log("Error listing %s: %s",
+                        (char *) store->filename_buf.data,
+                        strerror(errno));
+                return;
+        }
+
+        ntb_buffer_append_c(&store->filename_buf, '/');
+
+        while ((dirent = readdir(dir))) {
+                store->filename_buf.length = store->directory_len + 9;
+                ntb_buffer_append_string(&store->filename_buf, dirent->d_name);
+
+                maybe_delete_outgoing(store,
+                                      (char *) store->filename_buf.data,
+                                      used_content_ids,
+                                      n_used_content_ids);
+        }
+
+        closedir(dir);
+}
+
+void
+ntb_store_for_each_outgoing(struct ntb_store *store,
+                            ntb_store_for_each_outgoing_func func,
+                            void *user_data)
+{
+        struct for_each_outgoing_data data;
+        FILE *file;
+
+        if (store == NULL)
+                store = ntb_store_get_default_or_abort();
+
+        /* This function runs synchronously but it should only be
+         * called once at startup before connecting to any peers so it
+         * shouldn't really matter */
+
+        store->filename_buf.length = store->directory_len;
+        ntb_buffer_append_string(&store->filename_buf, "outgoing-messages.dat");
+
+        file = fopen((char *) store->filename_buf.data, "r");
+
+        if (file == NULL) {
+                if (errno != ENOENT)
+                        ntb_log("Error opening %s: %s",
+                                (char *) store->filename_buf.data,
+                                strerror(errno));
+                return;
+        }
+
+        data.func = func;
+        data.user_data = user_data;
+        ntb_buffer_init(&data.used_content_ids);
+
+        ntb_load_outgoings(file, for_each_outgoing_cb, &data);
+
+        delete_unused_outgoings(store,
+                                (uint64_t *) data.used_content_ids.data,
+                                data.used_content_ids.size / sizeof (uint64_t));
+
+        ntb_buffer_destroy(&data.used_content_ids);
+
+        fclose(file);
+}
+
 struct ntb_store_cookie *
 ntb_store_load_blob(struct ntb_store *store,
                     const uint8_t *hash,
@@ -1914,6 +2162,7 @@ ntb_store_cancel_task(struct ntb_store_cookie *cookie)
                 case NTB_STORE_TASK_TYPE_SAVE_BLOB:
                 case NTB_STORE_TASK_TYPE_SAVE_ADDR_LIST:
                 case NTB_STORE_TASK_TYPE_SAVE_KEYS:
+                case NTB_STORE_TASK_TYPE_SAVE_OUTGOINGS:
                 case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
                 case NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT:
                 case NTB_STORE_TASK_TYPE_DELETE_MESSAGE_CONTENT:
