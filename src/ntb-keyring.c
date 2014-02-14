@@ -60,6 +60,7 @@ struct ntb_keyring {
         struct ntb_list pubkey_blob_list;
 
         struct ntb_main_context_source *gc_source;
+        struct ntb_main_context_source *resend_source;
 
         /* The message contents are given a unique id using this
          * counter. The ID is used for the filename in the store */
@@ -157,6 +158,9 @@ _Static_assert(NTB_ADDRESS_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
 /* Time in minutes between each garbage collection run */
 #define NTB_KEYRING_GC_TIMEOUT 10
 
+/* Time in minutes before checking whether to resend a message */
+#define NTB_KEYRING_RESEND_TIMEOUT 60
+
 NTB_SLICE_ALLOCATOR(struct ntb_keyring_pubkey_blob,
                     ntb_keyring_pubkey_blob_allocator);
 
@@ -168,6 +172,9 @@ load_public_key_for_message(struct ntb_keyring_message *message);
 
 static void
 post_message(struct ntb_keyring_message *message);
+
+static void
+send_getpubkey_request(struct ntb_keyring_message *message);
 
 static bool
 try_pubkey_blob_for_message(struct ntb_keyring_message *message,
@@ -1026,6 +1033,31 @@ gc_timeout_cb(struct ntb_main_context_source *source,
         }
 }
 
+static void
+resend_timeout_cb(struct ntb_main_context_source *source,
+                  void *user_data)
+{
+        struct ntb_keyring *keyring = user_data;
+        struct ntb_keyring_message *message, *tmp;
+
+        ntb_list_for_each_safe(message, tmp, &keyring->messages, link) {
+                switch (message->state) {
+                case NTB_KEYRING_MESSAGE_STATE_AWAITING_PUBKEY:
+                        /* This won't actually do anything if the
+                         * pubkey request is still in the network */
+                        send_getpubkey_request(message);
+                        break;
+                case NTB_KEYRING_MESSAGE_STATE_AWAITING_ACKNOWLEDGEMENT:
+                        /* This won't actually do anything if the msg
+                         * is still in the network */
+                        post_message(message);
+                        break;
+                default:
+                        break;
+                }
+        }
+}
+
 struct ntb_keyring *
 ntb_keyring_new(struct ntb_network *nw)
 {
@@ -1061,10 +1093,16 @@ ntb_keyring_new(struct ntb_network *nw)
                                for_each_key_cb,
                                keyring);
 
-        keyring->gc_source = ntb_main_context_add_timer(NULL,
-                                                        NTB_KEYRING_GC_TIMEOUT,
-                                                        gc_timeout_cb,
-                                                        keyring);
+        keyring->gc_source =
+                ntb_main_context_add_timer(NULL,
+                                           NTB_KEYRING_GC_TIMEOUT,
+                                           gc_timeout_cb,
+                                           keyring);
+        keyring->resend_source =
+                ntb_main_context_add_timer(NULL,
+                                           NTB_KEYRING_RESEND_TIMEOUT,
+                                           resend_timeout_cb,
+                                           keyring);
 
         return keyring;
 }
@@ -1854,6 +1892,7 @@ ntb_keyring_free(struct ntb_keyring *keyring)
         save_messages(keyring);
         save_keyring(keyring);
 
+        ntb_main_context_remove_source(keyring->resend_source);
         ntb_main_context_remove_source(keyring->gc_source);
 
         ntb_list_remove(&keyring->new_object_listener.link);
