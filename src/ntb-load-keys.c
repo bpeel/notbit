@@ -90,8 +90,10 @@ flush_key(struct ntb_load_keys_data *data)
 
         if (!has_private_keys &&
             (!data->has_public_signing_key ||
-             !data->has_public_encryption_key))
+             !data->has_public_encryption_key)) {
+                reset_data(data);
                 return;
+        }
 
         if (!ntb_address_decode(&address,
                                 (const char *) data->address.data)) {
