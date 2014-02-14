@@ -435,11 +435,12 @@ run_main_loop(struct ntb_network *nw,
                 daemonize();
 
         ntb_keyring_start(keyring);
-        ntb_store_start(store);
         ntb_log_start();
 
         ntb_network_load_store(nw);
         ntb_keyring_load_store(keyring);
+
+        ntb_store_start(store);
 
         quit_source = ntb_main_context_add_quit(NULL, quit_cb, &quit);
 
