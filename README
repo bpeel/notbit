@@ -5,12 +5,11 @@ Notbit is a minimal client for the Bitmessage network. It is designed
 to work as a daemon with no UI. The idea is that it will store
 messages in the standard maildir format and accept new messages via a
 process like sendmail. That way it can be used with any compliant mail
-program such as Thunderbird or Mutt.
+program such as Evolution or Mutt.
 
-Notbit is a work in progress and is currently fairly limited. It can
-not yet send messages but it is at least able to receive them. It is
-however able to fully participate as a peer in the network and forward
-on messages so running the client will aid the network.
+Notbit is a work in progress and currently has some limitations.
+It can already send and receive messages to regular addresses but it
+doesn't yet support channels or broadcasts.
 
 Disclaimer
 ━━━━━━━━━━
@@ -93,6 +92,58 @@ If Notbit receives a message for one of the addresses in keys.dat it
 will write it out in maildir format. maildir is a standard format
 which can be read by most mail programs such as mutt. By default the
 maildir will be ~/.maildir. You can change this with the -m option.
+
+Sending messages
+━━━━━━━━━━━━━━━━
+
+You can send messages by running the notbit-sendmail command. This
+takes a message formatted as RFC822 mail message on the standard
+input. This is the same format as used by sendmail so you can use
+notbit-sendmail as a drop-in replacement to send messages from almost
+any mail client. The addresses used can not be real email addresses
+but instead they must be of the form <bitmessage-address>@bitmessage.
+For example, you could type the following to create a new address and
+use it to send a message to the echo server to test it:
+
+echo -e "From: "`notbit-keygen`"@bitmessage\\n"\
+"To: BM-orkCbppXWSqPpAxnz6jnfTZ2djb5pJKDb@bitmessage\\n"\
+"\\n"\
+"Hello from Notbit\\x21" | notbit-sendmail
+
+Note that any messages you send must have the content type set to
+text/plain and can't contain any attachments. This means that HTML
+messages won't work. They must use either the us-ascii encoding or
+UTF-8.
+
+Integrating with a mail client
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Notbit can be used with any mail client that supports maildir and
+local delivery via sendmail. For example, to configure an account with
+Evolution you would do the following:
+
+• Click the ‘New’ → ‘Mail account’ menu
+• In the email address field, type an address generated using
+  notbit-keygen. Don't forget to add ‘@bitmessage’ on the end to make
+  it look like an email address.
+• For the ‘server type’ select ‘Maildir-format mail directories’
+• Select the .maildir folder as the ‘Mail Directory’. Note that you
+  may have to right-click and select ‘show hidden files’ in order to
+  see this. Alternatively you can make Notbit use a different
+  directory by passing the -m option when you run it.
+• Under the ‘Sending E-mail’ settings, select ‘Sendmail’ as the server
+  type.
+• Tick the ‘Use custom binary’ option and type
+  /home/<you>/bin/notbit-sendmail as the binary, where <you> is your
+  username.
+• The rest of the settings can be left at the default.
+
+You should now be able to send a Bitmessage using Evolution. Just
+remember to add ‘@bitmessage’ to any address you send to and make sure
+you select ‘Plain text’ as the format (HTML emails and attachments
+aren't supported by Bitmessage). Don't worry if your name appears in
+the From box next to your address as this information won't be sent
+over Bitmessage. Only the subject and the body of the mail are sent.
 
 Options
 ━━━━━━━
