@@ -82,6 +82,12 @@ ntb_network_error;
  * new ones */
 #define NTB_NETWORK_MAX_INCOMING_PEERS 8
 
+/* We only keep track of up to this many rejected inventories. If we
+ * end up with more then we'll delete the older ones. This is intended
+ * to reduce the possibility of using the rejected inventories as a
+ * DOS vector */
+#define NTB_NETWORK_MAX_REJECTED_INVENTORIES 16384
+
 enum ntb_network_peer_state {
         /* If we initiated the connection then we will go through these
          * two steps before the connection is considered established.
@@ -177,6 +183,7 @@ struct ntb_network {
 
         struct ntb_list accepted_inventories;
         struct ntb_list rejected_inventories;
+        int n_rejected_inventories;
 
         struct ntb_signal new_object_signal;
 
@@ -1003,6 +1010,31 @@ broadcast_delayed_inv(struct ntb_network *nw,
 }
 
 static void
+reject_inventory(struct ntb_network *nw,
+                 struct ntb_network_inventory *inv)
+{
+        struct ntb_network_inventory *old_inv;
+
+        inv->state = NTB_NETWORK_INV_STATE_REJECTED;
+
+        if (nw->n_rejected_inventories >=
+            NTB_NETWORK_MAX_REJECTED_INVENTORIES) {
+                /* Remove the rejected inventory that was added the
+                 * earliest */
+                old_inv = ntb_container_of(nw->rejected_inventories.prev,
+                                           struct ntb_network_inventory,
+                                           link);
+                ntb_list_remove(&old_inv->link);
+                ntb_hash_table_remove(nw->inventory_hash, old_inv->hash);
+                free_inventory(old_inv);
+        } else {
+                nw->n_rejected_inventories++;
+        }
+
+        ntb_list_insert(&nw->rejected_inventories, &inv->link);
+}
+
+static void
 add_object(struct ntb_network *nw,
            enum ntb_proto_inv_type type,
            const uint8_t *object_data,
@@ -1063,8 +1095,7 @@ add_object(struct ntb_network *nw,
                           object_data_length,
                           age,
                           source_note)) {
-                inv->state = NTB_NETWORK_INV_STATE_REJECTED;
-                ntb_list_insert(&nw->rejected_inventories, &inv->link);
+                reject_inventory(nw, inv);
         } else {
                 if (blob) {
                         inv->blob = ntb_blob_ref(blob);
@@ -1205,7 +1236,9 @@ gc_inventories(struct ntb_network *nw,
                 if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
                     age >= (ntb_proto_get_max_age_for_type(type) +
                             NTB_PROTO_EXTRA_AGE)) {
-                        if (inv->state != NTB_NETWORK_INV_STATE_REJECTED)
+                        if (inv->state == NTB_NETWORK_INV_STATE_REJECTED)
+                                nw->n_rejected_inventories--;
+                        else
                                 ntb_store_delete_object(NULL, inv->hash);
                         ntb_list_remove(&inv->link);
                         ntb_hash_table_remove(nw->inventory_hash, inv);
@@ -1440,6 +1473,7 @@ ntb_network_new(void)
         ntb_list_init(&nw->addrs);
         ntb_list_init(&nw->accepted_inventories);
         ntb_list_init(&nw->rejected_inventories);
+        nw->n_rejected_inventories = 0;
         ntb_list_init(&nw->delayed_broadcasts);
 
         ntb_signal_init(&nw->new_object_signal);
