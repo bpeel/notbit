@@ -397,6 +397,13 @@ init_maildir(struct ntb_store *store,
         if (!try_mkdir((const char *) store->maildir_buf.data, error))
                 return false;
 
+        ntb_buffer_set_length(&store->maildir_buf,
+                              store->maildir_buf.length - 3);
+        ntb_buffer_append_string(&store->maildir_buf, "cur");
+
+        if (!try_mkdir((const char *) store->maildir_buf.data, error))
+                return false;
+
         return true;
 }
 
