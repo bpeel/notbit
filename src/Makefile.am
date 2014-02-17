@@ -82,6 +82,8 @@ notbit_SOURCES = \
 	ntb-quoted-printable.c \
 	ntb-quoted-printable.h \
 	ntb-ref-count.h \
+	ntb-save-message.c \
+	ntb-save-message.h \
 	ntb-sendmail.c \
 	ntb-sendmail.h \
 	ntb-signal.h \
