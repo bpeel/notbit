@@ -359,7 +359,7 @@ ntb_pow_calculate(struct ntb_pow *pow,
 
         cookie = ntb_alloc(sizeof *cookie);
 
-        target = calculate_target(length,
+        target = calculate_target(length + sizeof (uint64_t),
                                   payload_extra_bytes,
                                   average_trials_per_byte);
 
@@ -411,7 +411,7 @@ ntb_pow_check(const uint8_t *payload,
         memcpy(&pow_value, hash2, sizeof pow_value);
         pow_value = NTB_UINT64_FROM_BE(pow_value);
 
-        target = calculate_target(length - sizeof (uint64_t),
+        target = calculate_target(length,
                                   payload_extra_bytes,
                                   average_trials_per_byte);
 
