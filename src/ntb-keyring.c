@@ -734,7 +734,7 @@ create_public_key_cb(struct ntb_key *public_key,
         add_public_key(keyring, public_key);
 }
 
-static void
+static struct ntb_key *
 add_public_key_from_network_keys(struct ntb_keyring *keyring,
                                  const struct ntb_address *address,
                                  const uint8_t *public_signing_key,
@@ -751,7 +751,7 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
                 key = ntb_pointer_array_get(&keyring->keys, i);
 
                 if (ntb_address_equal(address, &key->address))
-                        return;
+                        return key;
         }
 
         /* The keys from the network don't have the 0x04 prefix so we
@@ -774,6 +774,8 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
                                              full_public_encryption_key,
                                              create_public_key_cb,
                                              task);
+
+        return NULL;
 }
 
 static void
@@ -785,8 +787,8 @@ decrypt_msg_cb(struct ntb_key *key,
         struct ntb_keyring *keyring = task->keyring;
         struct ntb_proto_decrypted_msg msg;
         struct ntb_address sender_address;
+        struct ntb_key *sender_key;
         char sender_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
-        char to_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
         int64_t timestamp = task->msg.timestamp;
 
         task->crypto_cookie = NULL;
@@ -826,12 +828,11 @@ decrypt_msg_cb(struct ntb_key *key,
         ntb_address_encode(&sender_address, sender_address_string);
 
         /* Store the public key so we don't have to request it if we reply */
-        add_public_key_from_network_keys(keyring,
-                                         &sender_address,
-                                         msg.sender_signing_key,
-                                         msg.sender_encryption_key);
-
-        ntb_address_encode(&key->address, to_address_string);
+        sender_key =
+                add_public_key_from_network_keys(keyring,
+                                                 &sender_address,
+                                                 msg.sender_signing_key,
+                                                 msg.sender_encryption_key);
 
         ntb_log("Accepted message from %s", sender_address_string);
 
@@ -839,8 +840,9 @@ decrypt_msg_cb(struct ntb_key *key,
 
         ntb_store_save_message(NULL, /* default store */
                                timestamp,
+                               sender_key,
                                sender_address_string,
-                               to_address_string,
+                               key,
                                blob);
 
         return;

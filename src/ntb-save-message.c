@@ -25,6 +25,13 @@
 #include "ntb-save-message.h"
 #include "ntb-base64.h"
 
+enum label_classification {
+        LABEL_NONE,
+        LABEL_RAW,
+        LABEL_QUOTES,
+        LABEL_ENCODE
+};
+
 static bool
 need_encoded_words(const uint8_t *subject,
                    size_t subject_length)
@@ -95,13 +102,84 @@ write_subject(const uint8_t *subject,
                 fwrite(subject, 1, subject_length, out);
 }
 
+static bool
+is_atom_char(char ch)
+{
+        if (strchr("!#$%&'*+-/=?^_`{|}~", ch))
+                return true;
+
+        if (ch >= 'a' && ch <= 'z')
+                return true;
+
+        if (ch >= 'A' && ch <= 'Z')
+                return true;
+
+        if (ch >= '0' && ch <= '9')
+                return true;
+
+        return false;
+}
+
+static enum label_classification
+classify_label(struct ntb_key *key)
+{
+        enum label_classification classification = LABEL_NONE;
+        const char *p;
+
+        if (key == NULL)
+                return LABEL_NONE;
+
+        for (p = key->label; *p; p++) {
+                if (*p < ' ' || *p > 127 ||
+                    *p == '"' || *p == '\\')
+                        return LABEL_ENCODE;
+                else if (is_atom_char(*p)) {
+                        if (classification == LABEL_NONE)
+                                classification = LABEL_RAW;
+                } else {
+                        classification = LABEL_QUOTES;
+                }
+        }
+
+        return classification;
+}
+
+static void
+write_address(struct ntb_key *key,
+              const char *address,
+              FILE *out)
+{
+        switch (classify_label(key)) {
+        case LABEL_NONE:
+                fputs(address, out);
+                break;
+
+        case LABEL_RAW:
+                fprintf(out, "%s <%s>", key->label, address);
+                break;
+
+        case LABEL_QUOTES:
+                fprintf(out, "\"%s\" <%s>", key->label, address);
+                break;
+
+        case LABEL_ENCODE:
+                write_encoded_words((const uint8_t *) key->label,
+                                    strlen(key->label),
+                                    out);
+                fprintf(out, " <%s>", address);
+                break;
+        }
+}
+
 void
 ntb_save_message(time_t timestamp,
+                 struct ntb_key *from_key,
                  const char *from_address,
-                 const char *to_address,
+                 struct ntb_key *to_key,
                  struct ntb_blob *blob,
                  FILE *out)
 {
+        char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
         struct ntb_proto_decrypted_msg msg;
         const uint8_t *eol;
         static const char *day_names[] = {
@@ -113,16 +191,20 @@ ntb_save_message(time_t timestamp,
         };
         struct tm tm;
 
+        ntb_address_encode(&to_key->address, to_address);
+
         localtime_r(&timestamp, &tm);
 
+        fputs("From: ", out);
+        write_address(to_key, to_address, out);
+        fputs("\nTo: ", out);
+        write_address(from_key, from_address, out);
+
         fprintf(out,
-                "From: %s@bitmessage\n"
-                "To: %s@bitmessage\n"
+                "\n"
                 "Date: %s, %i %s %i %02i:%02i:%02i %c%02li%02li\n"
                 "Content-Type: text/plain; charset=UTF-8\n"
                 "Content-Transfer-Encoding: 8bit\n",
-                from_address,
-                to_address,
                 day_names[tm.tm_wday],
                 tm.tm_mday,
                 month_names[tm.tm_mon],

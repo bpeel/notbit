@@ -24,11 +24,13 @@
 #include <time.h>
 
 #include "ntb-blob.h"
+#include "ntb-key.h"
 
 void
 ntb_save_message(time_t timestamp,
+                 struct ntb_key *from_key,
                  const char *from_address,
-                 const char *to_address,
+                 struct ntb_key *to_key,
                  struct ntb_blob *blob,
                  FILE *out);
 

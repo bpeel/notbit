@@ -120,8 +120,9 @@ struct ntb_store_task {
 
                 struct {
                         int64_t timestamp;
+                        struct ntb_key *from_key;
                         char from_address[NTB_ADDRESS_MAX_LENGTH + 1];
-                        char to_address[NTB_ADDRESS_MAX_LENGTH + 1];
+                        struct ntb_key *to_key;
                         struct ntb_blob *blob;
                 } save_message;
 
@@ -950,8 +951,9 @@ handle_save_message(struct ntb_store *store,
         }
 
         ntb_save_message(task->save_message.timestamp,
+                         task->save_message.from_key,
                          task->save_message.from_address,
-                         task->save_message.to_address,
+                         task->save_message.to_key,
                          task->save_message.blob,
                          out);
 
@@ -1144,6 +1146,9 @@ free_task(struct ntb_store *store,
                 break;
         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE:
                 ntb_blob_unref(task->save_message.blob);
+                if (task->save_message.from_key)
+                        ntb_key_unref(task->save_message.from_key);
+                ntb_key_unref(task->save_message.to_key);
                 break;
         case NTB_STORE_TASK_TYPE_SAVE_MESSAGE_CONTENT:
                 ntb_blob_unref(task->save_message_content.blob);
@@ -1345,8 +1350,9 @@ ntb_store_delete_object(struct ntb_store *store,
 void
 ntb_store_save_message(struct ntb_store *store,
                        int64_t timestamp,
+                       struct ntb_key *from_key,
                        const char *from_address,
-                       const char *to_address,
+                       struct ntb_key *to_key,
                        struct ntb_blob *blob)
 {
         struct ntb_store_task *task;
@@ -1359,8 +1365,12 @@ ntb_store_save_message(struct ntb_store *store,
         task = new_task(store, NTB_STORE_TASK_TYPE_SAVE_MESSAGE);
 
         task->save_message.timestamp = timestamp;
+        if (from_key)
+                task->save_message.from_key = ntb_key_ref(from_key);
+        else
+                task->save_message.from_key = NULL;
         strcpy(task->save_message.from_address, from_address);
-        strcpy(task->save_message.to_address, to_address);
+        task->save_message.to_key = ntb_key_ref(to_key);
         task->save_message.blob = ntb_blob_ref(blob);
 
         pthread_mutex_unlock(&store->mutex);
