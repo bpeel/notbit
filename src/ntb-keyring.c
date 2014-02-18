@@ -1287,8 +1287,8 @@ create_msg_blob_cb(struct ntb_blob *blob,
                 ntb_pow_calculate(keyring->pow,
                                   blob->data + sizeof (uint64_t),
                                   blob->size - sizeof (uint64_t),
-                                  NTB_PROTO_MIN_EXTRA_BYTES,
-                                  NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE,
+                                  message->to_key->payload_length_extra_bytes,
+                                  message->to_key->nonce_trials_per_byte,
                                   msg_pow_cb,
                                   message);
 }
