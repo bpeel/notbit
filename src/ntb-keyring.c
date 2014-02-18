@@ -738,7 +738,9 @@ static struct ntb_key *
 add_public_key_from_network_keys(struct ntb_keyring *keyring,
                                  const struct ntb_address *address,
                                  const uint8_t *public_signing_key,
-                                 const uint8_t *public_encryption_key)
+                                 const uint8_t *public_encryption_key,
+                                 uint64_t nonce_trials_per_byte,
+                                 uint64_t extra_bytes)
 {
         uint8_t full_public_signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
         uint8_t full_public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
@@ -772,6 +774,8 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
                                              address->stream,
                                              full_public_signing_key,
                                              full_public_encryption_key,
+                                             nonce_trials_per_byte,
+                                             extra_bytes,
                                              create_public_key_cb,
                                              task);
 
@@ -832,7 +836,9 @@ decrypt_msg_cb(struct ntb_key *key,
                 add_public_key_from_network_keys(keyring,
                                                  &sender_address,
                                                  msg.sender_signing_key,
-                                                 msg.sender_encryption_key);
+                                                 msg.sender_encryption_key,
+                                                 msg.nonce_trials_per_byte,
+                                                 msg.extra_bytes);
 
         ntb_log("Accepted message from %s", sender_address_string);
 

@@ -110,6 +110,8 @@ struct ntb_crypto_cookie {
                         uint8_t stream;
                         uint8_t signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
                         uint8_t encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
+                        uint64_t nonce_trials_per_byte;
+                        uint64_t extra_bytes;
                         struct ntb_key *key;
                 } create_public_key;
 
@@ -487,6 +489,7 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
         uint8_t full_public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
         struct ntb_crypto *crypto = cookie->crypto;
         struct ntb_address address;
+        struct ntb_key *key;
 
         if (pubkey->signature &&
             !check_signature_for_data(crypto,
@@ -522,14 +525,18 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
                pubkey->public_encryption_key,
                NTB_ECC_PUBLIC_KEY_SIZE);
 
-        cookie->check_pubkey.key =
-                ntb_key_new_with_public(crypto->ecc,
-                                        "", /* label */
-                                        &address,
-                                        NULL, /* private signing_key */
-                                        full_public_signing_key,
-                                        NULL, /* private encryption_key */
-                                        full_public_encryption_key);
+        key = ntb_key_new_with_public(crypto->ecc,
+                                      "", /* label */
+                                      &address,
+                                      NULL, /* private signing_key */
+                                      full_public_signing_key,
+                                      NULL, /* private encryption_key */
+                                      full_public_encryption_key);
+
+        key->nonce_trials_per_byte = pubkey->nonce_trials_per_byte;
+        key->payload_length_extra_bytes = pubkey->extra_bytes;
+
+        cookie->check_pubkey.key = key;
 }
 
 static void
@@ -651,6 +658,7 @@ handle_create_public_key(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_crypto *crypto = cookie->crypto;
         struct ntb_address address;
+        struct ntb_key *key;
 
         ntb_address_from_network_keys(&address,
                                       cookie->create_public_key.version,
@@ -659,15 +667,21 @@ handle_create_public_key(struct ntb_crypto_cookie *cookie)
                                       cookie->create_public_key.
                                       encryption_key + 1);
 
-        cookie->create_public_key.key =
-                ntb_key_new_with_public(crypto->ecc,
-                                        "", /* label */
-                                        &address,
-                                        NULL, /* private signing_key */
-                                        cookie->create_public_key.signing_key,
-                                        NULL, /* private encryption_key */
-                                        cookie->create_public_key.
-                                        encryption_key);
+        key = ntb_key_new_with_public(crypto->ecc,
+                                      "", /* label */
+                                      &address,
+                                      NULL, /* private signing_key */
+                                      cookie->create_public_key.signing_key,
+                                      NULL, /* private encryption_key */
+                                      cookie->create_public_key.
+                                      encryption_key);
+
+        key->nonce_trials_per_byte =
+                cookie->create_public_key.nonce_trials_per_byte;
+        key->payload_length_extra_bytes =
+                cookie->create_public_key.extra_bytes;
+
+        cookie->create_public_key.key = key;
 }
 
 static void
@@ -1018,6 +1032,8 @@ ntb_crypto_create_public_key(struct ntb_crypto *crypto,
                              uint8_t stream,
                              const uint8_t *signing_key,
                              const uint8_t *encryption_key,
+                             uint64_t nonce_trials_per_byte,
+                             uint64_t extra_bytes,
                              ntb_crypto_create_key_func callback,
                              void *user_data)
 {
@@ -1040,6 +1056,9 @@ ntb_crypto_create_public_key(struct ntb_crypto *crypto,
                NTB_ECC_PUBLIC_KEY_SIZE);
 
         cookie->create_public_key.key = NULL;
+
+        cookie->create_public_key.nonce_trials_per_byte = nonce_trials_per_byte;
+        cookie->create_public_key.extra_bytes = extra_bytes;
 
         pthread_mutex_unlock(&crypto->mutex);
 

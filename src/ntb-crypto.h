@@ -89,6 +89,8 @@ ntb_crypto_create_public_key(struct ntb_crypto *crypto,
                              uint8_t stream,
                              const uint8_t *signing_key,
                              const uint8_t *encryption_key,
+                             uint64_t nonce_trials_per_byte,
+                             uint64_t extra_bytes,
                              ntb_crypto_create_key_func callback,
                              void *user_data);
 
