@@ -418,6 +418,10 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
 
                 data += header_size;
                 data_length -= header_size;
+        } else {
+                msg->nonce_trials_per_byte =
+                        NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+                msg->extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
         }
 
         if (data_length < RIPEMD160_DIGEST_LENGTH)
