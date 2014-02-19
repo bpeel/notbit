@@ -1273,6 +1273,8 @@ create_msg_blob_cb(struct ntb_blob *blob,
 {
         struct ntb_keyring_message *message = user_data;
         struct ntb_keyring *keyring = message->keyring;
+        int payload_length_extra_bytes;
+        int nonce_trials_per_byte;
 
         message->crypto_cookie = NULL;
 
@@ -1283,12 +1285,26 @@ create_msg_blob_cb(struct ntb_blob *blob,
 
         message->state = NTB_KEYRING_MESSAGE_STATE_CALCULATING_MSG_POW;
 
+        /* Make sure the POW difficulty is at least the network
+         * minimum otherwise the message won't propagate through the
+         * network and someone would be able to deduce that we are the
+         * originator of this message. */
+        payload_length_extra_bytes =
+                message->to_key->payload_length_extra_bytes;
+        if (payload_length_extra_bytes < NTB_PROTO_MIN_EXTRA_BYTES)
+                payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+
+        nonce_trials_per_byte =
+                message->to_key->nonce_trials_per_byte;
+        if (nonce_trials_per_byte < NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE)
+                nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+
         message->pow_cookie =
                 ntb_pow_calculate(keyring->pow,
                                   blob->data + sizeof (uint64_t),
                                   blob->size - sizeof (uint64_t),
-                                  message->to_key->payload_length_extra_bytes,
-                                  message->to_key->nonce_trials_per_byte,
+                                  payload_length_extra_bytes,
+                                  nonce_trials_per_byte,
                                   msg_pow_cb,
                                   message);
 }
