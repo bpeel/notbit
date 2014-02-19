@@ -196,9 +196,9 @@ ntb_save_message(time_t timestamp,
         localtime_r(&timestamp, &tm);
 
         fputs("From: ", out);
-        write_address(to_key, to_address, out);
-        fputs("\nTo: ", out);
         write_address(from_key, from_address, out);
+        fputs("\nTo: ", out);
+        write_address(to_key, to_address, out);
 
         fprintf(out,
                 "\n"
