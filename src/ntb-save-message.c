@@ -152,21 +152,22 @@ write_address(struct ntb_key *key,
         switch (classify_label(key)) {
         case LABEL_NONE:
                 fputs(address, out);
+                fputs("@bitmessage", out);
                 break;
 
         case LABEL_RAW:
-                fprintf(out, "%s <%s>", key->label, address);
+                fprintf(out, "%s <%s@bitmessage>", key->label, address);
                 break;
 
         case LABEL_QUOTES:
-                fprintf(out, "\"%s\" <%s>", key->label, address);
+                fprintf(out, "\"%s\" <%s@bitmessage>", key->label, address);
                 break;
 
         case LABEL_ENCODE:
                 write_encoded_words((const uint8_t *) key->label,
                                     strlen(key->label),
                                     out);
-                fprintf(out, " <%s>", address);
+                fprintf(out, " <%s@bitmessage>", address);
                 break;
         }
 }
