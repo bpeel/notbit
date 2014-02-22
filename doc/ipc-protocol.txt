@@ -115,6 +115,14 @@ is like this:
 │? │stream    │var_int     │The stream number that the address should be on.│
 │  │          │            │This must be 1.                                 │
 ├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │nonce     │var_int     │The average number of nonce trials per byte     │
+│  │trials per│            │required to accept messages on this key, or 0   │
+│  │byte      │            │to use the default.                             │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
+│? │payload   │var_int     │The number of bytes to add on to the length     │
+│  │length    │            │for the POW-difficulty calculation, or 0 to use │
+│  │extra     │            │the default.                                    │
+├──┼──────────┼────────────┼────────────────────────────────────────────────┤
 │1 │zeroes    │uchar       │Minimum number of leading zeroes to have in the │
 │  │          │            │address. Only 0, 1 or 2 will be accepted. A     │
 │  │          │            │higher number will make the address shorter.    │

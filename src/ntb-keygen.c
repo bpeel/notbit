@@ -44,9 +44,11 @@ enum ntb_arguments_error {
 static int option_version = 0;
 static int option_stream = 1;
 static int option_zeroes = 0;
+static int option_nonce_trials_per_byte = 0; /* use default */
+static int option_payload_length_extra_bytes = 0; /* use default */
 static const char *option_label = "";
 
-static const char options[] = "-hzZ:v:s:l:";
+static const char options[] = "-hzZ:v:s:l:pd:D:";
 
 static void
 usage(void)
@@ -61,6 +63,13 @@ usage(void)
                " -s <stream>           Specify which stream version to use.\n"
                " -v <version>          Specify which key version to generate.\n"
                "                       Defaults to the latest version.\n"
+               " -d <POW factor>       Difficulty factor for the POW "
+               "calculation\n"
+               "                       required to send messages to the key.\n"
+               "                       Default 2.\n"
+               " -D <POW factor>       Difficulty factor for the POW "
+               "calculation\n"
+               "                       for short messages. Default 1.\n"
                " -Z <zeroes>           Specify an exact number of zeroes to\n"
                "                       require at the start of the address.\n");
         exit(EXIT_FAILURE);
@@ -110,6 +119,17 @@ process_arguments(int argc,
                         option_stream = atoi(optarg);
                         break;
 
+                case 'd':
+                        option_nonce_trials_per_byte =
+                                atoi(optarg) *
+                                NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+                        break;
+
+                case 'D':
+                        option_payload_length_extra_bytes =
+                                atoi(optarg) * NTB_PROTO_MIN_EXTRA_BYTES;
+                        break;
+
                 case 'l':
                         option_label = optarg;
                         break;
@@ -134,10 +154,6 @@ process_arguments(int argc,
 
 static bool
 send_keygen_command(int sock,
-                    uint64_t version,
-                    uint64_t stream,
-                    uint8_t zeroes,
-                    const char *label,
                     struct ntb_error **error)
 {
         struct ntb_buffer buf;
@@ -146,10 +162,12 @@ send_keygen_command(int sock,
         ntb_buffer_init(&buf);
 
         ntb_ipc_proto_begin_command(&buf, "keygen", 0 /* request_id */);
-        ntb_proto_add_var_int(&buf, version);
-        ntb_proto_add_var_int(&buf, stream);
-        ntb_proto_add_8(&buf, zeroes);
-        ntb_proto_add_var_str(&buf, label);
+        ntb_proto_add_var_int(&buf, option_version);
+        ntb_proto_add_var_int(&buf, option_stream);
+        ntb_proto_add_var_int(&buf, option_nonce_trials_per_byte);
+        ntb_proto_add_var_int(&buf, option_payload_length_extra_bytes);
+        ntb_proto_add_8(&buf, option_zeroes);
+        ntb_proto_add_var_str(&buf, option_label);
         ntb_ipc_proto_end_command(&buf, 0 /* command_start */);
 
         res = ntb_ipc_client_send_command(sock,
@@ -227,12 +245,7 @@ ntb_keygen(int argc, char **argv)
                 return EXIT_FAILURE;
         }
 
-        if (send_keygen_command(sock,
-                                option_version,
-                                option_stream,
-                                option_zeroes,
-                                option_label,
-                                &error)) {
+        if (send_keygen_command(sock, &error)) {
                 ntb_buffer_init(&response_buf);
                 if (ntb_ipc_client_get_response(sock,
                                                 &response_buf,

@@ -552,6 +552,8 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
         struct ntb_key_params params;
         struct ntb_ipc_task *task;
         uint64_t version, stream;
+        uint64_t nonce_trials_per_byte;
+        uint64_t payload_extra_bytes;
         ssize_t header_size;
         uint8_t zeroes;
         char *label;
@@ -564,6 +566,12 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
 
                                             NTB_PROTO_ARGUMENT_VAR_INT,
                                             &stream,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &nonce_trials_per_byte,
+
+                                            NTB_PROTO_ARGUMENT_VAR_INT,
+                                            &payload_extra_bytes,
 
                                             NTB_PROTO_ARGUMENT_8,
                                             &zeroes,
@@ -597,6 +605,12 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
                                      "The requested stream is not supported");
         }
 
+        if (nonce_trials_per_byte == 0)
+                nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE * 2;
+
+        if (payload_extra_bytes == 0)
+                payload_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+
         if (zeroes > 2) {
                 return send_response(conn,
                                      request_id,
@@ -619,7 +633,8 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
 
         params.flags = (NTB_KEY_PARAM_LABEL |
                         NTB_KEY_PARAM_VERSION |
-                        NTB_KEY_PARAM_STREAM);
+                        NTB_KEY_PARAM_STREAM |
+                        NTB_KEY_PARAM_POW_DIFFICULTY);
 
         label = ntb_alloc(label_str.length + 1);
         memcpy(label, label_str.data, label_str.length);
@@ -628,6 +643,8 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
         params.label = label;
         params.version = version;
         params.stream = stream;
+        params.nonce_trials_per_byte = nonce_trials_per_byte;
+        params.payload_length_extra_bytes = payload_extra_bytes;
 
         task->keyring_cookie = ntb_keyring_create_key(ipc->keyring,
                                                       &params,
