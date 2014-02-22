@@ -22,11 +22,11 @@ Dependencies
 ━━━━━━━━━━━━
 
 Notbit requires Linux. It will not work on other Unices because it is
-using some Linux-specific features such as epoll and abstract
-Unix-domain sockets. It also requires libcrypto with support for
-elliptic-curve cryptography. Unfortunately if you are building on
-Fedora you will need to build libcrypto from source because they don't
-ship ECC due to patent concerns.
+using some Linux-specific features such as abstract Unix-domain
+sockets. It also requires libcrypto with support for elliptic-curve
+cryptography. Unfortunately if you are building on Fedora you will
+need to build libcrypto from source because they don't ship ECC due to
+patent concerns.
 
 Building
 ━━━━━━━━

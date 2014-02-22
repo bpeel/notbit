@@ -529,12 +529,7 @@ ntb_daemon(int argc, char **argv)
                 return EXIT_FAILURE;
         }
 
-        mc = ntb_main_context_get_default(&error);
-
-        if (mc == NULL) {
-                fprintf(stderr, "%s\n", error->message);
-                return EXIT_FAILURE;
-        }
+        mc = ntb_main_context_get_default();
 
         ret = run_network();
 

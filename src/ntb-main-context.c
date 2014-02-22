@@ -20,7 +20,7 @@
 
 #include <errno.h>
 #include <string.h>
-#include <sys/epoll.h>
+#include <poll.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -35,12 +35,7 @@
 #include "ntb-list.h"
 #include "ntb-util.h"
 #include "ntb-slice.h"
-
-/* This is a simple replacement for the GMainLoop which uses
-   epoll. The hope is that it will scale to more connections easily
-   because it doesn't use poll which needs to upload the set of file
-   descriptors every time it blocks and it doesn't have to walk the
-   list of file descriptors to find out which object it belongs to */
+#include "ntb-buffer.h"
 
 struct ntb_error_domain
 ntb_main_context_error;
@@ -58,20 +53,23 @@ struct ntb_main_context {
          * iterating the list */
         pthread_mutex_t idle_mutex;
 
-        int epoll_fd;
-        /* Number of sources that are currently attached. This is used so we
-           can size the array passed to epoll_wait to ensure it's possible
-           to process an event for every single source */
+        /* Number of sources that are currently attached. This is used
+           so we can size the array passed to poll and to check that
+           there aren't any sources left when the main context is
+           destroyed */
         unsigned int n_sources;
+
         /* Array for receiving events */
-        unsigned int events_size;
-        struct epoll_event *events;
+        struct ntb_buffer poll_array;
+        bool poll_array_dirty;
 
         /* List of quit sources. All of these get invoked when a quit signal
            is received */
         struct ntb_list quit_sources;
 
         struct ntb_list idle_sources;
+
+        struct ntb_list poll_sources;
 
         struct ntb_main_context_source *async_pipe_source;
         int async_pipe[2];
@@ -106,28 +104,15 @@ struct ntb_main_context_source {
                 struct {
                         int fd;
                         enum ntb_main_context_poll_flags current_flags;
-                        struct ntb_main_context_source *idle_source;
-                };
-
-                /* Quit sources */
-                struct {
-                        struct ntb_list quit_link;
-                };
-
-                /* Idle sources */
-                struct {
-                        struct ntb_list idle_link;
                 };
 
                 /* Timer sources */
-                struct {
-                        struct ntb_main_context_bucket *bucket;
-                        struct ntb_list timer_link;
-                };
+                struct ntb_main_context_bucket *bucket;
         };
 
         void *user_data;
         void *callback;
+        struct ntb_list link;
 
         struct ntb_main_context *mc;
 };
@@ -145,27 +130,12 @@ NTB_SLICE_ALLOCATOR(struct ntb_main_context_bucket,
 static struct ntb_main_context *ntb_main_context_default = NULL;
 
 struct ntb_main_context *
-ntb_main_context_get_default(struct ntb_error **error)
+ntb_main_context_get_default(void)
 {
         if (ntb_main_context_default == NULL)
-                ntb_main_context_default = ntb_main_context_new(error);
+                ntb_main_context_default = ntb_main_context_new();
 
         return ntb_main_context_default;
-}
-
-static struct ntb_main_context *
-ntb_main_context_get_default_or_abort(void)
-{
-        struct ntb_main_context *mc;
-        struct ntb_error *error = NULL;
-
-        mc = ntb_main_context_get_default(&error);
-
-        if (mc == NULL)
-                ntb_fatal("failed to create default main context: %s\n",
-                          error->message);
-
-        return mc;
 }
 
 static void
@@ -184,7 +154,7 @@ async_pipe_cb(struct ntb_main_context_source *source,
                         ntb_warning("Read from quit pipe failed: %s",
                                     strerror(errno));
         } else if (byte == 'Q') {
-                ntb_list_for_each(quit_source, &mc->quit_sources, quit_link) {
+                ntb_list_for_each(quit_source, &mc->quit_sources, link) {
                         callback = quit_source->callback;
                         callback(quit_source, quit_source->user_data);
                 }
@@ -201,27 +171,28 @@ send_async_byte(struct ntb_main_context *mc,
 static void
 ntb_main_context_quit_signal_cb(int signum)
 {
-        struct ntb_main_context *mc = ntb_main_context_get_default_or_abort();
+        struct ntb_main_context *mc = ntb_main_context_get_default();
 
         send_async_byte(mc, 'Q');
 }
 
-static void
-init_main_context(struct ntb_main_context *mc,
-                  int fd)
+struct ntb_main_context *
+ntb_main_context_new(void)
 {
+        struct ntb_main_context *mc = ntb_alloc(sizeof *mc);
+
         pthread_mutex_init(&mc->idle_mutex, NULL /* attrs */);
         ntb_slice_allocator_init(&mc->source_allocator,
                                  sizeof(struct ntb_main_context_source),
                                  NTB_ALIGNOF(struct ntb_main_context_source));
-        mc->epoll_fd = fd;
         mc->n_sources = 0;
-        mc->events = NULL;
-        mc->events_size = 0;
         mc->monotonic_time_valid = false;
         mc->wall_time_valid = false;
+        mc->poll_array_dirty = true;
+        ntb_buffer_init(&mc->poll_array);
         ntb_list_init(&mc->quit_sources);
         ntb_list_init(&mc->idle_sources);
+        ntb_list_init(&mc->poll_sources);
         ntb_list_init(&mc->buckets);
         mc->last_timer_time = ntb_main_context_get_monotonic_clock(mc);
 
@@ -240,73 +211,8 @@ init_main_context(struct ntb_main_context *mc,
         }
 
         mc->main_thread = pthread_self();
-}
 
-struct ntb_main_context *
-ntb_main_context_new(struct ntb_error **error)
-{
-        int fd;
-
-        fd = epoll_create(16);
-
-        if (fd == -1) {
-                if (errno == EINVAL)
-                        ntb_set_error(error,
-                                      &ntb_main_context_error,
-                                      NTB_MAIN_CONTEXT_ERROR_UNSUPPORTED,
-                                      "epoll is unsupported on this system");
-                else
-                        ntb_set_error(error,
-                                      &ntb_main_context_error,
-                                      NTB_MAIN_CONTEXT_ERROR_UNKNOWN,
-                                      "failed to create an "
-                                      "epoll descriptor: %s",
-                                      strerror(errno));
-
-                return NULL;
-        } else {
-                struct ntb_main_context *mc = ntb_alloc(sizeof *mc);
-
-                init_main_context(mc, fd);
-
-                return mc;
-        }
-}
-
-static uint32_t
-get_epoll_events(enum ntb_main_context_poll_flags flags)
-{
-        uint32_t events = 0;
-
-        if (flags & NTB_MAIN_CONTEXT_POLL_IN)
-                events |= EPOLLIN | EPOLLRDHUP;
-        if (flags & NTB_MAIN_CONTEXT_POLL_OUT)
-                events |= EPOLLOUT;
-
-        return events;
-}
-
-static void
-poll_idle_cb(struct ntb_main_context_source *source,
-             void *user_data)
-{
-        ntb_main_context_poll_callback callback;
-
-        /* This is used from an idle handler if a file descriptor was
-         * added which doesn't support epoll. Instead it always
-         * reports that the file descriptor is ready for reading and
-         * writing in order to simulate the behaviour of poll */
-
-        source = user_data;
-
-        callback = source->callback;
-
-        callback(source,
-                 source->fd,
-                 source->current_flags &
-                 (NTB_MAIN_CONTEXT_POLL_IN |
-                  NTB_MAIN_CONTEXT_POLL_OUT),
-                 source->user_data);
+        return mc;
 }
 
 struct ntb_main_context_source *
@@ -317,10 +223,9 @@ ntb_main_context_add_poll(struct ntb_main_context *mc,
                           void *user_data)
 {
         struct ntb_main_context_source *source;
-        struct epoll_event event;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
@@ -332,30 +237,10 @@ ntb_main_context_add_poll(struct ntb_main_context *mc,
         source->callback = callback;
         source->type = NTB_MAIN_CONTEXT_POLL_SOURCE;
         source->user_data = user_data;
-        source->idle_source = NULL;
-
-        event.events = get_epoll_events(flags);
-        event.data.ptr = source;
-
-        if (epoll_ctl(mc->epoll_fd, EPOLL_CTL_ADD, fd, &event) == -1) {
-                /* EPERM will happen if the file descriptor doesn't
-                 * support epoll. This will happen with regular files.
-                 * Instead of poll on the file descriptor we will
-                 * install an idle handler which just always reports
-                 * that the descriptor is ready for reading and
-                 * writing. This simulates what poll would do */
-                if (errno == EPERM) {
-                        source->idle_source =
-                                ntb_main_context_add_idle(mc,
-                                                          poll_idle_cb,
-                                                          source);
-                } else {
-                        ntb_warning("EPOLL_CTL_ADD failed: %s",
-                                    strerror(errno));
-                }
-        }
-
         source->current_flags = flags;
+        ntb_list_insert(&mc->poll_sources, &source->link);
+
+        mc->poll_array_dirty = true;
 
         return source;
 }
@@ -364,26 +249,13 @@ void
 ntb_main_context_modify_poll(struct ntb_main_context_source *source,
                              enum ntb_main_context_poll_flags flags)
 {
-        struct epoll_event event;
-
         ntb_return_if_fail(source->type == NTB_MAIN_CONTEXT_POLL_SOURCE);
 
         if (source->current_flags == flags)
                 return;
 
-        if (source->idle_source == NULL) {
-                event.events = get_epoll_events(flags);
-                event.data.ptr = source;
-
-                if (epoll_ctl(source->mc->epoll_fd,
-                              EPOLL_CTL_MOD,
-                              source->fd,
-                              &event) == -1)
-                        ntb_warning("EPOLL_CTL_MOD failed: %s",
-                                    strerror(errno));
-        }
-
         source->current_flags = flags;
+        source->mc->poll_array_dirty = true;
 }
 
 struct ntb_main_context_source *
@@ -394,7 +266,7 @@ ntb_main_context_add_quit(struct ntb_main_context *mc,
         struct ntb_main_context_source *source;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
@@ -406,7 +278,7 @@ ntb_main_context_add_quit(struct ntb_main_context *mc,
         source->type = NTB_MAIN_CONTEXT_QUIT_SOURCE;
         source->user_data = user_data;
 
-        ntb_list_insert(&mc->quit_sources, &source->quit_link);
+        ntb_list_insert(&mc->quit_sources, &source->link);
 
         return source;
 }
@@ -439,7 +311,7 @@ ntb_main_context_add_timer(struct ntb_main_context *mc,
         struct ntb_main_context_source *source;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
@@ -452,7 +324,7 @@ ntb_main_context_add_timer(struct ntb_main_context *mc,
         source->type = NTB_MAIN_CONTEXT_TIMER_SOURCE;
         source->user_data = user_data;
 
-        ntb_list_insert(&source->bucket->sources, &source->timer_link);
+        ntb_list_insert(&source->bucket->sources, &source->link);
 
         return source;
 }
@@ -472,13 +344,13 @@ ntb_main_context_add_idle(struct ntb_main_context *mc,
         struct ntb_main_context_source *source;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
         /* This may be called from a thread other than the main one so
          * we need to guard access to the idle sources lists */
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
-        ntb_list_insert(&mc->idle_sources, &source->idle_link);
+        ntb_list_insert(&mc->idle_sources, &source->link);
         mc->n_sources++;
         pthread_mutex_unlock(&mc->idle_mutex);
 
@@ -497,33 +369,27 @@ ntb_main_context_remove_source(struct ntb_main_context_source *source)
 {
         struct ntb_main_context *mc = source->mc;
         struct ntb_main_context_bucket *bucket;
-        struct epoll_event event;
+
 
         switch (source->type) {
         case NTB_MAIN_CONTEXT_POLL_SOURCE:
-                if (source->idle_source)
-                        ntb_main_context_remove_source(source->idle_source);
-                else if (epoll_ctl(mc->epoll_fd,
-                              EPOLL_CTL_DEL,
-                              source->fd,
-                              &event) == -1)
-                        ntb_warning("EPOLL_CTL_DEL failed: %s",
-                                    strerror(errno));
+                mc->poll_array_dirty = true;
+                ntb_list_remove(&source->link);
                 break;
 
         case NTB_MAIN_CONTEXT_QUIT_SOURCE:
-                ntb_list_remove(&source->quit_link);
+                ntb_list_remove(&source->link);
                 break;
 
         case NTB_MAIN_CONTEXT_IDLE_SOURCE:
                 pthread_mutex_lock(&mc->idle_mutex);
-                ntb_list_remove(&source->idle_link);
+                ntb_list_remove(&source->link);
                 pthread_mutex_unlock(&mc->idle_mutex);
                 break;
 
         case NTB_MAIN_CONTEXT_TIMER_SOURCE:
                 bucket = source->bucket;
-                ntb_list_remove(&source->timer_link);
+                ntb_list_remove(&source->link);
 
                 if (ntb_list_empty(&bucket->sources)) {
                         ntb_list_remove(&bucket->link);
@@ -585,7 +451,7 @@ emit_bucket(struct ntb_main_context_bucket *bucket)
         ntb_list_for_each_safe(source,
                                tmp_source,
                                &bucket->sources,
-                               timer_link) {
+                               link) {
                 callback = source->callback;
                 callback(source, source->user_data);
         }
@@ -635,7 +501,7 @@ emit_idle_sources(struct ntb_main_context *mc)
 
         ntb_list_for_each_safe(source, tmp_source,
                                &mc->idle_sources,
-                               idle_link) {
+                               link) {
                 callback = source->callback;
 
                 pthread_mutex_unlock(&mc->idle_mutex);
@@ -646,71 +512,107 @@ emit_idle_sources(struct ntb_main_context *mc)
         pthread_mutex_unlock(&mc->idle_mutex);
 }
 
-static void
-handle_epoll_event(struct ntb_main_context *mc,
-                   struct epoll_event *event)
+static struct ntb_main_context_source *
+get_source_for_fd(struct ntb_main_context *mc,
+                  int fd)
 {
-        struct ntb_main_context_source *source = source = event->data.ptr;
+        struct ntb_main_context_source *source;
+
+        ntb_list_for_each(source, &mc->poll_sources, link) {
+                if (source->fd == fd)
+                        return source;
+        }
+
+        ntb_fatal("Poll result found for unknown fd");
+}
+
+static void
+handle_poll_result(struct ntb_main_context *mc,
+                   const struct pollfd *pollfd)
+{
+        struct ntb_main_context_source *source;
         ntb_main_context_poll_callback callback;
         enum ntb_main_context_poll_flags flags;
 
-        switch (source->type) {
-        case NTB_MAIN_CONTEXT_POLL_SOURCE:
-                callback = source->callback;
-                flags = 0;
+        if (pollfd->revents == 0)
+                return;
 
-                if (event->events & EPOLLOUT)
-                        flags |= NTB_MAIN_CONTEXT_POLL_OUT;
-                if (event->events & (EPOLLIN | EPOLLRDHUP))
+        source = get_source_for_fd(mc, pollfd->fd);
+
+        callback = source->callback;
+        flags = 0;
+
+        if (pollfd->revents & POLLOUT)
+                flags |= NTB_MAIN_CONTEXT_POLL_OUT;
+        if (pollfd->revents & POLLIN)
+                flags |= NTB_MAIN_CONTEXT_POLL_IN;
+        if (pollfd->revents & POLLHUP) {
+                /* If the source is polling for read then we'll
+                 * just mark it as ready for reading so that any
+                 * error or EOF will be handled by the read call
+                 * instead of immediately aborting */
+                if ((source->current_flags & NTB_MAIN_CONTEXT_POLL_IN))
                         flags |= NTB_MAIN_CONTEXT_POLL_IN;
-                if (event->events & EPOLLHUP) {
-                        /* If the source is polling for read then we'll
-                         * just mark it as ready for reading so that any
-                         * error or EOF will be handled by the read call
-                         * instead of immediately aborting */
-                        if ((source->current_flags & NTB_MAIN_CONTEXT_POLL_IN))
-                                flags |= NTB_MAIN_CONTEXT_POLL_IN;
-                        else
-                                flags |= NTB_MAIN_CONTEXT_POLL_ERROR;
-                }
-                if (event->events & EPOLLERR)
+                else
                         flags |= NTB_MAIN_CONTEXT_POLL_ERROR;
-
-                callback(source, source->fd, flags, source->user_data);
-                break;
-
-        case NTB_MAIN_CONTEXT_QUIT_SOURCE:
-        case NTB_MAIN_CONTEXT_TIMER_SOURCE:
-        case NTB_MAIN_CONTEXT_IDLE_SOURCE:
-                ntb_warn_if_reached();
-                break;
         }
+        if (pollfd->revents & POLLERR)
+                flags |= NTB_MAIN_CONTEXT_POLL_ERROR;
+
+        callback(source, source->fd, flags, source->user_data);
+}
+
+static short int
+get_poll_events(enum ntb_main_context_poll_flags flags)
+{
+        short int events = 0;
+
+        if (flags & NTB_MAIN_CONTEXT_POLL_IN)
+                events |= POLLIN;
+        if (flags & NTB_MAIN_CONTEXT_POLL_OUT)
+                events |= POLLOUT;
+
+        return events;
+}
+
+static void
+ensure_poll_array(struct ntb_main_context *mc)
+{
+        struct ntb_main_context_source *source;
+        struct pollfd *pollfd;
+
+        if (!mc->poll_array_dirty)
+                return;
+
+        mc->poll_array.length = 0;
+
+        ntb_list_for_each(source, &mc->poll_sources, link) {
+                ntb_buffer_set_length(&mc->poll_array,
+                                      mc->poll_array.length +
+                                      sizeof (struct pollfd));
+                pollfd = (struct pollfd *) (mc->poll_array.data +
+                                            mc->poll_array.length -
+                                            sizeof (struct pollfd));
+                pollfd->fd = source->fd;
+                pollfd->events = get_poll_events(source->current_flags);
+        }
+
+        mc->poll_array_dirty = false;
 }
 
 void
 ntb_main_context_poll(struct ntb_main_context *mc)
 {
         int n_events;
-        int n_sources;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
-        pthread_mutex_lock(&mc->idle_mutex);
-        n_sources = mc->n_sources;
-        pthread_mutex_unlock(&mc->idle_mutex);
+        ensure_poll_array(mc);
 
-        if (n_sources > mc->events_size) {
-                ntb_free(mc->events);
-                mc->events = ntb_alloc(sizeof (struct epoll_event) *
-                                       n_sources);
-                mc->events_size = n_sources;
-        }
-
-        n_events = epoll_wait(mc->epoll_fd,
-                              mc->events,
-                              mc->events_size,
-                              get_timeout(mc));
+        n_events = poll((struct pollfd *) mc->poll_array.data,
+                        mc->poll_array.length / sizeof (struct pollfd),
+                        get_timeout(mc));
 
         /* Once we've polled we can assume that some time has passed so our
            cached values of the clocks are no longer valid */
@@ -719,12 +621,13 @@ ntb_main_context_poll(struct ntb_main_context *mc)
 
         if (n_events == -1) {
                 if (errno != EINTR)
-                        ntb_warning("epoll_wait failed: %s", strerror(errno));
+                        ntb_warning("poll failed: %s", strerror(errno));
         } else {
+                struct pollfd *pollfds = (struct pollfd *) mc->poll_array.data;
                 int i;
 
-                for (i = 0; i < n_events; i++)
-                        handle_epoll_event(mc, mc->events + i);
+                for (i = 0; i < mc->poll_array.length / sizeof *pollfds; i++)
+                        handle_poll_result(mc, pollfds + i);
 
                 check_timer_sources(mc);
                 emit_idle_sources(mc);
@@ -737,11 +640,11 @@ ntb_main_context_get_monotonic_clock(struct ntb_main_context *mc)
         struct timespec ts;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
-        /* Because in theory the program doesn't block between calls to
-           poll, we can act as if no time passes between calls to
-           epoll. That way we can cache the clock value instead of having to
+        /* Because in theory the program doesn't block between calls
+           to poll, we can act as if no time passes between calls.
+           That way we can cache the clock value instead of having to
            do a system call every time we need it */
         if (!mc->monotonic_time_valid) {
                 clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -759,11 +662,11 @@ ntb_main_context_get_wall_clock(struct ntb_main_context *mc)
         time_t now;
 
         if (mc == NULL)
-                mc = ntb_main_context_get_default_or_abort();
+                mc = ntb_main_context_get_default();
 
-        /* Because in theory the program doesn't block between calls to
-           poll, we can act as if no time passes between calls to
-           epoll. That way we can cache the clock value instead of having to
+        /* Because in theory the program doesn't block between calls
+           to poll, we can act as if no time passes between calls.
+           That way we can cache the clock value instead of having to
            do a system call every time we need it */
         if (!mc->wall_time_valid) {
                 time(&now);
@@ -790,9 +693,9 @@ ntb_main_context_free(struct ntb_main_context *mc)
                 ntb_warning("Sources still remain on a main context "
                             "that is being freed");
 
-        ntb_free(mc->events);
         pthread_mutex_destroy(&mc->idle_mutex);
-        ntb_close(mc->epoll_fd);
+
+        ntb_buffer_destroy(&mc->poll_array);
 
         ntb_slice_allocator_destroy(&mc->source_allocator);
 

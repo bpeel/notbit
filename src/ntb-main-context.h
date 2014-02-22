@@ -60,10 +60,10 @@ typedef void
                                     void *user_data);
 
 struct ntb_main_context *
-ntb_main_context_new(struct ntb_error **error);
+ntb_main_context_new(void);
 
 struct ntb_main_context *
-ntb_main_context_get_default(struct ntb_error **error);
+ntb_main_context_get_default(void);
 
 struct ntb_main_context_source *
 ntb_main_context_add_poll(struct ntb_main_context *mc,
