@@ -53,22 +53,64 @@ struct ntb_key {
         bool decoy;
 };
 
-struct ntb_key *
-ntb_key_new(struct ntb_ecc *ecc,
-            const char *label,
-            uint64_t version,
-            uint64_t stream,
-            const uint8_t *private_signing_key,
-            const uint8_t *private_encryption_key);
+enum ntb_key_param {
+        NTB_KEY_PARAM_LABEL = (1 << 0),
+        NTB_KEY_PARAM_VERSION = (1 << 1),
+        NTB_KEY_PARAM_STREAM = (1 << 2),
+        NTB_KEY_PARAM_PRIVATE_KEYS = (1 << 3),
+        NTB_KEY_PARAM_PUBLIC_KEYS = (1 << 4),
+        NTB_KEY_PARAM_POW_DIFFICULTY = (1 << 5),
+        NTB_KEY_PARAM_LAST_PUBKEY_SEND_TIME = (1 << 6),
+        NTB_KEY_PARAM_ENABLED = (1 << 7),
+        NTB_KEY_PARAM_DECOY = (1 << 8),
+        NTB_KEY_PARAM_RIPE = (1 << 9)
+};
+
+/* Optional parameters for ntb_key_new */
+struct ntb_key_params {
+        /* Flags of parameters that are filled in. Everything is
+         * optional except that at least one of
+         * NTB_KEY_PARAM_PRIVATE_KEYS and NTB_KEY_PARAM_PUBLIC_KEYS
+         * must be provided. Any parameters that don't have the
+         * corresponding flag set will be set to the default */
+        enum ntb_key_param flags;
+
+        /* NTB_KEY_PARAM_LABEL */
+        const char *label;
+
+        /* NTB_KEY_PARAM_VERSION */
+        uint64_t version;
+        /* NTB_KEY_PARAM_STREAM */
+        uint64_t stream;
+
+        /* NTB_KEY_PARAM_PRIVATE_KEYS */
+        const uint8_t *private_signing_key;
+        const uint8_t *private_encryption_key;
+
+        /* NTB_KEY_PARAM_PUBLIC_KEYS */
+        const uint8_t *public_signing_key;
+        const uint8_t *public_encryption_key;
+
+        /* NTB_KEY_PARAM_POW_DIFFICULTY */
+        int nonce_trials_per_byte;
+        int payload_length_extra_bytes;
+
+        /* NTB_KEY_PARAM_RIPE */
+        const uint8_t *ripe;
+
+        /* NTB_KEY_PARAM_LAST_PUBKEY_SEND_TIME */
+        int64_t last_pubkey_send_time;
+
+        /* NTB_KEY_PARAM_ENABLED */
+        bool enabled;
+
+        /* NTB_KEY_PARAM_DECOY */
+        bool decoy;
+};
 
 struct ntb_key *
-ntb_key_new_with_public(struct ntb_ecc *ecc,
-                        const char *label,
-                        const struct ntb_address *address,
-                        const uint8_t *private_signing_key,
-                        const uint8_t *public_signing_key,
-                        const uint8_t *private_encryption_key,
-                        const uint8_t *public_encryption_key);
+ntb_key_new(struct ntb_ecc *ecc,
+            const struct ntb_key_params *params);
 
 struct ntb_key *
 ntb_key_ref(struct ntb_key *key);

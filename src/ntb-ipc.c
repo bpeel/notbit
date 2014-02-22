@@ -549,6 +549,7 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
 {
         struct ntb_ipc *ipc = conn->ipc;
         struct ntb_proto_var_str label_str;
+        struct ntb_key_params params;
         struct ntb_ipc_task *task;
         uint64_t version, stream;
         ssize_t header_size;
@@ -616,14 +617,20 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
         task->request_id = request_id;
         task->conn = conn;
 
+        params.flags = (NTB_KEY_PARAM_LABEL |
+                        NTB_KEY_PARAM_VERSION |
+                        NTB_KEY_PARAM_STREAM);
+
         label = ntb_alloc(label_str.length + 1);
         memcpy(label, label_str.data, label_str.length);
         label[label_str.length] = '\0';
 
+        params.label = label;
+        params.version = version;
+        params.stream = stream;
+
         task->keyring_cookie = ntb_keyring_create_key(ipc->keyring,
-                                                      label,
-                                                      version,
-                                                      stream,
+                                                      &params,
                                                       zeroes,
                                                       create_key_cb,
                                                       task);

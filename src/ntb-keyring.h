@@ -62,9 +62,7 @@ ntb_keyring_send_message(struct ntb_keyring *keyring,
 
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,
-                       const char *label,
-                       int version,
-                       int stream,
+                       const struct ntb_key_params *params,
                        int leading_zeroes,
                        ntb_keyring_create_key_func func,
                        void *user_data);

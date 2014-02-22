@@ -745,6 +745,7 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
         uint8_t full_public_signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
         uint8_t full_public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
         struct ntb_keyring_task *task;
+        struct ntb_key_params params;
         struct ntb_key *key;
         int i;
 
@@ -767,15 +768,22 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
                public_encryption_key,
                NTB_ECC_PUBLIC_KEY_SIZE);
 
+        params.flags = (NTB_KEY_PARAM_PUBLIC_KEYS |
+                        NTB_KEY_PARAM_VERSION |
+                        NTB_KEY_PARAM_STREAM |
+                        NTB_KEY_PARAM_POW_DIFFICULTY);
+
+        params.public_signing_key = full_public_signing_key;
+        params.public_encryption_key = full_public_encryption_key;
+        params.version = address->version;
+        params.stream = address->stream;
+        params.nonce_trials_per_byte = nonce_trials_per_byte;
+        params.payload_length_extra_bytes = extra_bytes;
+
         task = add_task(keyring);
         task->crypto_cookie =
                 ntb_crypto_create_public_key(keyring->crypto,
-                                             address->version,
-                                             address->stream,
-                                             full_public_signing_key,
-                                             full_public_encryption_key,
-                                             nonce_trials_per_byte,
-                                             extra_bytes,
+                                             &params,
                                              create_public_key_cb,
                                              task);
 
@@ -1848,9 +1856,7 @@ ntb_keyring_send_message(struct ntb_keyring *keyring,
 
 struct ntb_keyring_cookie *
 ntb_keyring_create_key(struct ntb_keyring *keyring,
-                       const char *label,
-                       int version,
-                       int stream,
+                       const struct ntb_key_params *params,
                        int leading_zeroes,
                        ntb_keyring_create_key_func func,
                        void *user_data)
@@ -1863,9 +1869,7 @@ ntb_keyring_create_key(struct ntb_keyring *keyring,
         cookie->user_data = user_data;
 
         cookie->crypto_cookie = ntb_crypto_create_key(keyring->crypto,
-                                                      label,
-                                                      version,
-                                                      stream,
+                                                      params,
                                                       leading_zeroes,
                                                       create_key_cb,
                                                       cookie);

@@ -80,9 +80,7 @@ struct ntb_crypto_cookie {
         union {
                 struct {
                         struct ntb_key *key;
-                        char *label;
-                        int version;
-                        int stream;
+                        struct ntb_key_params params;
                         int leading_zeroes;
                 } create_key;
 
@@ -106,12 +104,9 @@ struct ntb_crypto_cookie {
                 } create_msg_blob;
 
                 struct {
-                        uint8_t version;
-                        uint8_t stream;
+                        struct ntb_key_params params;
                         uint8_t signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
                         uint8_t encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
-                        uint64_t nonce_trials_per_byte;
-                        uint64_t extra_bytes;
                         struct ntb_key *key;
                 } create_public_key;
 
@@ -157,56 +152,104 @@ new_cookie(struct ntb_crypto *crypto,
 }
 
 static void
-unref_cookie(struct ntb_crypto_cookie *cookie)
+free_create_key_cookie(struct ntb_crypto_cookie *cookie)
+{
+        if (cookie->create_key.key)
+                ntb_key_unref(cookie->create_key.key);
+        if ((cookie->create_key.params.flags & NTB_KEY_PARAM_LABEL))
+                ntb_free((char *) cookie->create_key.params.label);
+}
+
+static void
+free_create_pubkey_blob_cookie(struct ntb_crypto_cookie *cookie)
+{
+        if (cookie->create_pubkey_blob.key)
+                ntb_key_unref(cookie->create_pubkey_blob.key);
+        if (cookie->create_pubkey_blob.blob)
+                ntb_blob_unref(cookie->create_pubkey_blob.blob);
+}
+
+static void
+free_check_pubkey_cookie(struct ntb_crypto_cookie *cookie)
+{
+        if (cookie->check_pubkey.key)
+                ntb_key_unref(cookie->check_pubkey.key);
+        if (cookie->check_pubkey.blob)
+                ntb_blob_unref(cookie->check_pubkey.blob);
+}
+
+static void
+free_create_msg_blob_cookie(struct ntb_crypto_cookie *cookie)
+{
+        if (cookie->create_msg_blob.from_key)
+                ntb_key_unref(cookie->create_msg_blob.from_key);
+        if (cookie->create_msg_blob.to_key)
+                ntb_key_unref(cookie->create_msg_blob.to_key);
+        if (cookie->create_msg_blob.content)
+                ntb_blob_unref(cookie->create_msg_blob.content);
+        if (cookie->create_msg_blob.result)
+                ntb_blob_unref(cookie->create_msg_blob.result);
+}
+
+static void
+free_create_public_key_cookie(struct ntb_crypto_cookie *cookie)
+{
+        if (cookie->create_public_key.key)
+                ntb_key_unref(cookie->create_public_key.key);
+        if ((cookie->create_public_key.params.flags & NTB_KEY_PARAM_LABEL))
+                ntb_free((char *) cookie->create_public_key.params.label);
+}
+
+static void
+free_decrypt_msg_cookie(struct ntb_crypto_cookie *cookie)
 {
         int i;
 
+        for (i = 0; i < cookie->decrypt_msg.n_keys; i++)
+                ntb_key_unref(cookie->decrypt_msg.keys[i]);
+        ntb_free(cookie->decrypt_msg.keys);
+
+        if (cookie->decrypt_msg.result)
+                ntb_blob_unref(cookie->decrypt_msg.result);
+
+        if (cookie->decrypt_msg.chosen_key)
+                ntb_key_unref(cookie->decrypt_msg.chosen_key);
+
+        ntb_blob_unref(cookie->decrypt_msg.blob);
+}
+
+static void
+free_generate_ackdata_cookie(struct ntb_crypto_cookie *cookie)
+{
+}
+
+static void
+unref_cookie(struct ntb_crypto_cookie *cookie)
+{
         /* This should only be called with the lock */
 
         if (--cookie->ref_count <= 0) {
                 switch (cookie->type) {
                 case NTB_CRYPTO_COOKIE_CREATE_KEY:
-                        if (cookie->create_key.key)
-                                ntb_key_unref(cookie->create_key.key);
-                        ntb_free(cookie->create_key.label);
+                        free_create_key_cookie(cookie);
                         break;
                 case NTB_CRYPTO_COOKIE_CREATE_PUBKEY_BLOB:
-                        if (cookie->create_pubkey_blob.key)
-                                ntb_key_unref(cookie->create_pubkey_blob.key);
-                        if (cookie->create_pubkey_blob.blob)
-                                ntb_blob_unref(cookie->create_pubkey_blob.blob);
+                        free_create_pubkey_blob_cookie(cookie);
                         break;
                 case NTB_CRYPTO_COOKIE_CHECK_PUBKEY:
-                        if (cookie->check_pubkey.key)
-                                ntb_key_unref(cookie->check_pubkey.key);
-                        if (cookie->check_pubkey.blob)
-                                ntb_blob_unref(cookie->check_pubkey.blob);
+                        free_check_pubkey_cookie(cookie);
                         break;
                 case NTB_CRYPTO_COOKIE_CREATE_MSG_BLOB:
-                        if (cookie->create_msg_blob.from_key)
-                                ntb_key_unref(cookie->create_msg_blob.from_key);
-                        if (cookie->create_msg_blob.to_key)
-                                ntb_key_unref(cookie->create_msg_blob.to_key);
-                        if (cookie->create_msg_blob.content)
-                                ntb_blob_unref(cookie->create_msg_blob.content);
-                        if (cookie->create_msg_blob.result)
-                                ntb_blob_unref(cookie->create_msg_blob.result);
+                        free_create_msg_blob_cookie(cookie);
                         break;
                 case NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY:
-                        if (cookie->create_public_key.key)
-                                ntb_key_unref(cookie->create_public_key.key);
+                        free_create_public_key_cookie(cookie);
                         break;
                 case NTB_CRYPTO_COOKIE_DECRYPT_MSG:
-                        for (i = 0; i < cookie->decrypt_msg.n_keys; i++)
-                                ntb_key_unref(cookie->decrypt_msg.keys[i]);
-                        ntb_free(cookie->decrypt_msg.keys);
-                        if (cookie->decrypt_msg.result)
-                                ntb_blob_unref(cookie->decrypt_msg.result);
-                        if (cookie->decrypt_msg.chosen_key)
-                                ntb_key_unref(cookie->decrypt_msg.chosen_key);
-                        ntb_blob_unref(cookie->decrypt_msg.blob);
+                        free_decrypt_msg_cookie(cookie);
                         break;
                 case NTB_CRYPTO_COOKIE_GENERATE_ACKDATA:
+                        free_generate_ackdata_cookie(cookie);
                         break;
                 }
 
@@ -249,7 +292,7 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
         uint8_t private_encryption_key[NTB_ECC_PRIVATE_KEY_SIZE];
         uint8_t pub_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
         uint8_t sha_hash[SHA512_DIGEST_LENGTH];
-        struct ntb_address address;
+        uint8_t ripe[RIPEMD160_DIGEST_LENGTH];
         char address_string[NTB_ADDRESS_MAX_LENGTH + 1];
         SHA512_CTX sha_ctx;
         int attempts = 0;
@@ -272,23 +315,26 @@ handle_create_key(struct ntb_crypto_cookie *cookie)
                               NTB_ECC_PUBLIC_KEY_SIZE);
                 SHA512_Final(sha_hash, &sha_ctx);
 
-                RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, address.ripe);
+                RIPEMD160(sha_hash, SHA512_DIGEST_LENGTH, ripe);
 
                 attempts++;
-        } while (count_leading_zeroes(address.ripe) <
+        } while (count_leading_zeroes(ripe) <
                  cookie->create_key.leading_zeroes);
 
-        address.version = cookie->create_key.version;
-        address.stream = cookie->create_key.stream;
+        cookie->create_key.params.flags |= NTB_KEY_PARAM_RIPE;
+        cookie->create_key.params.ripe = ripe;
 
-        cookie->create_key.key =
-                ntb_key_new_with_public(crypto->ecc,
-                                        cookie->create_key.label,
-                                        &address,
-                                        private_signing_key,
-                                        pub_signing_key,
-                                        private_encryption_key,
-                                        pub_encryption_key);
+        cookie->create_key.params.flags |= NTB_KEY_PARAM_PRIVATE_KEYS;
+        cookie->create_key.params.private_signing_key = private_signing_key;
+        cookie->create_key.params.private_encryption_key =
+                private_encryption_key;
+
+        cookie->create_key.params.flags |= NTB_KEY_PARAM_PUBLIC_KEYS;
+        cookie->create_key.params.public_signing_key = pub_signing_key;
+        cookie->create_key.params.public_encryption_key = pub_encryption_key;
+
+        cookie->create_key.key = ntb_key_new(crypto->ecc,
+                                             &cookie->create_key.params);
 
         ntb_address_encode(&cookie->create_key.key->address, address_string);
 
@@ -489,7 +535,7 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
         uint8_t full_public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
         struct ntb_crypto *crypto = cookie->crypto;
         struct ntb_address address;
-        struct ntb_key *key;
+        struct ntb_key_params params;
 
         if (pubkey->signature &&
             !check_signature_for_data(crypto,
@@ -525,18 +571,20 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
                pubkey->public_encryption_key,
                NTB_ECC_PUBLIC_KEY_SIZE);
 
-        key = ntb_key_new_with_public(crypto->ecc,
-                                      "", /* label */
-                                      &address,
-                                      NULL, /* private signing_key */
-                                      full_public_signing_key,
-                                      NULL, /* private encryption_key */
-                                      full_public_encryption_key);
+        params.flags = (NTB_KEY_PARAM_VERSION |
+                        NTB_KEY_PARAM_STREAM |
+                        NTB_KEY_PARAM_PUBLIC_KEYS |
+                        NTB_KEY_PARAM_POW_DIFFICULTY |
+                        NTB_KEY_PARAM_RIPE);
+        params.version = address.version;
+        params.stream = address.stream;
+        params.public_signing_key = full_public_signing_key;
+        params.public_encryption_key = full_public_encryption_key;
+        params.nonce_trials_per_byte = pubkey->nonce_trials_per_byte;
+        params.payload_length_extra_bytes = pubkey->extra_bytes;
+        params.ripe = address.ripe;
 
-        key->nonce_trials_per_byte = pubkey->nonce_trials_per_byte;
-        key->payload_length_extra_bytes = pubkey->extra_bytes;
-
-        cookie->check_pubkey.key = key;
+        cookie->check_pubkey.key = ntb_key_new(crypto->ecc, &params);
 }
 
 static void
@@ -657,29 +705,10 @@ static void
 handle_create_public_key(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_crypto *crypto = cookie->crypto;
-        struct ntb_address address;
         struct ntb_key *key;
 
-        ntb_address_from_network_keys(&address,
-                                      cookie->create_public_key.version,
-                                      cookie->create_public_key.stream,
-                                      cookie->create_public_key.signing_key + 1,
-                                      cookie->create_public_key.
-                                      encryption_key + 1);
-
-        key = ntb_key_new_with_public(crypto->ecc,
-                                      "", /* label */
-                                      &address,
-                                      NULL, /* private signing_key */
-                                      cookie->create_public_key.signing_key,
-                                      NULL, /* private encryption_key */
-                                      cookie->create_public_key.
-                                      encryption_key);
-
-        key->nonce_trials_per_byte =
-                cookie->create_public_key.nonce_trials_per_byte;
-        key->payload_length_extra_bytes =
-                cookie->create_public_key.extra_bytes;
+        key = ntb_key_new(crypto->ecc,
+                          &cookie->create_public_key.params);
 
         cookie->create_public_key.key = key;
 }
@@ -950,14 +979,16 @@ ntb_crypto_new(void)
 
 struct ntb_crypto_cookie *
 ntb_crypto_create_key(struct ntb_crypto *crypto,
-                      const char *label,
-                      int version,
-                      int stream,
+                      const struct ntb_key_params *params,
                       int leading_zeroes,
                       ntb_crypto_create_key_func callback,
                       void *user_data)
 {
         struct ntb_crypto_cookie *cookie;
+
+        assert((params->flags & (NTB_KEY_PARAM_PRIVATE_KEYS |
+                                 NTB_KEY_PARAM_PUBLIC_KEYS |
+                                 NTB_KEY_PARAM_RIPE)) == 0);
 
         pthread_mutex_lock(&crypto->mutex);
 
@@ -965,9 +996,12 @@ ntb_crypto_create_key(struct ntb_crypto *crypto,
                             NTB_CRYPTO_COOKIE_CREATE_KEY,
                             callback,
                             user_data);
-        cookie->create_key.label = ntb_strdup(label);
-        cookie->create_key.version = version;
-        cookie->create_key.stream = stream;
+
+        cookie->create_key.params = *params;
+
+        if ((params->flags & NTB_KEY_PARAM_LABEL))
+                cookie->create_key.params.label = ntb_strdup(params->label);
+
         cookie->create_key.leading_zeroes = leading_zeroes;
         cookie->create_key.key = NULL;
 
@@ -1028,16 +1062,16 @@ ntb_crypto_create_msg_blob(struct ntb_crypto *crypto,
 
 struct ntb_crypto_cookie *
 ntb_crypto_create_public_key(struct ntb_crypto *crypto,
-                             uint8_t version,
-                             uint8_t stream,
-                             const uint8_t *signing_key,
-                             const uint8_t *encryption_key,
-                             uint64_t nonce_trials_per_byte,
-                             uint64_t extra_bytes,
+                             const struct ntb_key_params *params,
                              ntb_crypto_create_key_func callback,
                              void *user_data)
 {
         struct ntb_crypto_cookie *cookie;
+
+        assert((params->flags & (NTB_KEY_PARAM_PUBLIC_KEYS |
+                                 NTB_KEY_PARAM_PRIVATE_KEYS |
+                                 NTB_KEY_PARAM_RIPE)) ==
+               NTB_KEY_PARAM_PUBLIC_KEYS);
 
         pthread_mutex_lock(&crypto->mutex);
 
@@ -1045,20 +1079,22 @@ ntb_crypto_create_public_key(struct ntb_crypto *crypto,
                             NTB_CRYPTO_COOKIE_CREATE_PUBLIC_KEY,
                             callback,
                             user_data);
-        cookie->create_public_key.version = version;
-        cookie->create_public_key.stream = stream;
+
+        cookie->create_public_key.params = *params;
 
         memcpy(cookie->create_public_key.signing_key,
-               signing_key,
+               params->public_signing_key,
                NTB_ECC_PUBLIC_KEY_SIZE);
+        cookie->create_public_key.params.public_signing_key =
+                cookie->create_public_key.signing_key;
+
         memcpy(cookie->create_public_key.encryption_key,
-               encryption_key,
+               params->public_encryption_key,
                NTB_ECC_PUBLIC_KEY_SIZE);
+        cookie->create_public_key.params.public_encryption_key =
+                cookie->create_public_key.encryption_key;
 
         cookie->create_public_key.key = NULL;
-
-        cookie->create_public_key.nonce_trials_per_byte = nonce_trials_per_byte;
-        cookie->create_public_key.extra_bytes = extra_bytes;
 
         pthread_mutex_unlock(&crypto->mutex);
 

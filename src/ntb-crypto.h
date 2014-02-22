@@ -59,11 +59,11 @@ typedef void
 struct ntb_crypto *
 ntb_crypto_new(void);
 
+/* Creates a new private key. The key parameters must not be given
+ * because they will be generated */
 struct ntb_crypto_cookie *
 ntb_crypto_create_key(struct ntb_crypto *crypto,
-                      const char *label,
-                      int version,
-                      int stream,
+                      const struct ntb_key_params *params,
                       int leading_zeroes,
                       ntb_crypto_create_key_func callback,
                       void *user_data);
@@ -83,14 +83,10 @@ ntb_crypto_create_msg_blob(struct ntb_crypto *crypto,
                            ntb_crypto_create_msg_blob_func callback,
                            void *user_data);
 
+/* The private keys must not be given but the public keys must */
 struct ntb_crypto_cookie *
 ntb_crypto_create_public_key(struct ntb_crypto *crypto,
-                             uint8_t version,
-                             uint8_t stream,
-                             const uint8_t *signing_key,
-                             const uint8_t *encryption_key,
-                             uint64_t nonce_trials_per_byte,
-                             uint64_t extra_bytes,
+                             const struct ntb_key_params *params,
                              ntb_crypto_create_key_func callback,
                              void *user_data);
 

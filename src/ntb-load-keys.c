@@ -83,6 +83,7 @@ flush_key(struct ntb_load_keys_data *data)
 {
         struct ntb_key *key;
         struct ntb_address address;
+        struct ntb_key_params params;
         bool has_private_keys;
 
         has_private_keys = (data->has_private_signing_key &&
@@ -103,34 +104,38 @@ flush_key(struct ntb_load_keys_data *data)
                 address.stream = 1;
         }
 
+        params.flags = (NTB_KEY_PARAM_LABEL |
+                        NTB_KEY_PARAM_VERSION |
+                        NTB_KEY_PARAM_STREAM |
+                        NTB_KEY_PARAM_POW_DIFFICULTY |
+                        NTB_KEY_PARAM_LAST_PUBKEY_SEND_TIME |
+                        NTB_KEY_PARAM_ENABLED |
+                        NTB_KEY_PARAM_DECOY);
+        params.label = (const char *) data->label.data;
+        params.version = address.version;
+        params.stream = address.stream;
+        params.nonce_trials_per_byte = data->nonce_trials_per_byte;
+        params.payload_length_extra_bytes = data->payload_length_extra_bytes;
+        params.last_pubkey_send_time = data->last_pubkey_send_time;
+        params.enabled = data->enabled;
+        params.decoy = data->decoy;
+
         if (has_private_keys) {
-                key = ntb_key_new(data->ecc,
-                                  (const char *) data->label.data,
-                                  address.version,
-                                  address.stream,
-                                  data->private_signing_key,
-                                  data->private_encryption_key);
+                params.flags |= NTB_KEY_PARAM_PRIVATE_KEYS;
+                params.private_signing_key = data->private_signing_key;
+                params.private_encryption_key = data->private_encryption_key;
         } else {
-                key = ntb_key_new_with_public(data->ecc,
-                                              (const char *) data->label.data,
-                                              &address,
-                                              NULL, /* private signing key */
-                                              data->public_signing_key,
-                                              NULL, /* private encryption key */
-                                              data->public_encryption_key);
+                params.flags |= NTB_KEY_PARAM_PUBLIC_KEYS;
+                params.public_signing_key = data->public_signing_key;
+                params.public_encryption_key = data->public_encryption_key;
         }
+
+        key = ntb_key_new(data->ecc, &params);
 
         if (memcmp(key->address.ripe, address.ripe, RIPEMD160_DIGEST_LENGTH)) {
                 ntb_log("Calculated address for %s does not match",
                         (const char *) data->address.data);
         }
-
-        key->nonce_trials_per_byte = data->nonce_trials_per_byte;
-        key->payload_length_extra_bytes =
-                data->payload_length_extra_bytes;
-        key->last_pubkey_send_time = data->last_pubkey_send_time;
-        key->enabled = data->enabled;
-        key->decoy = data->decoy;
 
         data->func(key, data->user_data);
 
