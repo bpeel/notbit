@@ -20,6 +20,7 @@
 #define NTB_NETADDRESS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <netinet/in.h>
 
 struct ntb_netaddress {

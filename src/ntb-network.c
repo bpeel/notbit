@@ -41,6 +41,7 @@
 #include "ntb-store.h"
 #include "ntb-file-error.h"
 #include "ntb-socket.h"
+#include "ntb-dns-bootstrap.h"
 
 struct ntb_error_domain
 ntb_network_error;
@@ -618,6 +619,23 @@ queue_save_addr_list(struct ntb_network *nw)
 }
 
 static struct ntb_network_addr *
+find_address(struct ntb_network *nw,
+             const struct ntb_netaddress *address)
+{
+        struct ntb_network_addr *addr;
+
+        ntb_list_for_each(addr, &nw->addrs, link) {
+                if (!memcmp(addr->address.host,
+                            address->host,
+                            sizeof address->host) &&
+                    addr->address.port == address->port)
+                        return addr;
+        }
+
+        return NULL;
+}
+
+static struct ntb_network_addr *
 add_addr(struct ntb_network *nw,
          int64_t timestamp,
          uint32_t stream,
@@ -636,18 +654,14 @@ add_addr(struct ntb_network *nw,
                 timestamp = now;
 
         /* Check if we already have this addr */
-        ntb_list_for_each(addr, &nw->addrs, link) {
-                if (!memcmp(addr->address.host,
-                            address->host,
-                            sizeof address->host) &&
-                    addr->address.port == address->port) {
-                        if (addr->advertise_time < timestamp) {
-                                addr->advertise_time = timestamp;
-                                queue_save_addr_list(nw);
-                                broadcast_addr(nw, addr);
-                        }
-                        return addr;
+        addr = find_address(nw, address);
+        if (addr) {
+                if (addr->advertise_time < timestamp) {
+                        addr->advertise_time = timestamp;
+                        queue_save_addr_list(nw);
+                        broadcast_addr(nw, addr);
                 }
+                return addr;
         }
 
         addr = new_addr(nw);
@@ -1354,11 +1368,33 @@ store_for_each_addr_cb(const struct ntb_store_addr *addr,
                  &addr->address);
 }
 
+static void
+dns_bootstrap_cb(const struct ntb_netaddress *net_address,
+                 void *user_data)
+{
+        struct ntb_network *nw = user_data;
+        struct ntb_network_addr *addr;
+
+        if (!ntb_netaddress_is_allowed(net_address) ||
+            find_address(nw, net_address) != NULL)
+                return;
+
+        addr = new_addr(nw);
+
+        addr->address = *net_address;
+        addr->advertise_time = 0;
+        addr->stream = 1;
+        addr->services = NTB_PROTO_SERVICES;
+        addr->type = NTB_NETWORK_ADDR_DEFAULT;
+}
+
 void
 ntb_network_load_store(struct ntb_network *nw)
 {
         ntb_store_for_each_blob(NULL, store_for_each_blob_cb, nw);
         ntb_store_for_each_addr(NULL, store_for_each_addr_cb, nw);
+        ntb_dns_bootstrap(dns_bootstrap_cb, nw);
+        maybe_queue_connect(nw, true /* use_idle */);
 }
 
 static void

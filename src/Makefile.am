@@ -28,6 +28,8 @@ notbit_SOURCES = \
 	ntb-crypto.h \
 	ntb-daemon.c \
 	ntb-daemon.h \
+	ntb-dns-bootstrap.c \
+	ntb-dns-bootstrap.h \
 	ntb-ecc.c \
 	ntb-ecc.h \
 	ntb-encoded-words.c \
