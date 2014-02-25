@@ -26,6 +26,8 @@
 #include <unistd.h>
 #include <sys/un.h>
 #include <assert.h>
+#include <fcntl.h>
+#include <sys/file.h>
 
 #include "ntb-ipc.h"
 #include "ntb-ipc-proto.h"
@@ -40,10 +42,15 @@
 #include "ntb-socket.h"
 #include "ntb-mail-parser.h"
 #include "ntb-blob.h"
+#include "ntb-mkdir.h"
 
 struct ntb_ipc {
         int sock;
+        int sock_lock;
         uid_t uid;
+
+        char *lock_path;
+        struct sockaddr *sockaddr;
 
         struct ntb_main_context_source *listen_source;
 
@@ -912,16 +919,95 @@ listen_source_cb(struct ntb_main_context_source *source,
         ntb_list_insert(&ipc->connections, &conn->link);
 }
 
+static int
+create_socket_lock(const char *lock_path,
+                   struct ntb_error **error)
+{
+        int errnum;
+        int fd, res;
+
+        fd = open(lock_path, O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+        errnum = errno;
+
+        if (fd == -1) {
+                ntb_file_error_set(error,
+                                   errnum,
+                                   "Error creating IPC lock file: %s",
+                                   strerror(errno));
+                return -1;
+        }
+
+        res = flock(fd, LOCK_EX | LOCK_NB);
+
+        if (res == -1) {
+                if (errno == EWOULDBLOCK) {
+                        ntb_file_error_set(error,
+                                           EWOULDBLOCK,
+                                           "Notbit is already running");
+                } else {
+                        ntb_file_error_set(error,
+                                           errno,
+                                           "Error creating IPC lock: %s",
+                                           strerror(errno));
+                }
+
+                ntb_close(fd);
+
+                return -1;
+        }
+
+        return fd;
+}
+
+static bool
+create_ipc_directory(const char *sock_path,
+                     struct ntb_error **error)
+{
+        struct ntb_buffer buffer;
+        int sock_path_len = strlen(sock_path);
+        bool res;
+
+        ntb_buffer_init(&buffer);
+
+        while (sock_path_len > 0 && sock_path[sock_path_len - 1] != '/')
+                sock_path_len--;
+
+        ntb_buffer_append(&buffer, sock_path, sock_path_len);
+
+        res = ntb_mkdir_hierarchy(&buffer, error);
+
+        ntb_buffer_destroy(&buffer);
+
+        return res;
+}
+
 struct ntb_ipc *
 ntb_ipc_new(struct ntb_keyring *keyring,
             struct ntb_error **error)
 {
         struct ntb_ipc *ipc;
-        struct sockaddr *sockaddr;
+        char *lock_path = NULL;
+        struct sockaddr *sockaddr = NULL;
         socklen_t sockaddr_len;
         const char *sockaddr_path;
-        int sock;
+        int sock = -1;
+        int sock_lock = -1;
         int res;
+
+        if (!ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len, error))
+                goto error;
+
+        sockaddr_path = ((struct sockaddr_un *) sockaddr)->sun_path;
+
+        if (!create_ipc_directory(sockaddr_path, error))
+                goto error;
+
+        lock_path = ntb_strconcat(sockaddr_path, ".lock", NULL);
+
+        sock_lock = create_socket_lock(lock_path, error);
+
+        if (sock_lock == -1)
+                goto error;
 
         sock = socket(PF_LOCAL, SOCK_STREAM, 0);
 
@@ -930,28 +1016,30 @@ ntb_ipc_new(struct ntb_keyring *keyring,
                                    errno,
                                    "Failed to create socket: %s",
                                    strerror(errno));
-                return NULL;
+                goto error;
         }
 
-        if (!ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len, error))
-                return NULL;
+        res = unlink(sockaddr_path);
 
-        sockaddr_path = ((struct sockaddr_un *) sockaddr)->sun_path + 1;
+        if (res == -1 && errno != ENOENT) {
+                ntb_file_error_set(error,
+                                   errno,
+                                   "Error deleting IPC socket %s: %s",
+                                   sockaddr_path,
+                                   strerror(errno));
+                goto error;
+        }
 
         res = bind(sock, (struct sockaddr *) sockaddr, sockaddr_len);
 
         if (res == -1) {
                 ntb_file_error_set(error,
                                    errno,
-                                   "Failed to bind abstract sock %s: %s",
+                                   "Failed to bind IPC socket %s: %s",
                                    sockaddr_path,
                                    strerror(errno));
-                ntb_free(sockaddr);
-                close(sock);
-                return NULL;
+                goto error;
         }
-
-        ntb_free(sockaddr);
 
         res = listen(sock, 10);
 
@@ -960,8 +1048,7 @@ ntb_ipc_new(struct ntb_keyring *keyring,
                                    errno,
                                    "Failed to make socket listen: %s",
                                    strerror(errno));
-                close(sock);
-                return NULL;
+                goto error;
         }
 
         ipc = ntb_alloc(sizeof *ipc);
@@ -969,6 +1056,10 @@ ntb_ipc_new(struct ntb_keyring *keyring,
         ipc->uid = getuid();
 
         ipc->sock = sock;
+        ipc->lock_path = lock_path;
+        ipc->sockaddr = sockaddr;
+        ipc->sock_lock = sock_lock;
+
         ipc->listen_source =
                 ntb_main_context_add_poll(NULL,
                                           sock,
@@ -981,6 +1072,16 @@ ntb_ipc_new(struct ntb_keyring *keyring,
         ntb_list_init(&ipc->connections);
 
         return ipc;
+
+error:
+        if (sock != -1)
+                ntb_close(sock);
+        if (sock_lock != -1)
+                ntb_close(sock_lock);
+        ntb_free(sockaddr);
+        ntb_free(lock_path);
+
+        return NULL;
 }
 
 void
@@ -993,6 +1094,11 @@ ntb_ipc_free(struct ntb_ipc *ipc)
 
         if (ipc->listen_source)
                 ntb_main_context_remove_source(ipc->listen_source);
-        close(ipc->sock);
+
+        ntb_close(ipc->sock);
+        unlink(((struct sockaddr_un *) ipc->sockaddr)->sun_path);
+        ntb_free(ipc->sockaddr);
+        ntb_close(ipc->sock_lock);
+        unlink(ipc->lock_path);
         ntb_free(ipc);
 }

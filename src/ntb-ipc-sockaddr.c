@@ -55,16 +55,14 @@ ntb_ipc_sockaddr_create(struct sockaddr **sockaddr_out,
                 runtime_dir_len--;
 
         addr_len = (NTB_STRUCT_OFFSET(struct sockaddr_un, sun_path) +
-                    1 +
                     runtime_dir_len +
                     sizeof socket_name);
         sockaddr = ntb_alloc(addr_len);
 
         sockaddr->sun_family = AF_LOCAL;
 
-        sockaddr->sun_path[0] = '\0';
-        memcpy(sockaddr->sun_path + 1, runtime_dir, runtime_dir_len);
-        memcpy(sockaddr->sun_path + 1 + runtime_dir_len,
+        memcpy(sockaddr->sun_path, runtime_dir, runtime_dir_len);
+        memcpy(sockaddr->sun_path + runtime_dir_len,
                socket_name,
                sizeof socket_name);
 
