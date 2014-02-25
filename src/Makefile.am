@@ -68,6 +68,8 @@ notbit_SOURCES = \
 	ntb-mail-parser.h \
 	ntb-main-context.c \
 	ntb-main-context.h \
+	ntb-mkdir.c \
+	ntb-mkdir.h \
 	ntb-netaddress.c \
 	ntb-netaddress.h \
 	ntb-network.c \

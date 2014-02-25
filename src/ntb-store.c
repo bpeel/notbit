@@ -46,6 +46,7 @@
 #include "ntb-load-keys.h"
 #include "ntb-load-outgoings.h"
 #include "ntb-save-message.h"
+#include "ntb-mkdir.h"
 
 struct ntb_error_domain
 ntb_store_error;
@@ -213,52 +214,6 @@ strip_trailing_slashes(struct ntb_buffer *buffer)
 }
 
 static bool
-try_mkdir(const char *name, struct ntb_error **error)
-{
-        if (mkdir(name, S_IRWXU | S_IRWXG | S_IRWXO) == -1 && errno != EEXIST) {
-                ntb_file_error_set(error,
-                                   errno,
-                                   "Error creating store directory: %s",
-                                   strerror(errno));
-                return false;
-        }
-
-        return true;
-}
-
-static bool
-make_directory_hierarchy(struct ntb_buffer *buf,
-                         struct ntb_error **error)
-{
-        uint8_t *slash;
-
-        if (buf->length < 1)
-                return true;
-
-        slash = buf->data;
-
-        while ((slash = memchr(slash + 1,
-                               '/',
-                               buf->data + buf->length - slash))) {
-                *slash = '\0';
-
-                if (!try_mkdir((const char *) buf->data, error))
-                        return false;
-
-                *slash = '/';
-        }
-
-        if (buf->data[buf->length - 1] != '/') {
-                ntb_buffer_append_c(buf, '\0');
-                buf->length--;
-                if (!try_mkdir((const char *) buf->data, error))
-                        return false;
-        }
-
-        return true;
-}
-
-static bool
 append_cwd(struct ntb_buffer *buffer)
 {
         size_t try_size = 32;
@@ -341,12 +296,12 @@ init_store_directory(struct ntb_store *store,
 
         ntb_buffer_append_string(&store->filename_buf, "objects");
 
-        if (!make_directory_hierarchy(&store->filename_buf, error))
+        if (!ntb_mkdir_hierarchy(&store->filename_buf, error))
                 return false;
 
         store->filename_buf.length = store->directory_len;
         ntb_buffer_append_string(&store->filename_buf, "outgoing");
-        if (!try_mkdir((const char *) store->filename_buf.data, error))
+        if (!ntb_mkdir((const char *) store->filename_buf.data, error))
                 return false;
 
         return true;
@@ -389,21 +344,21 @@ init_maildir(struct ntb_store *store,
 
         ntb_buffer_append_string(&store->maildir_buf, "new");
 
-        if (!make_directory_hierarchy(&store->maildir_buf, error))
+        if (!ntb_mkdir_hierarchy(&store->maildir_buf, error))
                 return false;
 
         ntb_buffer_set_length(&store->maildir_buf,
                               store->maildir_buf.length - 3);
         ntb_buffer_append_string(&store->maildir_buf, "tmp");
 
-        if (!try_mkdir((const char *) store->maildir_buf.data, error))
+        if (!ntb_mkdir((const char *) store->maildir_buf.data, error))
                 return false;
 
         ntb_buffer_set_length(&store->maildir_buf,
                               store->maildir_buf.length - 3);
         ntb_buffer_append_string(&store->maildir_buf, "cur");
 
-        if (!try_mkdir((const char *) store->maildir_buf.data, error))
+        if (!ntb_mkdir((const char *) store->maildir_buf.data, error))
                 return false;
 
         return true;
