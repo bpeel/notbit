@@ -100,9 +100,13 @@ strip --strip-all "${TOPDIR}/src/notbit"
 
 installer_header_length=`wc -l "$INSTALLER_HEADER".in |
                          sed -r "s/^ *([0-9]+).*/\\1/"`
-installer_header_offset=`expr $installer_header_length + 1`
+copyright_length=`wc -l "${TOPDIR}/COPYING" |
+                  sed -r "s/^ *([0-9]+).*/\\1/"`
+installer_header_offset=`expr $installer_header_length + $copyright_length`
 
-sed s/@INSTALLER_HEADER_OFFSET@/"$installer_header_offset"/g \
+sed -e s/@INSTALLER_HEADER_OFFSET@/"$installer_header_offset"/g \
+    -e /@NOTBIT_COPYRIGHT@/r" ${TOPDIR}/COPYING" \
+    -e /@NOTBIT_COPYRIGHT@/d \
     < "$INSTALLER_HEADER".in > "$INSTALLER_HEADER"
 
 tar -C "${TOPDIR}/src" -zcf - notbit{-sendmail,-keygen,} | \
