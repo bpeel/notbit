@@ -1,0 +1,9 @@
+In rough order of priority
+
+• Filter out messages that don't have an adequate POW for the
+  receiving key
+• Configuration file to set the maildir
+• Add an alternative to clock_gettime for OS X
+• Support renaming keys via notbit-keygen
+• Deterministic keys / channels
+• Broadcasts
