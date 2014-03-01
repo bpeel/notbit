@@ -860,8 +860,8 @@ generate_maildir_name(struct ntb_store *store,
 
         ntb_buffer_append_printf(buffer,
                                  "%li.M%liQ%u.",
-                                 tv.tv_sec,
-                                 tv.tv_usec,
+                                 (long int) tv.tv_sec,
+                                 (long int) tv.tv_usec,
                                  store->num_stored_messages++);
 
         while (true) {
