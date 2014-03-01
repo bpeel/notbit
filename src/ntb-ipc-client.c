@@ -119,7 +119,7 @@ ntb_ipc_client_send_command(int sock,
 error:
         ntb_file_error_set(error,
                            errno,
-                           "Error sending IPC command: %s\n",
+                           "Error sending IPC command: %s",
                            strerror(errno));
         return false;
 }
