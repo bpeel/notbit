@@ -62,6 +62,8 @@ AS_IF([test "x$have_clock_gettime" = "xno"],
                     [NOTBIT_EXTRA_LIBS="$NOTBIT_EXTRA_LIBS -lrt"],
                     [clock_gettime required but not found])])
 
+AC_CHECK_FUNCS([getpeereid])
+
 dnl     ============================================================
 dnl     Enable strict compiler flags
 dnl     ============================================================

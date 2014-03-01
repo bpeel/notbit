@@ -843,24 +843,64 @@ connection_source_cb(struct ntb_main_context_source *source,
         }
 }
 
+#if defined(HAVE_GETPEEREID)
+
 static bool
-check_credentials(struct ntb_ipc *ipc,
-                  int sock)
+get_peer_uid(int sock,
+             uid_t *uid)
+{
+        uid_t uid_result;
+        gid_t gid_result;
+
+        if (getpeereid(sock, &uid_result, &gid_result) == -1)
+                return false;
+
+        *uid = uid_result;
+
+        return true;
+}
+
+#elif defined(SO_PEERCRED)
+
+static bool
+get_peer_uid(int sock,
+             uid_t *uid)
 {
         struct ucred ucred;
         socklen_t socklen = sizeof ucred;
         int res;
 
         res = getsockopt(sock, SOL_SOCKET, SO_PEERCRED, &ucred, &socklen);
-        if (res == -1) {
+        if (res == -1)
+                return false;
+
+        *uid = ucred.uid;
+
+        return true;
+}
+
+#else
+
+#error No method for getting peer credentials is defined
+
+#endif /* HAVE_GETPEEREID */
+
+static bool
+check_credentials(struct ntb_ipc *ipc,
+                  int sock)
+{
+        uid_t uid;
+
+        if (!get_peer_uid(sock, &uid)) {
                 ntb_log("Error getting credentials for IPC connection: %s",
                         strerror(errno));
                 return false;
         }
 
-        if (ucred.uid != 0 && ucred.uid != ipc->uid) {
+
+        if (uid != 0 && uid != ipc->uid) {
                 ntb_log("Rejecting IPC connection from unauthorized user %i",
-                        ucred.uid);
+                        uid);
                 return false;
         }
 
