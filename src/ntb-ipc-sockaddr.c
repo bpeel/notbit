@@ -25,6 +25,7 @@
 
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <string.h>
 
 #include "ntb-ipc-sockaddr.h"
 #include "ntb-util.h"
