@@ -61,7 +61,7 @@ ntb_mkdir_hierarchy(struct ntb_buffer *buf,
 
         while ((slash = memchr(slash + 1,
                                '/',
-                               buf->data + buf->length - slash))) {
+                               buf->data + buf->length - slash - 1))) {
                 *slash = '\0';
 
                 res = ntb_mkdir((const char *) buf->data, error);
