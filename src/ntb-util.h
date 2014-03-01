@@ -142,6 +142,13 @@ pthread_t
 ntb_create_thread(void *(* thread_func)(void *),
                   void *user_data);
 
+#ifdef HAVE_STATIC_ASSERT
+#define NTB_STATIC_ASSERT(EXPRESSION, MESSAGE)  \
+        _Static_assert(EXPRESSION, MESSAGE);
+#else
+#define NTB_STATIC_ASSERT(EXPRESSION, MESSAGE)
+#endif
+
 #define ntb_return_if_fail(condition)                           \
         NTB_STMT_START {                                        \
                 if (!(condition)) {                             \

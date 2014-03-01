@@ -155,10 +155,10 @@ struct ntb_keyring_pubkey_blob {
         bool in_list;
 };
 
-_Static_assert(RIPEMD160_DIGEST_LENGTH <= NTB_PROTO_HASH_LENGTH,
-               "The ripe is too long to fit in a hash");
-_Static_assert(NTB_ADDRESS_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
-               "The tag is too long to fit in a hash");
+NTB_STATIC_ASSERT(RIPEMD160_DIGEST_LENGTH <= NTB_PROTO_HASH_LENGTH,
+                  "The ripe is too long to fit in a hash");
+NTB_STATIC_ASSERT(NTB_ADDRESS_TAG_SIZE <= NTB_PROTO_HASH_LENGTH,
+                  "The tag is too long to fit in a hash");
 
 /* Time in minutes between each garbage collection run */
 #define NTB_KEYRING_GC_TIMEOUT 10

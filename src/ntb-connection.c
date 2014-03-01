@@ -61,9 +61,9 @@
 
 /* If this assert fails then notbit clients won't recognise the pongs
  * from each other correctly */
-_Static_assert(NTB_CONNECTION_PONG_CHECK_INTERVAL * 60 +
-               NTB_CONNECTION_PONG_INTERVAL < NTB_CONNECTION_TIMEOUT,
-               "The pong check and timeout values aren't going to work");
+NTB_STATIC_ASSERT(NTB_CONNECTION_PONG_CHECK_INTERVAL * 60 +
+                  NTB_CONNECTION_PONG_INTERVAL < NTB_CONNECTION_TIMEOUT,
+                  "The pong check and timeout values aren't going to work");
 
 struct ntb_connection {
         struct ntb_netaddress remote_address;
