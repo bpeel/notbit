@@ -140,8 +140,7 @@ ntb_ipc_client_connect(struct ntb_error **error)
                 return -1;
         }
 
-        if (!ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len, error))
-                return -1;
+        ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len);
 
         res = connect(sock, sockaddr, sockaddr_len);
 

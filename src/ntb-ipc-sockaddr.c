@@ -26,54 +26,46 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <stddef.h>
 
 #include "ntb-ipc-sockaddr.h"
 #include "ntb-util.h"
+#include "ntb-buffer.h"
 
-struct ntb_error_domain
-ntb_ipc_sockaddr_error;
-
-bool
+void
 ntb_ipc_sockaddr_create(struct sockaddr **sockaddr_out,
-                        socklen_t *sockaddr_len_out,
-                        struct ntb_error **error)
+                        socklen_t *sockaddr_len_out)
 {
         const char *runtime_dir;
-        int runtime_dir_len;
-        socklen_t addr_len;
-        static const char socket_name[] = "/notbit/notbit-ipc";
+        struct ntb_buffer buffer;
         struct sockaddr_un *sockaddr;
+
+        ntb_buffer_init(&buffer);
+
+        ntb_buffer_set_length(&buffer, offsetof(struct sockaddr_un, sun_path));
 
         runtime_dir = getenv("XDG_RUNTIME_DIR");
 
-        if (runtime_dir == NULL) {
-                ntb_set_error(error,
-                              &ntb_ipc_sockaddr_error,
-                              NTB_IPC_SOCKADDR_ERROR_XDG,
-                              "XDG_RUNTIME_DIR is not set");
-                return false;
+        if (runtime_dir) {
+                ntb_buffer_append_string(&buffer, runtime_dir);
+
+                while (buffer.length > offsetof(struct sockaddr_un, sun_path) &&
+                       buffer.data[buffer.length - 1] == '/')
+                        buffer.length--;
+
+                ntb_buffer_append_string(&buffer, "/notbit/notbit-ipc");
+        } else {
+                ntb_buffer_append_printf(&buffer,
+                                         "/tmp/notbit-%i/notbit-ipc",
+                                         (int) getuid());
         }
 
-        runtime_dir_len = strlen(runtime_dir);
-
-        while (runtime_dir_len > 0 &&
-               runtime_dir[runtime_dir_len - 1] == '/')
-                runtime_dir_len--;
-
-        addr_len = (NTB_STRUCT_OFFSET(struct sockaddr_un, sun_path) +
-                    runtime_dir_len +
-                    sizeof socket_name);
-        sockaddr = ntb_alloc(addr_len);
+        sockaddr = (struct sockaddr_un *) buffer.data;
 
         sockaddr->sun_family = AF_LOCAL;
 
-        memcpy(sockaddr->sun_path, runtime_dir, runtime_dir_len);
-        memcpy(sockaddr->sun_path + runtime_dir_len,
-               socket_name,
-               sizeof socket_name);
-
         *sockaddr_out = (struct sockaddr *) sockaddr;
-        *sockaddr_len_out = addr_len;
-
-        return true;
+        *sockaddr_len_out = buffer.length;
 }

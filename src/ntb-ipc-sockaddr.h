@@ -25,20 +25,9 @@
 #define NTB_IPC_SOCKADDR_H
 
 #include <sys/socket.h>
-#include <stdbool.h>
 
-#include "ntb-error.h"
-
-extern struct ntb_error_domain
-ntb_ipc_sockaddr_error;
-
-enum ntb_ipc_sockaddr_error {
-        NTB_IPC_SOCKADDR_ERROR_XDG
-};
-
-bool
+void
 ntb_ipc_sockaddr_create(struct sockaddr **sockaddr_out,
-                        socklen_t *sockaddr_len_out,
-                        struct ntb_error **error);
+                        socklen_t *sockaddr_len_out);
 
 #endif /* NTB_IPC_SOCKADDR_H */
