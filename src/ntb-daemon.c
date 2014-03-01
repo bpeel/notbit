@@ -34,6 +34,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <sys/types.h>
+#include <signal.h>
 
 #include "ntb-daemon.h"
 #include "ntb-main-context.h"
@@ -438,6 +439,8 @@ run_main_loop(struct ntb_network *nw,
 
         if (option_daemonize)
                 daemonize();
+
+        signal(SIGPIPE, SIG_IGN);
 
         ntb_keyring_start(keyring);
         ntb_log_start();

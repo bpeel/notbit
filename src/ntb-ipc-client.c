@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <signal.h>
 
 #include "ntb-ipc-client.h"
 #include "ntb-ipc-sockaddr.h"
@@ -129,6 +130,8 @@ ntb_ipc_client_connect(struct ntb_error **error)
         struct sockaddr *sockaddr;
         socklen_t sockaddr_len;
         int sock, res;
+
+        signal(SIGPIPE, SIG_IGN);
 
         sock = socket(PF_LOCAL, SOCK_STREAM, 0);
 
