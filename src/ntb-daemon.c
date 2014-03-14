@@ -72,8 +72,10 @@ static char *option_group = NULL;
 static char *option_store_directory = NULL;
 static char *option_maildir = NULL;
 static bool option_only_explicit_addresses = false;
+static bool option_allow_private_addresses = false;
+static bool option_bootstrap = true;
 
-static const char options[] = "-a:l:du:g:D:p:eP:hm:";
+static const char options[] = "-a:l:du:g:D:p:eP:hm:Lb";
 
 static void
 add_address(struct address **list,
@@ -142,7 +144,11 @@ usage(void)
                ""                      "/notbit\n"
                " -m <maildir>          Specify the maildir to save messages "
                "to.\n"
-               "                       Defaults to $HOME/.maildir\n");
+               " -L                    Allow private addresses for peers\n"
+               " -b                    Don't bootstrap with bitmessage.org\n"
+               "                       Useful for creating your own private\n"
+               "                       network. Note that this requires all\n"
+               "                       nodes to be trustworthy\n");
         exit(EXIT_FAILURE);
 }
 
@@ -210,6 +216,14 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'm':
                         option_maildir = optarg;
+                        break;
+
+                case 'L':
+                        option_allow_private_addresses = true;
+                        break;
+
+                case 'b':
+                        option_bootstrap = false;
                         break;
 
                 case 'h':
@@ -394,6 +408,9 @@ add_addresses(struct ntb_network *nw,
         if (option_only_explicit_addresses)
                 ntb_network_set_only_use_explicit_addresses(nw, true);
 
+        if (option_allow_private_addresses)
+                ntb_network_set_allow_private_addresses(nw, true);
+
         return true;
 }
 
@@ -445,7 +462,7 @@ run_main_loop(struct ntb_network *nw,
         ntb_keyring_start(keyring);
         ntb_log_start();
 
-        ntb_network_load_store(nw);
+        ntb_network_load_store(nw, option_bootstrap);
         ntb_keyring_load_store(keyring);
 
         ntb_store_start(store);
@@ -471,7 +488,7 @@ run_network(void)
         int ret = EXIT_SUCCESS;
         struct ntb_error *error = NULL;
 
-        nw = ntb_network_new();
+        nw = ntb_network_new(option_bootstrap);
 
         if (!add_addresses(nw, &error)) {
                 fprintf(stderr, "%s\n", error->message);

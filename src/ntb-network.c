@@ -179,6 +179,7 @@ struct ntb_network {
         int n_unconnected_addrs;
         struct ntb_list addrs;
         bool only_use_explicit_addresses;
+        bool allow_private_addresses;
 
         struct ntb_main_context_source *connect_queue_source;
         bool connect_queue_source_is_idle;
@@ -944,7 +945,8 @@ handle_addr(struct ntb_network *nw,
             struct ntb_network_peer *peer,
             struct ntb_connection_addr_event *event)
 {
-        if (ntb_netaddress_is_allowed(&event->address)) {
+        if (ntb_netaddress_is_allowed(&event->address,
+                                      nw->allow_private_addresses)) {
                 add_addr(nw,
                          event->timestamp,
                          event->stream,
@@ -1380,7 +1382,8 @@ dns_bootstrap_cb(const struct ntb_netaddress *net_address,
         struct ntb_network *nw = user_data;
         struct ntb_network_addr *addr;
 
-        if (!ntb_netaddress_is_allowed(net_address) ||
+        if (!ntb_netaddress_is_allowed(net_address,
+                                       nw->allow_private_addresses) ||
             find_address(nw, net_address) != NULL)
                 return;
 
@@ -1394,11 +1397,12 @@ dns_bootstrap_cb(const struct ntb_netaddress *net_address,
 }
 
 void
-ntb_network_load_store(struct ntb_network *nw)
+ntb_network_load_store(struct ntb_network *nw, bool bootstrap)
 {
         ntb_store_for_each_blob(NULL, store_for_each_blob_cb, nw);
         ntb_store_for_each_addr(NULL, store_for_each_addr_cb, nw);
-        ntb_dns_bootstrap(dns_bootstrap_cb, nw);
+        if (bootstrap)
+                ntb_dns_bootstrap(dns_bootstrap_cb, nw);
         maybe_queue_connect(nw, true /* use_idle */);
 }
 
@@ -1502,7 +1506,7 @@ add_addr_string(struct ntb_network *nw,
 }
 
 struct ntb_network *
-ntb_network_new(void)
+ntb_network_new(bool add_default_nodes)
 {
         struct ntb_network *nw = ntb_alloc(sizeof *nw);
         struct ntb_network_addr *addr;
@@ -1524,6 +1528,7 @@ ntb_network_new(void)
         nw->n_unconnected_addrs = 0;
         nw->connect_queue_source = NULL;
         nw->only_use_explicit_addresses = false;
+        nw->allow_private_addresses = false;
 
         nw->save_addr_list_source = NULL;
 
@@ -1541,12 +1546,14 @@ ntb_network_new(void)
 
         /* Add a hard-coded list of initial nodes which we can use to
          * discover more */
-        for (i = 0; i < NTB_N_ELEMENTS(default_addrs); i++) {
-                addr = add_addr_string(nw, default_addrs[i], NULL);
-                /* These addresses are hard-coded so they should
-                 * always work */
-                assert(addr);
-                addr->type = NTB_NETWORK_ADDR_DEFAULT;
+        if (add_default_nodes) {
+                for (i = 0; i < NTB_N_ELEMENTS(default_addrs); i++) {
+                        addr = add_addr_string(nw, default_addrs[i], NULL);
+                        /* These addresses are hard-coded so they should
+                         * always work */
+                        assert(addr);
+                        addr->type = NTB_NETWORK_ADDR_DEFAULT;
+                }
         }
 
         maybe_queue_connect(nw, true /* use idle */);
@@ -1660,6 +1667,14 @@ ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
 {
         nw->only_use_explicit_addresses = value;
         maybe_queue_connect(nw, true /* use idle */);
+}
+
+void
+ntb_network_set_allow_private_addresses(struct ntb_network *nw,
+                                        bool value)
+{
+        nw->allow_private_addresses = value;
+        maybe_queue_connect(nw, true /* use idle*/);
 }
 
 enum ntb_network_object_location

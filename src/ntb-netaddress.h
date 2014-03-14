@@ -63,6 +63,7 @@ ntb_netaddress_from_string(struct ntb_netaddress *address,
                            const char *str);
 
 bool
-ntb_netaddress_is_allowed(const struct ntb_netaddress *address);
+ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
+                          bool allow_private_addresses);
 
 #endif /* NTB_NETADDRESS_H */

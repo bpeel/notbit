@@ -51,7 +51,7 @@ enum ntb_network_object_location {
 struct ntb_network;
 
 struct ntb_network *
-ntb_network_new(void);
+ntb_network_new(bool add_default_nodes);
 
 void
 ntb_network_add_object_from_data(struct ntb_network *nw,
@@ -68,7 +68,7 @@ ntb_network_add_blob(struct ntb_network *nw,
                      const char *source_note);
 
 void
-ntb_network_load_store(struct ntb_network *nw);
+ntb_network_load_store(struct ntb_network *nw, bool bootstrap);
 
 bool
 ntb_network_add_listen_address(struct ntb_network *nw,
@@ -86,6 +86,10 @@ ntb_network_get_new_object_signal(struct ntb_network *nw);
 void
 ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
                                             bool value);
+
+void
+ntb_network_set_allow_private_addresses(struct ntb_network *nw,
+                                        bool value);
 
 enum ntb_network_object_location
 ntb_network_get_object(struct ntb_network *nw,

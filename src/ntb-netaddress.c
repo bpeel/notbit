@@ -233,7 +233,8 @@ out:
 }
 
 bool
-ntb_netaddress_is_allowed(const struct ntb_netaddress *address)
+ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
+                          bool allow_private_addresses)
 {
         const uint8_t *host;
 
@@ -257,13 +258,16 @@ ntb_netaddress_is_allowed(const struct ntb_netaddress *address)
                 /* Ignore localhost */
                 if (host[0] == 127)
                         return false;
+
                 /* Ignore addresses in the private range */
-                if (host[0] == 10)
-                        return false;
-                if (host[0] == 172 && host[1] >= 16 && host[1] <= 31)
-                        return false;
-                if (host[0] == 192 && host[1] == 168)
-                        return false;
+                if (!allow_private_addresses) {
+                        if (host[0] == 10)
+                                return false;
+                        if (host[0] == 172 && host[1] >= 16 && host[1] <= 31)
+                                return false;
+                        if (host[0] == 192 && host[1] == 168)
+                                return false;
+                }
         }
 
         return true;
