@@ -249,9 +249,11 @@ ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
                 if (address->host[0] == 0xfe &&
                     (address->host[1] & 0xc0) == 0x80)
                         return false;
-                /* Ignore unique local addresses */
-                if ((address->host[0] & 0xfe) == 0xfc)
-                        return false;
+                if (!allow_private_addresses) {
+                        /* Ignore unique local addresses */
+                        if ((address->host[0] & 0xfe) == 0xfc)
+                                return false;
+                }
         } else {
                 /* IPv4 */
                 host = address->host + sizeof ipv4_magic;
