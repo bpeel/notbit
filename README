@@ -36,7 +36,7 @@ the standard autotools such as automake and autoconf.
 
 Now you can run the following commands to build Notbit:
 
- git clone git://git.busydoingnothing.co.uk/notbit.git
+ git clone https://github.com/bpeel/notbit.git
  cd notbit
  ./autogen --prefix=$HOME
  make
