@@ -245,7 +245,7 @@ ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
                             ipv6_localhost,
                             sizeof ipv6_localhost))
                         return false;
-                /* Ignore unique local addresses */
+                /* Ignore local addresses */
                 if (address->host[0] == 0xfe &&
                     (address->host[1] & 0xc0) == 0x80)
                         return false;
