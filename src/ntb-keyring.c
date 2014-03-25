@@ -411,8 +411,8 @@ create_pubkey_blob_cb(struct ntb_blob *blob,
                 ntb_pow_calculate(keyring->pow,
                                   blob->data + sizeof (uint64_t),
                                   blob->size - sizeof (uint64_t),
-                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
                                   NTB_PROTO_MIN_POW_PER_BYTE,
+                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
                                   create_pubkey_pow_cb,
                                   task);
         task->blob = ntb_blob_ref(blob);
@@ -1286,8 +1286,8 @@ create_msg_blob_cb(struct ntb_blob *blob,
 {
         struct ntb_keyring_message *message = user_data;
         struct ntb_keyring *keyring = message->keyring;
-        int pow_extra_bytes;
         int pow_per_byte;
+        int pow_extra_bytes;
 
         message->crypto_cookie = NULL;
 
@@ -1302,20 +1302,20 @@ create_msg_blob_cb(struct ntb_blob *blob,
          * minimum otherwise the message won't propagate through the
          * network and someone would be able to deduce that we are the
          * originator of this message. */
-        pow_extra_bytes = message->to_key->pow_extra_bytes;
-        if (pow_extra_bytes < NTB_PROTO_MIN_POW_EXTRA_BYTES)
-                pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
-
         pow_per_byte = message->to_key->pow_per_byte;
         if (pow_per_byte < NTB_PROTO_MIN_POW_PER_BYTE)
                 pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE;
+
+        pow_extra_bytes = message->to_key->pow_extra_bytes;
+        if (pow_extra_bytes < NTB_PROTO_MIN_POW_EXTRA_BYTES)
+                pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
 
         message->pow_cookie =
                 ntb_pow_calculate(keyring->pow,
                                   blob->data + sizeof (uint64_t),
                                   blob->size - sizeof (uint64_t),
-                                  pow_extra_bytes,
                                   pow_per_byte,
+                                  pow_extra_bytes,
                                   msg_pow_cb,
                                   message);
 }
@@ -1483,8 +1483,8 @@ load_message_content_cb(struct ntb_blob *content_blob,
                                   message->blob_ackdata_length -
                                   NTB_PROTO_HEADER_SIZE -
                                   sizeof (uint64_t),
-                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
                                   NTB_PROTO_MIN_POW_PER_BYTE,
+                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
                                   ackdata_pow_cb,
                                   message);
 }
@@ -1593,8 +1593,8 @@ send_getpubkey_request(struct ntb_keyring_message *message)
                 ntb_pow_calculate(message->keyring->pow,
                                   message->blob->data + sizeof (uint64_t),
                                   message->blob->size - sizeof (uint64_t),
-                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
                                   NTB_PROTO_MIN_POW_PER_BYTE,
+                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
                                   getpubkey_pow_cb,
                                   message);
 }

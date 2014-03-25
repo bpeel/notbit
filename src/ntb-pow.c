@@ -327,8 +327,8 @@ ntb_pow_new(void)
 
 static uint64_t
 calculate_target(size_t length,
-                 int pow_extra_bytes,
-                 int pow_per_byte)
+                 int pow_per_byte,
+                 int pow_extra_bytes)
 {
         const uint64_t two_63 = UINT64_C(0x8000000000000000);
         uint64_t divisor;
@@ -354,8 +354,8 @@ struct ntb_pow_cookie *
 ntb_pow_calculate(struct ntb_pow *pow,
                   const uint8_t *payload,
                   size_t length,
-                  int pow_extra_bytes,
                   int pow_per_byte,
+                  int pow_extra_bytes,
                   ntb_pow_calculate_func func,
                   void *user_data)
 {
@@ -365,8 +365,8 @@ ntb_pow_calculate(struct ntb_pow *pow,
         cookie = ntb_alloc(sizeof *cookie);
 
         target = calculate_target(length + sizeof (uint64_t),
-                                  pow_extra_bytes,
-                                  pow_per_byte);
+                                  pow_per_byte,
+                                  pow_extra_bytes);
 
         pthread_mutex_lock(&pow->mutex);
 
@@ -393,8 +393,8 @@ ntb_pow_calculate(struct ntb_pow *pow,
 bool
 ntb_pow_check(const uint8_t *payload,
               size_t length,
-              int pow_extra_bytes,
-              int pow_per_byte)
+              int pow_per_byte,
+              int pow_extra_bytes)
 {
         uint8_t initial_hash[8 + SHA512_DIGEST_LENGTH];
         uint8_t hash1[SHA512_DIGEST_LENGTH];
@@ -417,8 +417,8 @@ ntb_pow_check(const uint8_t *payload,
         pow_value = NTB_UINT64_FROM_BE(pow_value);
 
         target = calculate_target(length,
-                                  pow_extra_bytes,
-                                  pow_per_byte);
+                                  pow_per_byte,
+                                  pow_extra_bytes);
 
         return pow_value <= target;
 }
