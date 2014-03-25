@@ -411,8 +411,8 @@ create_pubkey_blob_cb(struct ntb_blob *blob,
                 ntb_pow_calculate(keyring->pow,
                                   blob->data + sizeof (uint64_t),
                                   blob->size - sizeof (uint64_t),
-                                  NTB_PROTO_MIN_EXTRA_BYTES,
-                                  NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE,
+                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
+                                  NTB_PROTO_MIN_POW_PER_BYTE,
                                   create_pubkey_pow_cb,
                                   task);
         task->blob = ntb_blob_ref(blob);
@@ -744,8 +744,8 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
                                  const struct ntb_address *address,
                                  const uint8_t *public_signing_key,
                                  const uint8_t *public_encryption_key,
-                                 uint64_t nonce_trials_per_byte,
-                                 uint64_t extra_bytes)
+                                 uint64_t pow_per_byte,
+                                 uint64_t pow_extra_bytes)
 {
         uint8_t full_public_signing_key[NTB_ECC_PUBLIC_KEY_SIZE];
         uint8_t full_public_encryption_key[NTB_ECC_PUBLIC_KEY_SIZE];
@@ -782,8 +782,8 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
         params.public_encryption_key = full_public_encryption_key;
         params.version = address->version;
         params.stream = address->stream;
-        params.nonce_trials_per_byte = nonce_trials_per_byte;
-        params.payload_length_extra_bytes = extra_bytes;
+        params.pow_per_byte = pow_per_byte;
+        params.pow_extra_bytes = pow_extra_bytes;
 
         task = add_task(keyring);
         task->crypto_cookie =
@@ -850,8 +850,8 @@ decrypt_msg_cb(struct ntb_key *key,
                                                  &sender_address,
                                                  msg.sender_signing_key,
                                                  msg.sender_encryption_key,
-                                                 msg.nonce_trials_per_byte,
-                                                 msg.extra_bytes);
+                                                 msg.pow_per_byte,
+                                                 msg.pow_extra_bytes);
 
         ntb_log("Accepted message from %s", sender_address_string);
 
@@ -1286,8 +1286,8 @@ create_msg_blob_cb(struct ntb_blob *blob,
 {
         struct ntb_keyring_message *message = user_data;
         struct ntb_keyring *keyring = message->keyring;
-        int payload_length_extra_bytes;
-        int nonce_trials_per_byte;
+        int pow_extra_bytes;
+        int pow_per_byte;
 
         message->crypto_cookie = NULL;
 
@@ -1302,22 +1302,20 @@ create_msg_blob_cb(struct ntb_blob *blob,
          * minimum otherwise the message won't propagate through the
          * network and someone would be able to deduce that we are the
          * originator of this message. */
-        payload_length_extra_bytes =
-                message->to_key->payload_length_extra_bytes;
-        if (payload_length_extra_bytes < NTB_PROTO_MIN_EXTRA_BYTES)
-                payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+        pow_extra_bytes = message->to_key->pow_extra_bytes;
+        if (pow_extra_bytes < NTB_PROTO_MIN_POW_EXTRA_BYTES)
+                pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
 
-        nonce_trials_per_byte =
-                message->to_key->nonce_trials_per_byte;
-        if (nonce_trials_per_byte < NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE)
-                nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+        pow_per_byte = message->to_key->pow_per_byte;
+        if (pow_per_byte < NTB_PROTO_MIN_POW_PER_BYTE)
+                pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE;
 
         message->pow_cookie =
                 ntb_pow_calculate(keyring->pow,
                                   blob->data + sizeof (uint64_t),
                                   blob->size - sizeof (uint64_t),
-                                  payload_length_extra_bytes,
-                                  nonce_trials_per_byte,
+                                  pow_extra_bytes,
+                                  pow_per_byte,
                                   msg_pow_cb,
                                   message);
 }
@@ -1456,9 +1454,9 @@ load_message_content_cb(struct ntb_blob *content_blob,
         ntb_proto_add_public_key(&buffer, from_key->signing_key);
         ntb_proto_add_public_key(&buffer, from_key->encryption_key);
         if (message->from_key->address.version >= 3) {
-                ntb_proto_add_var_int(&buffer, from_key->nonce_trials_per_byte);
+                ntb_proto_add_var_int(&buffer, from_key->pow_per_byte);
                 ntb_proto_add_var_int(&buffer,
-                                      from_key->payload_length_extra_bytes);
+                                      from_key->pow_extra_bytes);
         }
         ntb_buffer_append(&buffer,
                           message->to_address.ripe,
@@ -1485,8 +1483,8 @@ load_message_content_cb(struct ntb_blob *content_blob,
                                   message->blob_ackdata_length -
                                   NTB_PROTO_HEADER_SIZE -
                                   sizeof (uint64_t),
-                                  NTB_PROTO_MIN_EXTRA_BYTES,
-                                  NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE,
+                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
+                                  NTB_PROTO_MIN_POW_PER_BYTE,
                                   ackdata_pow_cb,
                                   message);
 }
@@ -1595,8 +1593,8 @@ send_getpubkey_request(struct ntb_keyring_message *message)
                 ntb_pow_calculate(message->keyring->pow,
                                   message->blob->data + sizeof (uint64_t),
                                   message->blob->size - sizeof (uint64_t),
-                                  NTB_PROTO_MIN_EXTRA_BYTES,
-                                  NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE,
+                                  NTB_PROTO_MIN_POW_EXTRA_BYTES,
+                                  NTB_PROTO_MIN_POW_PER_BYTE,
                                   getpubkey_pow_cb,
                                   message);
 }

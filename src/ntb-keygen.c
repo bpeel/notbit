@@ -49,8 +49,8 @@ enum ntb_arguments_error {
 static int option_version = 0;
 static int option_stream = 1;
 static int option_zeroes = 0;
-static int option_nonce_trials_per_byte = 0; /* use default */
-static int option_payload_length_extra_bytes = 0; /* use default */
+static int option_pow_per_byte = 0; /* use default */
+static int option_pow_extra_bytes = 0; /* use default */
 static const char *option_label = "";
 
 static const char options[] = "-hzZ:v:s:l:pd:D:";
@@ -125,14 +125,13 @@ process_arguments(int argc,
                         break;
 
                 case 'd':
-                        option_nonce_trials_per_byte =
-                                atoi(optarg) *
-                                NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
+                        option_pow_per_byte =
+                                atoi(optarg) * NTB_PROTO_MIN_POW_PER_BYTE;
                         break;
 
                 case 'D':
-                        option_payload_length_extra_bytes =
-                                atoi(optarg) * NTB_PROTO_MIN_EXTRA_BYTES;
+                        option_pow_extra_bytes =
+                                atoi(optarg) * NTB_PROTO_MIN_POW_EXTRA_BYTES;
                         break;
 
                 case 'l':
@@ -169,8 +168,8 @@ send_keygen_command(int sock,
         ntb_ipc_proto_begin_command(&buf, "keygen", 0 /* request_id */);
         ntb_proto_add_var_int(&buf, option_version);
         ntb_proto_add_var_int(&buf, option_stream);
-        ntb_proto_add_var_int(&buf, option_nonce_trials_per_byte);
-        ntb_proto_add_var_int(&buf, option_payload_length_extra_bytes);
+        ntb_proto_add_var_int(&buf, option_pow_per_byte);
+        ntb_proto_add_var_int(&buf, option_pow_extra_bytes);
         ntb_proto_add_8(&buf, option_zeroes);
         ntb_proto_add_var_str(&buf, option_label);
         ntb_ipc_proto_end_command(&buf, 0 /* command_start */);

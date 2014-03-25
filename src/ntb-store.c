@@ -706,8 +706,8 @@ write_key(struct ntb_key *key,
                 "payloadlengthextrabytes = %i\n",
                 address,
                 key->label,
-                key->nonce_trials_per_byte,
-                key->payload_length_extra_bytes);
+                key->pow_per_byte,
+                key->pow_extra_bytes);
 
         if (ntb_key_has_private(key)) {
                 encode_wif(key->signing_key, signing_key_wif);

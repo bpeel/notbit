@@ -50,8 +50,8 @@ struct ntb_load_keys_data {
         struct ntb_buffer label;
         struct ntb_buffer address;
 
-        int nonce_trials_per_byte;
-        int payload_length_extra_bytes;
+        int pow_per_byte;
+        int pow_extra_bytes;
         int64_t last_pubkey_send_time;
         bool enabled;
         bool decoy;
@@ -71,8 +71,8 @@ reset_data(struct ntb_load_keys_data *data)
 {
         data->label.length = 0;
         data->address.length = 0;
-        data->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
-        data->payload_length_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+        data->pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE;
+        data->pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
         data->last_pubkey_send_time = 0;
         data->enabled = true;
         data->decoy = false;
@@ -119,8 +119,8 @@ flush_key(struct ntb_load_keys_data *data)
         params.label = (const char *) data->label.data;
         params.version = address.version;
         params.stream = address.stream;
-        params.nonce_trials_per_byte = data->nonce_trials_per_byte;
-        params.payload_length_extra_bytes = data->payload_length_extra_bytes;
+        params.pow_per_byte = data->pow_per_byte;
+        params.pow_extra_bytes = data->pow_extra_bytes;
         params.last_pubkey_send_time = data->last_pubkey_send_time;
         params.enabled = data->enabled;
         params.decoy = data->decoy;
@@ -249,13 +249,13 @@ process_property(struct ntb_load_keys_data *data,
                                                   value,
                                                   INT_MAX,
                                                   &int_value))
-                        data->nonce_trials_per_byte = int_value;
+                        data->pow_per_byte = int_value;
         } else if (!strcmp(key, "payloadlengthextrabytes")) {
                 if (ntb_key_value_parse_int_value(line_number,
                                                   value,
                                                   INT_MAX,
                                                   &int_value))
-                        data->payload_length_extra_bytes = int_value;
+                        data->pow_extra_bytes = int_value;
         } else if (!strcmp(key, "privsigningkey")) {
                 if (parse_wif(data,
                               line_number,

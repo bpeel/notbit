@@ -402,8 +402,8 @@ append_v34_key_base(struct ntb_key *key,
 {
         append_key_base(key, buffer, behaviors_offset);
 
-        ntb_proto_add_var_int(buffer, key->nonce_trials_per_byte);
-        ntb_proto_add_var_int(buffer, key->payload_length_extra_bytes);
+        ntb_proto_add_var_int(buffer, key->pow_per_byte);
+        ntb_proto_add_var_int(buffer, key->pow_extra_bytes);
 
         append_signature(buffer,
                          key,
@@ -585,8 +585,8 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
         params.stream = address.stream;
         params.public_signing_key = full_public_signing_key;
         params.public_encryption_key = full_public_encryption_key;
-        params.nonce_trials_per_byte = pubkey->nonce_trials_per_byte;
-        params.payload_length_extra_bytes = pubkey->extra_bytes;
+        params.pow_per_byte = pubkey->pow_per_byte;
+        params.pow_extra_bytes = pubkey->pow_extra_bytes;
         params.ripe = address.ripe;
 
         cookie->check_pubkey.key = ntb_key_new(crypto->ecc, &params);

@@ -78,8 +78,8 @@ struct ntb_proto_decrypted_msg {
         uint64_t sender_address_version;
         uint64_t sender_stream_number;
         uint32_t sender_behaviors;
-        uint64_t nonce_trials_per_byte;
-        uint64_t extra_bytes;
+        uint64_t pow_per_byte;
+        uint64_t pow_extra_bytes;
         const uint8_t *destination_ripe;
         uint64_t encoding;
         const uint8_t *message, *ack, *sig;
@@ -100,8 +100,8 @@ struct ntb_proto_pubkey {
         const uint8_t *public_signing_key;
         const uint8_t *public_encryption_key;
 
-        uint64_t nonce_trials_per_byte;
-        uint64_t extra_bytes;
+        uint64_t pow_per_byte;
+        uint64_t pow_extra_bytes;
 
         uint64_t signature_length;
         const uint8_t *signature;
@@ -126,8 +126,8 @@ struct ntb_proto_pubkey {
  * bytes are used */
 #define NTB_PROTO_HASH_LENGTH (SHA512_DIGEST_LENGTH / 2)
 
-#define NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE 320
-#define NTB_PROTO_MIN_EXTRA_BYTES 14000
+#define NTB_PROTO_MIN_POW_PER_BYTE 320
+#define NTB_PROTO_MIN_POW_EXTRA_BYTES 14000
 
 /* In addition to the maximum age of an object defined by the
  * protocol, we won't delete objects on disk for this amount of extra

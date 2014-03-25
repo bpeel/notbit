@@ -47,8 +47,8 @@ struct ntb_key {
 
         char *label;
 
-        int nonce_trials_per_byte;
-        int payload_length_extra_bytes;
+        int pow_per_byte;
+        int pow_extra_bytes;
         int64_t last_pubkey_send_time;
 
         EC_KEY *signing_key;
@@ -97,8 +97,8 @@ struct ntb_key_params {
         const uint8_t *public_encryption_key;
 
         /* NTB_KEY_PARAM_POW_DIFFICULTY */
-        int nonce_trials_per_byte;
-        int payload_length_extra_bytes;
+        int pow_per_byte;
+        int pow_extra_bytes;
 
         /* NTB_KEY_PARAM_RIPE */
         const uint8_t *ripe;

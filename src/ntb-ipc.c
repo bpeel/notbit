@@ -564,8 +564,8 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
         struct ntb_key_params params;
         struct ntb_ipc_task *task;
         uint64_t version, stream;
-        uint64_t nonce_trials_per_byte;
-        uint64_t payload_extra_bytes;
+        uint64_t pow_per_byte;
+        uint64_t pow_extra_bytes;
         ssize_t header_size;
         uint8_t zeroes;
         char *label;
@@ -580,10 +580,10 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
                                             &stream,
 
                                             NTB_PROTO_ARGUMENT_VAR_INT,
-                                            &nonce_trials_per_byte,
+                                            &pow_per_byte,
 
                                             NTB_PROTO_ARGUMENT_VAR_INT,
-                                            &payload_extra_bytes,
+                                            &pow_extra_bytes,
 
                                             NTB_PROTO_ARGUMENT_8,
                                             &zeroes,
@@ -617,11 +617,11 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
                                      "The requested stream is not supported");
         }
 
-        if (nonce_trials_per_byte == 0)
-                nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE * 2;
+        if (pow_per_byte == 0)
+                pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE * 2;
 
-        if (payload_extra_bytes == 0)
-                payload_extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+        if (pow_extra_bytes == 0)
+                pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
 
         if (zeroes > 2) {
                 return send_response(conn,
@@ -655,8 +655,8 @@ handle_keygen_command(struct ntb_ipc_connection *conn,
         params.label = label;
         params.version = version;
         params.stream = stream;
-        params.nonce_trials_per_byte = nonce_trials_per_byte;
-        params.payload_length_extra_bytes = payload_extra_bytes;
+        params.pow_per_byte = pow_per_byte;
+        params.pow_extra_bytes = pow_extra_bytes;
 
         task->keyring_cookie = ntb_keyring_create_key(ipc->keyring,
                                                       &params,

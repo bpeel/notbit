@@ -87,15 +87,11 @@ ntb_key_new(struct ntb_ecc *ecc,
                 key->address.stream = 1;
 
         if ((params->flags & NTB_KEY_PARAM_POW_DIFFICULTY)) {
-                key->nonce_trials_per_byte =
-                        params->nonce_trials_per_byte;
-                key->payload_length_extra_bytes =
-                        params->payload_length_extra_bytes;
+                key->pow_per_byte = params->pow_per_byte;
+                key->pow_extra_bytes = params->pow_extra_bytes;
         } else {
-                key->nonce_trials_per_byte =
-                        NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
-                key->payload_length_extra_bytes =
-                        NTB_PROTO_MIN_EXTRA_BYTES;
+                key->pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE;
+                key->pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
         }
 
         if ((params->flags & NTB_KEY_PARAM_LAST_PUBKEY_SEND_TIME))

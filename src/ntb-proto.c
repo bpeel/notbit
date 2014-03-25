@@ -411,10 +411,10 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
                                                     data_length,
 
                                                     NTB_PROTO_ARGUMENT_VAR_INT,
-                                                    &msg->nonce_trials_per_byte,
+                                                    &msg->pow_per_byte,
 
                                                     NTB_PROTO_ARGUMENT_VAR_INT,
-                                                    &msg->extra_bytes,
+                                                    &msg->pow_extra_bytes,
 
                                                     NTB_PROTO_ARGUMENT_END);
 
@@ -424,9 +424,8 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
                 data += header_size;
                 data_length -= header_size;
         } else {
-                msg->nonce_trials_per_byte =
-                        NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
-                msg->extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+                msg->pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE;
+                msg->pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
         }
 
         if (data_length < RIPEMD160_DIGEST_LENGTH)
@@ -498,8 +497,8 @@ process_v2_pubkey_parts(const uint8_t *data,
         pubkey->public_signing_key = data + 4;
         pubkey->public_encryption_key = data + 4 + 64;
 
-        pubkey->nonce_trials_per_byte = NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE;
-        pubkey->extra_bytes = NTB_PROTO_MIN_EXTRA_BYTES;
+        pubkey->pow_per_byte = NTB_PROTO_MIN_POW_PER_BYTE;
+        pubkey->pow_extra_bytes = NTB_PROTO_MIN_POW_EXTRA_BYTES;
 
         return true;
 }
@@ -526,10 +525,10 @@ process_v3_pubkey_parts(const uint8_t *data,
                                       message_length,
 
                                       NTB_PROTO_ARGUMENT_VAR_INT,
-                                      &pubkey->nonce_trials_per_byte,
+                                      &pubkey->pow_per_byte,
 
                                       NTB_PROTO_ARGUMENT_VAR_INT,
-                                      &pubkey->extra_bytes,
+                                      &pubkey->pow_extra_bytes,
 
                                       NTB_PROTO_ARGUMENT_END);
 

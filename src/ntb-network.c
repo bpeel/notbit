@@ -928,8 +928,8 @@ should_reject(enum ntb_proto_inv_type type,
 
         if (!ntb_pow_check(payload,
                            payload_length,
-                           NTB_PROTO_MIN_EXTRA_BYTES,
-                           NTB_PROTO_MIN_NONCE_TRIALS_PER_BYTE)) {
+                           NTB_PROTO_MIN_POW_EXTRA_BYTES,
+                           NTB_PROTO_MIN_POW_PER_BYTE)) {
                 ntb_log("Rejecting %s from %s because the proof-of-work is "
                         "too low",
                         type_name,
