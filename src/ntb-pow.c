@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2014  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -325,10 +325,10 @@ ntb_pow_new(void)
         return pow;
 }
 
-static uint64_t
-calculate_target(size_t length,
-                 int pow_per_byte,
-                 int pow_extra_bytes)
+uint64_t
+ntb_pow_calculate_target(size_t length,
+                         int pow_per_byte,
+                         int pow_extra_bytes)
 {
         const uint64_t two_63 = UINT64_C(0x8000000000000000);
         uint64_t divisor;
@@ -364,9 +364,9 @@ ntb_pow_calculate(struct ntb_pow *pow,
 
         cookie = ntb_alloc(sizeof *cookie);
 
-        target = calculate_target(length + sizeof (uint64_t),
-                                  pow_per_byte,
-                                  pow_extra_bytes);
+        target = ntb_pow_calculate_target(length + sizeof (uint64_t),
+                                          pow_per_byte,
+                                          pow_extra_bytes);
 
         pthread_mutex_lock(&pow->mutex);
 
@@ -390,16 +390,14 @@ ntb_pow_calculate(struct ntb_pow *pow,
         return cookie;
 }
 
-bool
-ntb_pow_check(const uint8_t *payload,
-              size_t length,
-              int pow_per_byte,
-              int pow_extra_bytes)
+uint64_t
+ntb_pow_calculate_value(const uint8_t *payload,
+                        size_t length)
 {
         uint8_t initial_hash[8 + SHA512_DIGEST_LENGTH];
         uint8_t hash1[SHA512_DIGEST_LENGTH];
         uint8_t hash2[SHA512_DIGEST_LENGTH];
-        uint64_t pow_value, target;
+        uint64_t pow_value;
 
         assert(length >= 8);
 
@@ -414,11 +412,23 @@ ntb_pow_check(const uint8_t *payload,
         /* The POW value is the first 8 bytes of that as a big-endian
          * number */
         memcpy(&pow_value, hash2, sizeof pow_value);
-        pow_value = NTB_UINT64_FROM_BE(pow_value);
 
-        target = calculate_target(length,
-                                  pow_per_byte,
-                                  pow_extra_bytes);
+        return NTB_UINT64_FROM_BE(pow_value);
+}
+
+bool
+ntb_pow_check(const uint8_t *payload,
+              size_t length,
+              int pow_per_byte,
+              int pow_extra_bytes)
+{
+        uint64_t pow_value, target;
+
+        pow_value = ntb_pow_calculate_value(payload, length);
+
+        target = ntb_pow_calculate_target(length,
+                                          pow_per_byte,
+                                          pow_extra_bytes);
 
         return pow_value <= target;
 }

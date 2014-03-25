@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2014  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -53,6 +53,15 @@ ntb_pow_cancel(struct ntb_pow_cookie *cookie);
 
 void
 ntb_pow_free(struct ntb_pow *pow);
+
+uint64_t
+ntb_pow_calculate_target(size_t length,
+                         int payload_extra_bytes,
+                         int average_trials_per_byte);
+
+uint64_t
+ntb_pow_calculate_value(const uint8_t *payload,
+                        size_t length);
 
 bool
 ntb_pow_check(const uint8_t *payload,
