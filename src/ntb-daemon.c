@@ -119,7 +119,7 @@ free_addresses(struct address *list)
 static void
 usage(void)
 {
-        printf("Notbit - a Bitmessage → maildir daemon\n"
+        printf("Notbit - a Bitmessage → maildir daemon. Version " VERSION "\n"
                "usage: notbit [options]...\n"
                " -h                    Show this help message\n"
                " -p <port>             Specifies a port to listen on.\n"

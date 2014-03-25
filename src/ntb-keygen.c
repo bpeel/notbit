@@ -58,8 +58,8 @@ static const char options[] = "-hzZ:v:s:l:pd:D:";
 static void
 usage(void)
 {
-        printf("notbit-keygen - Adds a new private key to a running notbit "
-               "instance\n"
+        printf("notbit-keygen - Version " VERSION "\n"
+               "Adds a new private key to a running notbit instance\n"
                "usage: notbit-keygen [options]...\n"
                " -h                    Show this help message\n"
                " -z                    Spend a bit of extra time to generate\n"
