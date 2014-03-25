@@ -1,0 +1,46 @@
+┏━━━━━━━━━━━━━━━━━━━━━━━┓
+┃Notbit 0.4 - 2014-03-25┃
+┗━━━━━━━━━━━━━━━━━━━━━━━┛
+
+• The license has been changed to a liberal MIT license instead of
+  GPLv3.
+
+• There is now a command-line option to disable the peer address
+  bootstrapping. Along with a new option to make it accept advertised
+  addresses in the local address range this can be used to create a
+  private internal network on a LAN. Many thanks to William A.
+  Kennington III for this feature.
+
+• The proof-of-work difficulty for a new address can now be specified
+  when running notbit-keygen. The difficulty will be used to avoid
+  wasting time trying to decrypt messages with insufficient
+  proof-of-work. The default value is now 2 instead of 1 which matches
+  PyBitmessage.
+
+• Some bugs have been fixed where Notbit may have been using an
+  insufficient proof-of-work depending on chance. It was also
+  incorrectly storing the proof-of-work settings for public keys that
+  are requested from peers.
+
+• Some Linuxisms have been removed to make it more portable to other
+  Unices. It has been tested on OpenBSD.
+
+• When receiving a message it will use the label of the keys as the
+  name in the email to make it easier to identify who sent the
+  message.
+
+• It now supports searching for the bootstrap servers via DNS.
+  Previously it was only using a hard-coded list in the source code.
+
+• Keys that are marked as disabled by manually editing the keys.dat
+  file and restarting notbit will now be ignored.
+
+• If Notbit creates the maildir, it will now also create the cur
+  directory. This was apparently causing problems when using Notbit
+  with Mutt.
+
+┏━━━━━━━━━━━━━━━━━━━━━━━┓
+┃Notbit 0.2 - 2014-02-15┃
+┗━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Initial release

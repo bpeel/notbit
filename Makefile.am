@@ -11,5 +11,6 @@ SUBDIRS = \
 
 EXTRA_DIST = \
 	autogen.sh \
+	NEWS \
 	README.md \
 	$(NULL)
