@@ -41,6 +41,7 @@
 #include "ntb-address.h"
 #include "ntb-ecc.h"
 #include "ntb-proto.h"
+#include "ntb-pow.h"
 
 struct ntb_crypto {
         pthread_mutex_t mutex;
@@ -756,6 +757,7 @@ static void
 handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
 {
         struct ntb_crypto *crypto = cookie->crypto;
+        struct ntb_blob *blob = cookie->decrypt_msg.blob;
         struct ntb_buffer buffer;
         struct ntb_key *key;
         ssize_t header_size;
@@ -765,10 +767,12 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
         const uint8_t *data;
         size_t data_length;
         size_t decryption_start;
+        uint64_t pow_value;
+        uint64_t target;
         int i;
 
-        header_size = ntb_proto_get_command(cookie->decrypt_msg.blob->data,
-                                            cookie->decrypt_msg.blob->size,
+        header_size = ntb_proto_get_command(blob->data,
+                                            blob->size,
 
                                             NTB_PROTO_ARGUMENT_64,
                                             &pow_nonce,
@@ -783,8 +787,10 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
 
         assert(header_size != -1);
 
-        data = cookie->decrypt_msg.blob->data + header_size;
-        data_length = cookie->decrypt_msg.blob->size - header_size;
+        data = blob->data + header_size;
+        data_length = blob->size - header_size;
+
+        pow_value = ntb_pow_calculate_value(blob->data, blob->size);
 
         ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
 
@@ -794,6 +800,13 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
                 key = cookie->decrypt_msg.keys[i];
 
                 if (!ntb_key_has_private(key))
+                        continue;
+
+                target = ntb_pow_calculate_target(data_length,
+                                                  key->pow_per_byte,
+                                                  key->pow_extra_bytes);
+
+                if (pow_value > target)
                         continue;
 
                 if (ntb_ecc_decrypt(crypto->ecc,
