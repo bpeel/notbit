@@ -799,6 +799,9 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
         for (i = 0; i < cookie->decrypt_msg.n_keys; i++) {
                 key = cookie->decrypt_msg.keys[i];
 
+                if (!key->enabled)
+                        continue;
+
                 if (!ntb_key_has_private(key))
                         continue;
 
