@@ -1144,5 +1144,6 @@ ntb_ipc_free(struct ntb_ipc *ipc)
         ntb_free(ipc->sockaddr);
         ntb_close(ipc->sock_lock);
         unlink(ipc->lock_path);
+        ntb_free(ipc->lock_path);
         ntb_free(ipc);
 }
