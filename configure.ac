@@ -1,4 +1,4 @@
-AC_INIT([notbit], 0.5)
+AC_INIT([notbit], 0.6)
 
 AC_CONFIG_AUX_DIR([build])
 AC_CONFIG_MACRO_DIR([build/autotools])

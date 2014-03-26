@@ -1,4 +1,11 @@
 ┏━━━━━━━━━━━━━━━━━━━━━━━┓
+┃Notbit 0.6 - 2014-03-26┃
+┗━━━━━━━━━━━━━━━━━━━━━━━┛
+
+This is a brown paper bag release fixing an embarrassing crash on
+32-bit builds.
+
+┏━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃Notbit 0.4 - 2014-03-25┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━┛
 
