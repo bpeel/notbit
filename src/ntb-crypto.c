@@ -571,11 +571,11 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
         full_public_signing_key[0] = 0x04;
         memcpy(full_public_signing_key + 1,
                pubkey->public_signing_key,
-               NTB_ECC_PUBLIC_KEY_SIZE);
+               NTB_ECC_PUBLIC_KEY_SIZE - 1);
         full_public_encryption_key[0] = 0x04;
         memcpy(full_public_encryption_key + 1,
                pubkey->public_encryption_key,
-               NTB_ECC_PUBLIC_KEY_SIZE);
+               NTB_ECC_PUBLIC_KEY_SIZE - 1);
 
         params.flags = (NTB_KEY_PARAM_VERSION |
                         NTB_KEY_PARAM_STREAM |

@@ -767,11 +767,11 @@ add_public_key_from_network_keys(struct ntb_keyring *keyring,
         full_public_signing_key[0] = 0x04;
         memcpy(full_public_signing_key + 1,
                public_signing_key,
-               NTB_ECC_PUBLIC_KEY_SIZE);
+               NTB_ECC_PUBLIC_KEY_SIZE - 1);
         full_public_encryption_key[0] = 0x04;
         memcpy(full_public_encryption_key + 1,
                public_encryption_key,
-               NTB_ECC_PUBLIC_KEY_SIZE);
+               NTB_ECC_PUBLIC_KEY_SIZE - 1);
 
         params.flags = (NTB_KEY_PARAM_PUBLIC_KEYS |
                         NTB_KEY_PARAM_VERSION |
