@@ -66,7 +66,7 @@ ntb_log(const char *format, ...)
         pthread_mutex_lock(&ntb_log_mutex);
 
         time(&now);
-        tm = localtime(&now);
+        tm = gmtime(&now);
 
         ntb_buffer_append_printf(&ntb_log_buffer,
                                  "[%4d-%02d-%02dT%02d:%02d:%02dZ] ",
