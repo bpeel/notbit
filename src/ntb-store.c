@@ -35,6 +35,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <sys/time.h>
+#include <fcntl.h>
 
 #include "ntb-store.h"
 #include "ntb-util.h"
@@ -738,6 +739,38 @@ write_key(struct ntb_key *key,
         fputc('\n', out);
 }
 
+static FILE *
+open_sensitive_file(const char *filename)
+{
+        FILE *file;
+        int fd;
+
+        /* open and fdopen is used instead of fopen so that we can
+         * make the permissions on the file be at most 600. We don't
+         * want sensitive files be world-readable */
+        fd = open(filename,
+                  O_WRONLY | O_CREAT,
+                  S_IRUSR | S_IWUSR);
+
+        if (fd == -1) {
+                ntb_log("Error opening %s: %s",
+                        filename,
+                        strerror(errno));
+                return NULL;
+        }
+
+        file = fdopen(fd, "w");
+        if (file == NULL) {
+                ntb_log("Error opening %s: %s",
+                        filename,
+                        strerror(errno));
+                close(fd);
+                return NULL;
+        }
+
+        return file;
+}
+
 static void
 handle_save_keys(struct ntb_store *store,
                  struct ntb_store_task *task)
@@ -751,14 +784,10 @@ handle_save_keys(struct ntb_store *store,
         ntb_buffer_append_string(&store->filename_buf,
                                  "keys.dat.tmp");
 
-        out = fopen((char *) store->filename_buf.data, "w");
+        out = open_sensitive_file((char *) store->filename_buf.data);
 
-        if (out == NULL) {
-                ntb_log("Error opening %s: %s",
-                        (char *) store->filename_buf.data,
-                        strerror(errno));
+        if (out == NULL)
                 return;
-        }
 
         for (i = 0; i < task->save_keys.n_keys; i++)
                 write_key(task->save_keys.keys[i], out);
@@ -827,14 +856,10 @@ handle_save_outgoings(struct ntb_store *store,
         ntb_buffer_append_string(&store->filename_buf,
                                  "outgoing-messages.dat.tmp");
 
-        out = fopen((char *) store->filename_buf.data, "w");
+        out = open_sensitive_file((char *) store->filename_buf.data);
 
-        if (out == NULL) {
-                ntb_log("Error opening %s: %s",
-                        (char *) store->filename_buf.data,
-                        strerror(errno));
+        if (out == NULL)
                 return;
-        }
 
         for (i = 0; i < blob->size / sizeof *outgoings; i++)
                 write_outgoing(outgoings + i, out);
@@ -964,14 +989,10 @@ handle_save_message_content(struct ntb_store *store,
         set_message_content_filename(store, task->save_message_content.id);
         ntb_buffer_append_string(&store->filename_buf, ".tmp");
 
-        file = fopen((char *) store->filename_buf.data, "wb");
+        file = open_sensitive_file((char *) store->filename_buf.data);
 
-        if (file == NULL) {
-                ntb_log("Error opening %s: %s",
-                        (char *) store->filename_buf.data,
-                        strerror(errno));
+        if (file == NULL)
                 return;
-        }
 
         if (fwrite(blob->data, 1, blob->size, file) != blob->size) {
                 ntb_log("Error writing %s: %s",
