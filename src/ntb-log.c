@@ -58,7 +58,7 @@ ntb_log(const char *format, ...)
 {
         va_list ap;
         time_t now;
-        struct tm *tm;
+        struct tm tm;
 
         if (!ntb_log_available())
                 return;
@@ -66,16 +66,16 @@ ntb_log(const char *format, ...)
         pthread_mutex_lock(&ntb_log_mutex);
 
         time(&now);
-        tm = gmtime(&now);
+        gmtime_r(&now, &tm);
 
         ntb_buffer_append_printf(&ntb_log_buffer,
                                  "[%4d-%02d-%02dT%02d:%02d:%02dZ] ",
-                                 tm->tm_year + 1900,
-                                 tm->tm_mon + 1,
-                                 tm->tm_mday,
-                                 tm->tm_hour,
-                                 tm->tm_min,
-                                 tm->tm_sec);
+                                 tm.tm_year + 1900,
+                                 tm.tm_mon + 1,
+                                 tm.tm_mday,
+                                 tm.tm_hour,
+                                 tm.tm_min,
+                                 tm.tm_sec);
 
         va_start(ap, format);
         ntb_buffer_append_vprintf(&ntb_log_buffer, format, ap);
