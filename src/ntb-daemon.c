@@ -270,9 +270,6 @@ daemonize(void)
                 /* Parent process, we can just quit */
                 exit(EXIT_SUCCESS);
 
-        /* Reset the file mask (not really sure why we do this..) */
-        umask(0);
-
         /* Create a new SID for the child process */
         sid = setsid();
         if (sid < 0) {
