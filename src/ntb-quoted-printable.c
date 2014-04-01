@@ -209,7 +209,7 @@ ntb_quoted_printable_decode(struct ntb_quoted_printable_data *data,
                             uint8_t *out_buffer,
                             struct ntb_error **error)
 {
-        ssize_t processed;
+        ssize_t processed = -1;
 
         data->out = out_buffer;
 
