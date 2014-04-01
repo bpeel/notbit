@@ -779,7 +779,7 @@ ntb_mail_parser_parse(struct ntb_mail_parser *parser,
                       size_t length,
                       struct ntb_error **error)
 {
-        ssize_t processed;
+        ssize_t processed = -1;
 
         while (length > 0) {
                 switch (parser->state) {
