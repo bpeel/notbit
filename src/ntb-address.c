@@ -166,7 +166,7 @@ ntb_address_from_network_keys(struct ntb_address *address,
                               const uint8_t *public_encryption_key)
 {
         SHA512_CTX sha_ctx;
-        uint8_t sha_hash[SHA_DIGEST_LENGTH];
+        uint8_t sha_hash[SHA512_DIGEST_LENGTH];
         uint8_t key_prefix = 0x04;
 
         address->version = version;

@@ -39,7 +39,7 @@ generate_ripe(struct ntb_ecc *ecc,
 {
         SHA512_CTX sha_ctx;
         uint8_t public_key[NTB_ECC_PUBLIC_KEY_SIZE];
-        uint8_t sha_hash[SHA_DIGEST_LENGTH];
+        uint8_t sha_hash[SHA512_DIGEST_LENGTH];
 
         SHA512_Init(&sha_ctx);
 
