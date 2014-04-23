@@ -93,7 +93,8 @@ cp -L -R include "$OPENSSL_PREFIX/"
 
 cd "$TOPDIR"
 ./configure \
-    PKG_CONFIG="$PKGCONFIG_WRAPPER"
+    PKG_CONFIG="$PKGCONFIG_WRAPPER" \
+    CFLAGS="-O3 -fstack-protector-strong"
 make -j4
 
 strip --strip-all "${TOPDIR}/src/notbit"
