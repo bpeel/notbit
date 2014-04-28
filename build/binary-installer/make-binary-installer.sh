@@ -52,8 +52,13 @@ tar -C "$TOPDIR" -zxf "$OPENSSL_TARBALL_FILE"
 
 cd "$OPENSSL_BUILDDIR"
 
+# Bodge in the -m32 flag in the compilation flags supplied by the
+# configure script in case we are building on a 64-bit machine
+sed -i 's/^"linux-generic32","gcc:/\0-m32 /' Configure
+
 # enabling sha ripemd ec ecdsa ecdh hw cms aes md5
-./config \
+./Configure \
+    linux-generic32 \
     no-threads \
     no-zlib \
     no-shared \
@@ -94,7 +99,7 @@ cp -L -R include "$OPENSSL_PREFIX/"
 cd "$TOPDIR"
 ./configure \
     PKG_CONFIG="$PKGCONFIG_WRAPPER" \
-    CFLAGS="-O3 -fstack-protector-strong"
+    CFLAGS="-O3 -fstack-protector-strong -m32"
 make -j4
 
 strip --strip-all "${TOPDIR}/src/notbit"
