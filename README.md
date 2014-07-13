@@ -35,7 +35,7 @@ Now you can run the following commands to build Notbit:
 ```bash
 git clone https://github.com/bpeel/notbit.git
 cd notbit
-./autogen --prefix=$HOME
+./autogen.sh --prefix=$HOME
 make
 make install
 ```
