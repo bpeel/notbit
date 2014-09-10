@@ -103,7 +103,7 @@ struct ntb_connection_getdata_event {
         const uint8_t *hashes;
 };
 
-struct ntb_connection *connection;
+struct ntb_connection;
 
 struct ntb_connection *
 ntb_connection_connect(const struct ntb_netaddress *address,
