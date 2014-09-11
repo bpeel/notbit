@@ -151,8 +151,8 @@ below:
 
 ```
  -h                    Show a help message
- -p <port>             Specifies a different port to listen on.
-                       Defaults to 8444
+ -p <port>             Specifies a port to listen on.
+                       Equivalent to -a [::]:port.
  -a <address[:port]>   Add an address to listen on. Can be
                        specified multiple times. Defaults to
                        [::] to listen on port 8444
@@ -164,6 +164,10 @@ below:
                        $XDG_DATA_HOME/notbit/notbit.log if -d is used
  -d                    Fork and detach from terminal after
                        creating listen socket. (Daemonize)
+ -T                    Use a local Tor server. Equivalent to
+                       -r 127.0.0.1:9050 -B -i
+ -r <address[:port]>   Specify a SOCKSv5 proxy to use for
+                       outgoing connections.
  -u <user>             Specify a user to run as. Used to drop
                        privileges.
  -g <group>            Specify a group to run as.
@@ -171,6 +175,14 @@ below:
                        object store. Defaults to $XDG_DATA_HOME/notbit
  -m <maildir>          Specify the maildir to save messages to.
                        Defaults to $HOME/.maildir
+ -L                    Allow private addresses for peers
+ -b                    Don't bootstrap with default peers.
+                       Useful for creating your own private
+                       network. Note that this requires all
+                       nodes to be trustworthy
+ -B                    Don't bootstrap with DNS. Useful if
+                       running under Tor.
+ -i                    Don't listen for incoming connections.
 ```
 
 # Contact
