@@ -44,6 +44,7 @@
 #include "ntb-store.h"
 #include "ntb-file-error.h"
 #include "ntb-socket.h"
+#include "ntb-proxy.h"
 
 #define NTB_CONNECTION_MAX_MESSAGE_SIZE (128 * 1024 * 1024)
 
@@ -71,6 +72,8 @@ struct ntb_connection {
         struct ntb_main_context_source *socket_source;
         struct ntb_main_context_source *timer_source;
         int sock;
+
+        struct ntb_proxy *proxy;
 
         struct ntb_buffer in_buf;
         struct ntb_buffer out_buf;
@@ -625,6 +628,38 @@ process_command(struct ntb_connection *conn,
         return true;
 }
 
+static bool
+process_proxy(struct ntb_connection *conn)
+{
+        struct ntb_error *error = NULL;
+        struct ntb_connection_event event;
+
+        if (conn->proxy == NULL)
+                return true;
+
+        if (ntb_proxy_process_commands(conn->proxy, &error)) {
+                update_poll_flags(conn);
+
+                if (ntb_proxy_is_connected(conn->proxy)) {
+                        ntb_proxy_free(conn->proxy);
+                        conn->proxy = NULL;
+
+                        if (!emit_event(conn,
+                                        NTB_CONNECTION_EVENT_PROXY_CONNECTED,
+                                        &event))
+                                return false;
+                }
+                return true;
+        } else {
+                ntb_log("Connect failed for %s: %s",
+                        conn->remote_address_string,
+                        error->message);
+                ntb_error_free(error);
+                set_error_state(conn);
+                return false;
+        }
+}
+
 static void
 process_commands(struct ntb_connection *conn)
 {
@@ -694,7 +729,11 @@ handle_read(struct ntb_connection *conn)
                 conn->last_read_time =
                         ntb_main_context_get_monotonic_clock(NULL);
                 conn->in_buf.length += got;
-                process_commands(conn);
+
+                if (process_proxy(conn)) {
+                        if (conn->proxy == NULL)
+                                process_commands(conn);
+                }
         }
 }
 
@@ -861,6 +900,7 @@ connection_poll_cb(struct ntb_main_context_source *source,
         if ((flags & (NTB_MAIN_CONTEXT_POLL_OUT |
                       NTB_MAIN_CONTEXT_POLL_ERROR)) ==
             NTB_MAIN_CONTEXT_POLL_OUT &&
+            conn->proxy == NULL &&
             !conn->connect_succeeded) {
                 conn->connect_succeeded = true;
                 ntb_log("Connected to %s", conn->remote_address_string);
@@ -892,7 +932,8 @@ pong_check_cb(struct ntb_main_context_source *source,
 
         if ((now - conn->last_write_time) / 1000000 >=
             NTB_CONNECTION_PONG_INTERVAL &&
-            !connection_is_ready_to_write(conn))
+            !connection_is_ready_to_write(conn) &&
+            conn->proxy == NULL)
                 send_pong(conn);
 }
 
@@ -921,6 +962,9 @@ ntb_connection_free(struct ntb_connection *conn)
         ntb_buffer_destroy(&conn->out_buf);
         ntb_close(conn->sock);
 
+        if (conn->proxy)
+                ntb_proxy_free(conn->proxy);
+
         ntb_slice_free(&ntb_connection_allocator, conn);
 }
 
@@ -936,6 +980,7 @@ ntb_connection_new_for_socket(int sock,
         conn->remote_address = *remote_address;
         conn->remote_address_string = ntb_netaddress_to_string(remote_address);
         conn->connect_succeeded = false;
+        conn->proxy = NULL;
 
         ntb_signal_init(&conn->event_signal);
 
@@ -982,9 +1027,9 @@ ntb_connection_get_remote_address(struct ntb_connection *conn)
         return &conn->remote_address;
 }
 
-struct ntb_connection *
-ntb_connection_connect(const struct ntb_netaddress *address,
-                       struct ntb_error **error)
+static int
+connect_socket(const struct ntb_netaddress *address,
+               struct ntb_error **error)
 {
         struct ntb_netaddress_native native_address;
         char *address_string;
@@ -1001,12 +1046,12 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                                    errno,
                                    "Failed to create socket: %s",
                                    strerror(errno));
-                return NULL;
+                return -1;
         }
 
         if (!ntb_socket_set_nonblock(sock, error)) {
                 ntb_close(sock);
-                return NULL;
+                return -1;
         }
 
         if (connect(sock,
@@ -1021,10 +1066,38 @@ ntb_connection_connect(const struct ntb_netaddress *address,
                                    strerror(errno));
                 ntb_free(address_string);
                 ntb_close(sock);
-                return NULL;
+                return -1;
         }
 
+        return sock;
+}
+
+struct ntb_connection *
+ntb_connection_connect(const struct ntb_netaddress *address,
+                       struct ntb_error **error)
+{
+        int sock = connect_socket(address, error);
+
         return ntb_connection_new_for_socket(sock, address);
+}
+
+struct ntb_connection *
+ntb_connection_connect_proxy(const struct ntb_netaddress *proxy,
+                             const struct ntb_netaddress *address,
+                             struct ntb_error **error)
+{
+        struct ntb_connection *conn;
+        int sock = connect_socket(proxy, error);
+
+        conn = ntb_connection_new_for_socket(sock, address);
+
+        conn->proxy = ntb_proxy_new(address,
+                                    &conn->in_buf,
+                                    &conn->out_buf);
+
+        update_poll_flags(conn);
+
+        return conn;
 }
 
 struct ntb_connection *

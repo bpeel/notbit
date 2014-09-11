@@ -83,6 +83,8 @@ notbit_SOURCES = \
 	ntb-pow.h \
 	ntb-proto.c \
 	ntb-proto.h \
+	ntb-proxy.c \
+	ntb-proxy.h \
 	ntb-quoted-printable.c \
 	ntb-quoted-printable.h \
 	ntb-ref-count.h \

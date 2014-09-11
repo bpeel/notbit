@@ -29,6 +29,7 @@
 #include "ntb-error.h"
 #include "ntb-signal.h"
 #include "ntb-blob.h"
+#include "ntb-netaddress.h"
 
 extern struct ntb_error_domain
 ntb_network_error;
@@ -90,6 +91,10 @@ ntb_network_set_only_use_explicit_addresses(struct ntb_network *nw,
 void
 ntb_network_set_allow_private_addresses(struct ntb_network *nw,
                                         bool value);
+
+void
+ntb_network_set_proxy_address(struct ntb_network *nw,
+                              const struct ntb_netaddress *addr);
 
 enum ntb_network_object_location
 ntb_network_get_object(struct ntb_network *nw,

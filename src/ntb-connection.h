@@ -39,6 +39,7 @@ enum ntb_connection_event_type {
         NTB_CONNECTION_EVENT_CONNECT_FAILED,
         NTB_CONNECTION_EVENT_ERROR,
 
+        NTB_CONNECTION_EVENT_PROXY_CONNECTED,
         NTB_CONNECTION_EVENT_VERSION,
         NTB_CONNECTION_EVENT_INV,
         NTB_CONNECTION_EVENT_ADDR,
@@ -108,6 +109,11 @@ struct ntb_connection;
 struct ntb_connection *
 ntb_connection_connect(const struct ntb_netaddress *address,
                        struct ntb_error **error);
+
+struct ntb_connection *
+ntb_connection_connect_proxy(const struct ntb_netaddress *proxy,
+                             const struct ntb_netaddress *address,
+                             struct ntb_error **error);
 
 struct ntb_connection *
 ntb_connection_accept(int server_sock,

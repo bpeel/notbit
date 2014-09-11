@@ -197,6 +197,9 @@ struct ntb_network {
         struct ntb_main_context_source *save_addr_list_source;
 
         struct ntb_list delayed_broadcasts;
+
+        struct ntb_netaddress proxy_address;
+        bool use_proxy;
 };
 
 enum ntb_network_inv_state {
@@ -473,7 +476,13 @@ connect_to_addr(struct ntb_network *nw,
 
         addr->last_connect_time = ntb_main_context_get_monotonic_clock(NULL);
 
-        connection = ntb_connection_connect(&addr->address, &error);
+        if (nw->use_proxy) {
+                connection = ntb_connection_connect_proxy(&nw->proxy_address,
+                                                          &addr->address,
+                                                          &error);
+        } else {
+                connection = ntb_connection_connect(&addr->address, &error);
+        }
 
         if (connection == NULL) {
                 ntb_log("%s", error->message);
@@ -489,7 +498,8 @@ connect_to_addr(struct ntb_network *nw,
         peer->direction = NTB_NETWORK_OUTGOING;
         nw->n_outgoing_peers++;
 
-        send_version_to_peer(nw, peer);
+        if (!nw->use_proxy)
+                send_version_to_peer(nw, peer);
 
         return true;
 }
@@ -1184,6 +1194,10 @@ connection_event_cb(struct ntb_listener *listener,
                 remove_peer(nw, peer);
                 return false;
 
+        case NTB_CONNECTION_EVENT_PROXY_CONNECTED:
+                send_version_to_peer(nw, peer);
+                return true;
+
         case NTB_CONNECTION_EVENT_VERSION:
                 return handle_version(nw,
                                       peer,
@@ -1534,6 +1548,8 @@ ntb_network_new(bool add_default_nodes)
 
         nw->save_addr_list_source = NULL;
 
+        nw->use_proxy = false;
+
         hash_offset = NTB_STRUCT_OFFSET(struct ntb_network_inventory, hash);
         nw->inventory_hash = ntb_hash_table_new(hash_offset);
 
@@ -1679,6 +1695,14 @@ ntb_network_set_allow_private_addresses(struct ntb_network *nw,
 {
         nw->allow_private_addresses = value;
         maybe_queue_connect(nw, true /* use idle*/);
+}
+
+void
+ntb_network_set_proxy_address(struct ntb_network *nw,
+                              const struct ntb_netaddress *addr)
+{
+        nw->use_proxy = true;
+        nw->proxy_address = *addr;
 }
 
 enum ntb_network_object_location

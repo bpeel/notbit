@@ -74,8 +74,10 @@ static char *option_maildir = NULL;
 static bool option_only_explicit_addresses = false;
 static bool option_allow_private_addresses = false;
 static bool option_bootstrap = true;
+static bool option_use_proxy = false;
+static struct ntb_netaddress option_proxy_address;
 
-static const char options[] = "-a:l:du:g:D:p:eP:hm:Lb";
+static const char options[] = "-a:l:du:g:D:p:eP:hm:Lbr:";
 
 static void
 add_address(struct address **list,
@@ -116,6 +118,24 @@ free_addresses(struct address *list)
         }
 }
 
+static bool
+handle_proxy(const char *arg,
+             struct ntb_error **error)
+{
+        if (!ntb_netaddress_from_string(&option_proxy_address, arg, 9050)) {
+                ntb_set_error(error,
+                              &arguments_error,
+                              NTB_ARGUMENTS_ERROR_INVALID,
+                              "Invalid address: %s",
+                              arg);
+                return false;
+        }
+
+        option_use_proxy = true;
+
+        return true;
+}
+
 static void
 usage(void)
 {
@@ -136,6 +156,8 @@ usage(void)
                "                       Defaults to stdout.\n"
                " -d                    Fork and detach from terminal after\n"
                "                       creating listen socket. (Daemonize)\n"
+               " -r <address[:port]>   Specify a SOCKSv5 proxy to use for\n"
+               "                       outgoing connections.\n"
                " -u <user>             Specify a user to run as. Used to drop\n"
                "                       privileges.\n"
                " -g <group>            Specify a group to run as.\n"
@@ -188,6 +210,11 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'P':
                         add_address(&option_peer_addresses, optarg);
+                        break;
+
+                case 'r':
+                        if (!handle_proxy(optarg, error))
+                                goto error;
                         break;
 
                 case 'l':
@@ -486,6 +513,9 @@ run_network(void)
         struct ntb_error *error = NULL;
 
         nw = ntb_network_new(option_bootstrap);
+
+        if (option_use_proxy)
+                ntb_network_set_proxy_address(nw, &option_proxy_address);
 
         if (!add_addresses(nw, &error)) {
                 fprintf(stderr, "%s\n", error->message);
