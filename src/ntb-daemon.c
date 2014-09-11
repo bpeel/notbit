@@ -77,8 +77,9 @@ static bool option_bootstrap = true;
 static bool option_use_proxy = false;
 static bool option_bootstrap_dns = true;
 static struct ntb_netaddress option_proxy_address;
+static bool option_listen = true;
 
-static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:";
+static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:i";
 
 static void
 add_address(struct address **list,
@@ -173,7 +174,9 @@ usage(void)
                "                       network. Note that this requires all\n"
                "                       nodes to be trustworthy\n"
                " -B                    Don't bootstrap with DNS. Useful if\n"
-               "                       running under Tor.\n");
+               "                       running under Tor.\n"
+               " -i                    Don't listen for incoming connections."
+               "\n");
         exit(EXIT_FAILURE);
 }
 
@@ -258,6 +261,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'B':
                         option_bootstrap_dns = false;
+                        break;
+
+                case 'i':
+                        option_listen = false;
                         break;
 
                 case 'h':
@@ -418,13 +425,15 @@ add_addresses(struct ntb_network *nw,
 {
         struct address *address;
 
-        for (address = option_listen_addresses;
-             address;
-             address = address->next) {
-                if (!add_listen_address_to_network(nw,
-                                                   address,
-                                                   error))
-                        return false;
+        if (option_listen) {
+                for (address = option_listen_addresses;
+                     address;
+                     address = address->next) {
+                        if (!add_listen_address_to_network(nw,
+                                                           address,
+                                                           error))
+                                return false;
+                }
         }
 
         for (address = option_peer_addresses;
