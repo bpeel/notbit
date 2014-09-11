@@ -144,6 +144,17 @@ aren't supported by Bitmessage). Don't worry if your name appears in
 the From box next to your address as this information won't be sent
 over Bitmessage. Only the subject and the body of the mail are sent.
 
+# Using with Tor
+
+You can tell Notbit to connect via a Tor server running on the local
+machine by passing the -T option. This will also disable the DNS
+bootstrapping and won't open any listening ports. The -T option is a
+convienence option which is equivalent to `-r 127.0.0.1:9050 -B -i`.
+The -B option disables DNS bootstrapping and the -i argument disables
+listening ports. If you are running the Tor server on a different
+address you can specify these three options explicitly using the
+correct address.
+
 # Options
 
 Notbit has some command line options to configure it. These are listed
