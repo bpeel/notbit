@@ -79,7 +79,7 @@ static bool option_bootstrap_dns = true;
 static struct ntb_netaddress option_proxy_address;
 static bool option_listen = true;
 
-static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:i";
+static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:iT";
 
 static void
 add_address(struct address **list,
@@ -158,6 +158,8 @@ usage(void)
                "                       Defaults to stdout.\n"
                " -d                    Fork and detach from terminal after\n"
                "                       creating listen socket. (Daemonize)\n"
+               " -T                    Use a local Tor server. Equivalent to\n"
+               "                       -r 127.0.0.1:9050 -B -i\n"
                " -r <address[:port]>   Specify a SOCKSv5 proxy to use for\n"
                "                       outgoing connections.\n"
                " -u <user>             Specify a user to run as. Used to drop\n"
@@ -264,6 +266,15 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
                         break;
 
                 case 'i':
+                        option_listen = false;
+                        break;
+
+                case 'T':
+                        ntb_netaddress_from_string(&option_proxy_address,
+                                                   "127.0.0.1",
+                                                   9050);
+                        option_use_proxy = true;
+                        option_bootstrap_dns = false;
                         option_listen = false;
                         break;
 
