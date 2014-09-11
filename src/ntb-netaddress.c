@@ -74,12 +74,12 @@ void
 ntb_netaddress_to_native(const struct ntb_netaddress *address,
                          struct ntb_netaddress_native *native)
 {
-        if (!memcmp(address->host, ipv4_magic, sizeof ipv4_magic)) {
-                ntb_netaddress_to_native_ipv4(address, &native->sockaddr_in);
-                native->length = sizeof native->sockaddr_in;
-        } else {
+        if (ntb_netaddress_is_ipv6(address)) {
                 ntb_netaddress_to_native_ipv6(address, &native->sockaddr_in6);
                 native->length = sizeof native->sockaddr_in6;
+        } else {
+                ntb_netaddress_to_native_ipv4(address, &native->sockaddr_in);
+                native->length = sizeof native->sockaddr_in;
         }
 }
 
@@ -135,7 +135,7 @@ ntb_netaddress_to_string(const struct ntb_netaddress *address)
         char *buf = ntb_alloc(buffer_length);
         int len;
 
-        if (memcmp(address->host, ipv4_magic, sizeof(ipv4_magic))) {
+        if (ntb_netaddress_is_ipv6(address)) {
                 buf[0] = '[';
                 inet_ntop(AF_INET6,
                           address->host,
@@ -238,7 +238,7 @@ ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
 {
         const uint8_t *host;
 
-        if (memcmp(address->host, ipv4_magic, sizeof ipv4_magic)) {
+        if (ntb_netaddress_is_ipv6(address)) {
                 /* IPv6 */
                 /* Ignore localhost */
                 if (!memcmp(address->host,
@@ -273,4 +273,10 @@ ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
         }
 
         return true;
+}
+
+bool
+ntb_netaddress_is_ipv6(const struct ntb_netaddress *address)
+{
+        return memcmp(address->host, ipv4_magic, sizeof ipv4_magic);
 }

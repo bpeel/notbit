@@ -66,4 +66,7 @@ bool
 ntb_netaddress_is_allowed(const struct ntb_netaddress *address,
                           bool allow_private_addresses);
 
+bool
+ntb_netaddress_is_ipv6(const struct ntb_netaddress *address);
+
 #endif /* NTB_NETADDRESS_H */
