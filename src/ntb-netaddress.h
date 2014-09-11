@@ -60,7 +60,8 @@ ntb_netaddress_to_string(const struct ntb_netaddress *address);
 
 bool
 ntb_netaddress_from_string(struct ntb_netaddress *address,
-                           const char *str);
+                           const char *str,
+                           int default_port);
 
 bool
 ntb_netaddress_is_allowed(const struct ntb_netaddress *address,

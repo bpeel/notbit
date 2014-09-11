@@ -1763,7 +1763,9 @@ process_addr_line(struct ntb_store *store,
         if (address_length > 0 && line[address_length - 1] == '\n')
                 line[--address_length] = '\0';
 
-        if (!ntb_netaddress_from_string(&addr.address, line))
+        if (!ntb_netaddress_from_string(&addr.address,
+                                        line,
+                                        NTB_PROTO_DEFAULT_PORT))
                 return;
 
         func(&addr, user_data);

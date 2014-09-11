@@ -1487,7 +1487,9 @@ add_addr_string(struct ntb_network *nw,
 
         addr = new_addr(nw);
 
-        if (!ntb_netaddress_from_string(&addr->address, address)) {
+        if (!ntb_netaddress_from_string(&addr->address,
+                                        address,
+                                        NTB_PROTO_DEFAULT_PORT)) {
                 ntb_set_error(error,
                               &ntb_network_error,
                               NTB_NETWORK_ERROR_INVALID_ADDRESS,
@@ -1577,7 +1579,9 @@ ntb_network_add_listen_address(struct ntb_network *nw,
         const int true_value = true;
         int sock;
 
-        if (!ntb_netaddress_from_string(&netaddress, address)) {
+        if (!ntb_netaddress_from_string(&netaddress,
+                                        address,
+                                        NTB_PROTO_DEFAULT_PORT)) {
                 ntb_set_error(error,
                               &ntb_network_error,
                               NTB_NETWORK_ERROR_INVALID_ADDRESS,

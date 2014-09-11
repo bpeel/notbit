@@ -33,7 +33,6 @@
 #include "ntb-netaddress.h"
 #include "ntb-util.h"
 #include "ntb-buffer.h"
-#include "ntb-proto.h"
 
 static const uint8_t
 ipv4_magic[12] = {
@@ -160,7 +159,8 @@ ntb_netaddress_to_string(const struct ntb_netaddress *address)
 
 bool
 ntb_netaddress_from_string(struct ntb_netaddress *address,
-                           const char *str)
+                           const char *str,
+                           int default_port)
 {
         struct ntb_buffer buffer;
         const char *addr_end;
@@ -223,7 +223,7 @@ ntb_netaddress_from_string(struct ntb_netaddress *address,
                 ret = false;
                 goto out;
         } else {
-                address->port = NTB_PROTO_DEFAULT_PORT;
+                address->port = default_port;
         }
 
 out:
