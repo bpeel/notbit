@@ -75,9 +75,10 @@ static bool option_only_explicit_addresses = false;
 static bool option_allow_private_addresses = false;
 static bool option_bootstrap = true;
 static bool option_use_proxy = false;
+static bool option_bootstrap_dns = true;
 static struct ntb_netaddress option_proxy_address;
 
-static const char options[] = "-a:l:du:g:D:p:eP:hm:Lbr:";
+static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:";
 
 static void
 add_address(struct address **list,
@@ -167,10 +168,12 @@ usage(void)
                " -m <maildir>          Specify the maildir to save messages "
                "to.\n"
                " -L                    Allow private addresses for peers\n"
-               " -b                    Don't bootstrap with bitmessage.org\n"
+               " -b                    Don't bootstrap with default peers.\n"
                "                       Useful for creating your own private\n"
                "                       network. Note that this requires all\n"
-               "                       nodes to be trustworthy\n");
+               "                       nodes to be trustworthy\n"
+               " -B                    Don't bootstrap with DNS. Useful if\n"
+               "                       running under Tor.\n");
         exit(EXIT_FAILURE);
 }
 
@@ -251,6 +254,10 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'b':
                         option_bootstrap = false;
+                        break;
+
+                case 'B':
+                        option_bootstrap_dns = false;
                         break;
 
                 case 'h':
@@ -486,7 +493,7 @@ run_main_loop(struct ntb_network *nw,
         ntb_keyring_start(keyring);
         ntb_log_start();
 
-        ntb_network_load_store(nw, option_bootstrap);
+        ntb_network_load_store(nw, option_bootstrap && option_bootstrap_dns);
         ntb_keyring_load_store(keyring);
 
         ntb_store_start(store);
