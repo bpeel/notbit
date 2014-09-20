@@ -36,7 +36,8 @@
 
 void
 ntb_ipc_sockaddr_create(struct sockaddr **sockaddr_out,
-                        socklen_t *sockaddr_len_out)
+                        socklen_t *sockaddr_len_out,
+                        const char *suffix)
 {
         const char *runtime_dir;
         struct ntb_buffer buffer;
@@ -55,11 +56,14 @@ ntb_ipc_sockaddr_create(struct sockaddr **sockaddr_out,
                        buffer.data[buffer.length - 1] == '/')
                         buffer.length--;
 
-                ntb_buffer_append_string(&buffer, "/notbit/notbit-ipc");
+                ntb_buffer_append_printf(&buffer, 
+                                         "/notbit/notbit-%s",
+                                         suffix);
         } else {
                 ntb_buffer_append_printf(&buffer,
-                                         "/tmp/notbit-%i/notbit-ipc",
-                                         (int) getuid());
+                                         "/tmp/notbit-%i/notbit-%s",
+                                         (int) getuid(),
+                                         suffix);
         }
 
         sockaddr = (struct sockaddr_un *) buffer.data;

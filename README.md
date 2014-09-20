@@ -186,6 +186,8 @@ below:
                        object store. Defaults to $XDG_DATA_HOME/notbit
  -m <maildir>          Specify the maildir to save messages to.
                        Defaults to $HOME/.maildir
+ -s <port>             Open a SMTP interface on given port.
+                       Address is always localhost.
  -L                    Allow private addresses for peers
  -b                    Don't bootstrap with default peers.
                        Useful for creating your own private

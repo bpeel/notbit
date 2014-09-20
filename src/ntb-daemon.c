@@ -45,6 +45,7 @@
 #include "ntb-file-error.h"
 #include "ntb-keyring.h"
 #include "ntb-ipc.h"
+#include "ntb-smtp.h"
 
 static struct ntb_error_domain
 arguments_error;
@@ -71,6 +72,8 @@ static char *option_user = NULL;
 static char *option_group = NULL;
 static char *option_store_directory = NULL;
 static char *option_maildir = NULL;
+static bool option_smtp = false;
+static int option_smtp_port;
 static bool option_only_explicit_addresses = false;
 static bool option_allow_private_addresses = false;
 static bool option_bootstrap = true;
@@ -79,7 +82,7 @@ static bool option_bootstrap_dns = true;
 static struct ntb_netaddress option_proxy_address;
 static bool option_listen = true;
 
-static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:iT";
+static const char options[] = "-a:l:s:du:g:D:p:eP:hm:LbBr:iT";
 
 static void
 add_address(struct address **list,
@@ -170,6 +173,8 @@ usage(void)
                ""                      "/notbit\n"
                " -m <maildir>          Specify the maildir to save messages "
                "to.\n"
+               " -s <port>             Open a SMTP interface on given port.\n"
+               "                       Address is always localhost.\n"
                " -L                    Allow private addresses for peers\n"
                " -b                    Don't bootstrap with default peers.\n"
                "                       Useful for creating your own private\n"
@@ -251,6 +256,11 @@ process_arguments(int argc, char **argv, struct ntb_error **error)
 
                 case 'm':
                         option_maildir = optarg;
+                        break;
+
+                case 's':
+                        option_smtp = true;
+                        option_smtp_port = atoi(optarg);
                         break;
 
                 case 'L':
@@ -498,6 +508,7 @@ run_main_loop(struct ntb_network *nw,
               struct ntb_store *store)
 {
         struct ntb_main_context_source *quit_source;
+        struct ntb_smtp_context *smtp_ctx = NULL;
         bool quit = false;
 
         if (option_group)
@@ -507,6 +518,9 @@ run_main_loop(struct ntb_network *nw,
 
         if (option_daemonize)
                 daemonize();
+
+        if (option_smtp)
+                smtp_ctx = ntb_smtp_start(option_smtp_port);
 
         signal(SIGPIPE, SIG_IGN);
 
@@ -525,6 +539,9 @@ run_main_loop(struct ntb_network *nw,
         while(!quit);
 
         ntb_log("Exiting...");
+
+        if (smtp_ctx != NULL)
+                ntb_smtp_stop(smtp_ctx);
 
         ntb_main_context_remove_source(quit_source);
 }

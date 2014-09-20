@@ -1039,7 +1039,7 @@ ntb_ipc_new(struct ntb_keyring *keyring,
         int sock_lock = -1;
         int res;
 
-        ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len);
+        ntb_ipc_sockaddr_create(&sockaddr, &sockaddr_len, "ipc");
 
         sockaddr_path = ((struct sockaddr_un *) sockaddr)->sun_path;
 

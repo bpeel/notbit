@@ -97,6 +97,8 @@ notbit_SOURCES = \
 	ntb-slab.h \
 	ntb-slice.c \
 	ntb-slice.h \
+	ntb-smtp.c \
+	ntb-smtp.h \
 	ntb-socket.c \
 	ntb-socket.h \
 	ntb-store.c \

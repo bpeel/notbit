@@ -21,14 +21,15 @@
  * OF THIS SOFTWARE.
  */
 
-#ifndef NTB_IPC_SOCKADDR_H
-#define NTB_IPC_SOCKADDR_H
+#ifndef NTB_SMTP_H
+#define NTB_SMTP_H
 
-#include <sys/socket.h>
+struct ntb_smtp_context;
+
+struct ntb_smtp_context* 
+ntb_smtp_start(int port);
 
 void
-ntb_ipc_sockaddr_create(struct sockaddr **sockaddr_out,
-                        socklen_t *sockaddr_len_out,
-                        const char *suffix);
+ntb_smtp_stop(struct ntb_smtp_context *ctx);
 
-#endif /* NTB_IPC_SOCKADDR_H */
+#endif /* NTB_SMTP_H */
