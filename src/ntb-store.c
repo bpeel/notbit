@@ -2010,6 +2010,9 @@ ntb_store_load_blob(struct ntb_store *store,
         return cookie;
 }
 
+/**
+ * cancel task
+ */
 void
 ntb_store_cancel_task(struct ntb_store_cookie *cookie)
 {
@@ -2047,6 +2050,9 @@ ntb_store_cancel_task(struct ntb_store_cookie *cookie)
         ntb_slice_free(&ntb_store_cookie_allocator, cookie);
 }
 
+/**
+ * free the store
+ */
 void
 ntb_store_free(struct ntb_store *store)
 {

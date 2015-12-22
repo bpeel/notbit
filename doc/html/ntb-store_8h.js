@@ -1,0 +1,38 @@
+var ntb_store_8h =
+[
+    [ "ntb_store_addr", "structntb__store__addr.html", "structntb__store__addr" ],
+    [ "ntb_store_outgoing", "structntb__store__outgoing.html", "structntb__store__outgoing" ],
+    [ "ntb_store_for_each_addr_func", "ntb-store_8h.html#aa9db0ae32789ac218c6c98cfa8e439da", null ],
+    [ "ntb_store_for_each_blob_func", "ntb-store_8h.html#a82751c46de4c22ea7f7a27ab59bded59", null ],
+    [ "ntb_store_for_each_key_func", "ntb-store_8h.html#a1e5c1c13acd6d71e86362d0781889576", null ],
+    [ "ntb_store_for_each_outgoing_func", "ntb-store_8h.html#a73ebb553dc2a1bea80d979872c36b46e", null ],
+    [ "ntb_store_for_each_pubkey_blob_func", "ntb-store_8h.html#a6a9ee910cc37ebd86a76c80de4155cf9", null ],
+    [ "ntb_store_load_callback", "ntb-store_8h.html#aeb11a0e133996b1fa24d8fe78a933fbe", null ],
+    [ "ntb_store_error", "ntb-store_8h.html#a37b6bdd5d8f931f381060d29732a6041", [
+      [ "NTB_STORE_ERROR_INVALID_STORE_DIRECTORY", "ntb-store_8h.html#a37b6bdd5d8f931f381060d29732a6041af9ad7adfbccf74d5c5c1d49e623d28e4", null ],
+      [ "NTB_STORE_ERROR_INVALID_MAILDIR", "ntb-store_8h.html#a37b6bdd5d8f931f381060d29732a6041a2699686555f3d2ec42f57d8443209b11", null ]
+    ] ],
+    [ "ntb_store_cancel_task", "ntb-store_8h.html#a44e7a9d11b485a3a2b4a955a8c3a8a3c", null ],
+    [ "ntb_store_delete_message_content", "ntb-store_8h.html#a29554f164a818ce86e0cd4a26393d1cf", null ],
+    [ "ntb_store_delete_object", "ntb-store_8h.html#a0c032168b561701c01ce748bd91350f0", null ],
+    [ "ntb_store_for_each_addr", "ntb-store_8h.html#a16c5399aec10e9e051ab2dc3ec5c707e", null ],
+    [ "ntb_store_for_each_blob", "ntb-store_8h.html#ada70db844197d9d7750fef48de76a994", null ],
+    [ "ntb_store_for_each_key", "ntb-store_8h.html#afb583ce8a90be9d57a63408b2b757931", null ],
+    [ "ntb_store_for_each_outgoing", "ntb-store_8h.html#abb6045e0d9b011372441baaecca0c104", null ],
+    [ "ntb_store_for_each_pubkey_blob", "ntb-store_8h.html#a7ce4a86a2d1fbfaa0f2b6566b3ef490d", null ],
+    [ "ntb_store_free", "ntb-store_8h.html#a5164ab2ff011ae5318145cf4f68200d1", null ],
+    [ "ntb_store_get_default", "ntb-store_8h.html#a26967c81f20d1f549f8654f7b8bf4ccf", null ],
+    [ "ntb_store_get_directory", "ntb-store_8h.html#a82a850f2515f4a500e42d186e05e937f", null ],
+    [ "ntb_store_load_blob", "ntb-store_8h.html#a4d0a2a0e37f53df428d72868708097b5", null ],
+    [ "ntb_store_load_message_content", "ntb-store_8h.html#af237766647e8298d251db62e1af9ead8", null ],
+    [ "ntb_store_new", "ntb-store_8h.html#a78cda9a94b765a895a643a631901c59f", null ],
+    [ "ntb_store_save_addr_list", "ntb-store_8h.html#aa1ffa6858473d108ba513e4aa86eeb10", null ],
+    [ "ntb_store_save_blob", "ntb-store_8h.html#a84340ef750729baf597d87b426abea62", null ],
+    [ "ntb_store_save_keys", "ntb-store_8h.html#aaf023f6fbf4bbb4e329103ed8d29dc1c", null ],
+    [ "ntb_store_save_message", "ntb-store_8h.html#ac0ec5c4de4110e75c4e271eb06a700fe", null ],
+    [ "ntb_store_save_message_content", "ntb-store_8h.html#a05156b345d43ed32e691042eece09ca4", null ],
+    [ "ntb_store_save_outgoings", "ntb-store_8h.html#aa07646f029c6bb870441fb46c1bbde58", null ],
+    [ "ntb_store_set_default", "ntb-store_8h.html#a51d5a8368699b99a1b29eda05dbb491d", null ],
+    [ "ntb_store_start", "ntb-store_8h.html#a489a069aa7d5fc49bd64663a336cfbcc", null ],
+    [ "ntb_store_error", "ntb-store_8h.html#ac78de0299d94c5e2fac561898bbd88d7", null ]
+];

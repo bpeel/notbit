@@ -81,6 +81,9 @@ static bool option_listen = true;
 
 static const char options[] = "-a:l:du:g:D:p:eP:hm:LbBr:iT";
 
+/**
+ * add address
+ */
 static void
 add_address(struct address **list,
             const char *address)
@@ -94,6 +97,9 @@ add_address(struct address **list,
         *list = listen_address;
 }
 
+/**
+ * add port
+ */
 static void
 add_port(struct address **list,
          const char *port_string)
@@ -107,6 +113,9 @@ add_port(struct address **list,
         *list = listen_address;
 }
 
+/**
+ * free addresses
+ */
 static void
 free_addresses(struct address *list)
 {
@@ -596,6 +605,9 @@ run_network(void)
         return ret;
 }
 
+/**
+ * Main function that runs the notbit deamon
+ */
 int
 ntb_daemon(int argc, char **argv)
 {

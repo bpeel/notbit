@@ -1,0 +1,19 @@
+var searchData=
+[
+  ['accepted_5finventories',['accepted_inventories',['../structntb__network.html#a36a3c350c10bf7024022c1fc17faa6f6',1,'ntb_network']]],
+  ['ack',['ack',['../structntb__proto__decrypted__msg.html#a0623ba2a0b9e9d18d91171b9d0109200',1,'ntb_proto_decrypted_msg']]],
+  ['ack_5flength',['ack_length',['../structntb__proto__decrypted__msg.html#a55f156b555b1fa3300202435148f807a',1,'ntb_proto_decrypted_msg']]],
+  ['ackdata',['ackdata',['../structntb__crypto__cookie.html#adfc2247ba5de9980de6367e99fb52806',1,'ntb_crypto_cookie::ackdata()'],['../structntb__keyring__message.html#a817c16dcfc9c33c7bc65600be70749d4',1,'ntb_keyring_message::ackdata()'],['../structntb__store__outgoing.html#a55d2f2bc56e52fb830f267289e6344f0',1,'ntb_store_outgoing::ackdata()']]],
+  ['addr',['addr',['../structntb__network__peer.html#ac3d7a18e40f064612360d0b93696bae3',1,'ntb_network_peer']]],
+  ['addr_5ffrom',['addr_from',['../structntb__connection__version__event.html#a5062d0ff208cb92729eb9573620639e2',1,'ntb_connection_version_event']]],
+  ['addr_5frecv',['addr_recv',['../structntb__connection__version__event.html#a1803e63024d54b05a190c5faa3a78898',1,'ntb_connection_version_event']]],
+  ['address',['address',['../structaddress.html',1,'address'],['../structntb__connection__addr__event.html#a572212e06f83d9f164a574eba044b32b',1,'ntb_connection_addr_event::address()'],['../structntb__crypto__cookie.html#aab10d61879fe66e9b8a1bc6af89d1a83',1,'ntb_crypto_cookie::address()'],['../structaddress.html#a676257d6c0cc1b7ec0b1467de648015d',1,'address::address()'],['../structntb__key.html#a43fb7bc6fc25fd2bd7e87a3dd891f325',1,'ntb_key::address()'],['../structntb__load__keys__data.html#aeb7fee2cb624fd8a0ac3a58d52e23689',1,'ntb_load_keys_data::address()'],['../structntb__network__addr.html#af5ede5def819bdefde7e4523c492e0ed',1,'ntb_network_addr::address()'],['../structntb__network__listen__socket.html#ac0ef25b0aeb313e6a944e99167da8afb',1,'ntb_network_listen_socket::address()'],['../structntb__store__addr.html#a07cba56220d9ae30e119d6e3f9f5a365',1,'ntb_store_addr::address()']]],
+  ['address_5fcb',['address_cb',['../structntb__mail__parser.html#a15030e8705f96b8025bf0ea528114c85',1,'ntb_mail_parser']]],
+  ['address_5fversion',['address_version',['../structntb__proto__pubkey.html#a6e38e8b0694a3c585c66102f395ea35e',1,'ntb_proto_pubkey']]],
+  ['addrs',['addrs',['../structntb__network.html#ae75e7cec3aa3f2e98c97538461c4aaec',1,'ntb_network::addrs()'],['../structntb__store__task.html#a48e5e206b50d571b91a52dd7f9d7ed1f',1,'ntb_store_task::addrs()']]],
+  ['advertise_5ftime',['advertise_time',['../structntb__network__addr.html#a4d8f3d36205aa66c3aa323de288a38d7',1,'ntb_network_addr']]],
+  ['allocator',['allocator',['../structntb__store.html#a7927744ea70a096a909f48dbde0190ca',1,'ntb_store']]],
+  ['allow_5fprivate_5faddresses',['allow_private_addresses',['../structntb__network.html#a26561b3bec4fb70f6b503390c7523177',1,'ntb_network']]],
+  ['async_5fpipe',['async_pipe',['../structntb__main__context.html#aa0548c2e16344c33480d86d3605ddbc4',1,'ntb_main_context']]],
+  ['async_5fpipe_5fsource',['async_pipe_source',['../structntb__main__context.html#a50463e1884190ab42c1585c3d8e01b83',1,'ntb_main_context']]]
+];

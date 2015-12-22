@@ -1,0 +1,27 @@
+var structntb__store__task =
+[
+    [ "addrs", "structntb__store__task.html#a48e5e206b50d571b91a52dd7f9d7ed1f", null ],
+    [ "blob", "structntb__store__task.html#a9f1d8b773e736755ad1a4d6630ffb099", null ],
+    [ "cookie", "structntb__store__task.html#aaa3829d920187b808e012dc4c4784995", null ],
+    [ "delete_message_content", "structntb__store__task.html#ab16f100f4049e2efa20e5255181849ae", null ],
+    [ "delete_object", "structntb__store__task.html#a6ce69404699a9a3e69fce2c0caca6d77", null ],
+    [ "from_address", "structntb__store__task.html#a859ae87f9349423d75889e171f5c8a2c", null ],
+    [ "from_key", "structntb__store__task.html#a7f9867b5a94a19babd649a155b2512c6", null ],
+    [ "hash", "structntb__store__task.html#a6fadeb75ce6cd6b3a32ade077e268484", null ],
+    [ "id", "structntb__store__task.html#a7c504b48adbd9aca67a78072b8ddc07d", null ],
+    [ "keys", "structntb__store__task.html#a1de1f40ee16bb0f57a6ef69735a83b56", null ],
+    [ "link", "structntb__store__task.html#abfb80fdd1e5df3ce25025726d378980a", null ],
+    [ "load_blob", "structntb__store__task.html#a40509e25edd9cc35558722fdd743d6fe", null ],
+    [ "load_message_content", "structntb__store__task.html#a2fd31696cb5f58c5f5c21c652b64e985", null ],
+    [ "n_addrs", "structntb__store__task.html#a3108ca74d7d72b5502fdcf0067b94aa0", null ],
+    [ "n_keys", "structntb__store__task.html#a8b91cb03cd743359644367d1cd71d666", null ],
+    [ "save_addr_list", "structntb__store__task.html#af312cb55f9c2487c74c78cec6139889b", null ],
+    [ "save_blob", "structntb__store__task.html#a14af58963b6e99921f1c9dd9001f0069", null ],
+    [ "save_keys", "structntb__store__task.html#af81ddd4dfecffb7c3ae5f797e818208b", null ],
+    [ "save_message", "structntb__store__task.html#a70b4b3d77ad451fa388abdaaee103375", null ],
+    [ "save_message_content", "structntb__store__task.html#acc58e89f68e75d1a8fa86c1840e574d5", null ],
+    [ "save_outgoings", "structntb__store__task.html#ab85ff17a04a84f90bf4d80ba340859e8", null ],
+    [ "timestamp", "structntb__store__task.html#a682aeeb239087a5c0fee6d94a1a9c242", null ],
+    [ "to_key", "structntb__store__task.html#ae9e690ceaf4368ac183af1731805c3f8", null ],
+    [ "type", "structntb__store__task.html#ae034b2166fad74191f4da9e394b67bb8", null ]
+];
