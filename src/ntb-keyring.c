@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2017  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -87,12 +87,6 @@ struct ntb_keyring_task {
         struct ntb_pow_cookie *pow_cookie;
         struct ntb_blob *blob;
         struct ntb_list link;
-
-        union {
-                struct {
-                        int64_t timestamp;
-                } msg;
-        };
 };
 
 enum ntb_keyring_message_state {
@@ -148,7 +142,7 @@ struct ntb_keyring_pubkey_blob {
          * network */
 
         struct ntb_list link;
-        int64_t timestamp;
+        int64_t expires_time;
         uint8_t ripe_or_tag[NTB_PROTO_HASH_LENGTH];
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
         int ref_count;
@@ -313,7 +307,7 @@ save_messages(struct ntb_keyring *keyring)
         struct ntb_keyring_message *message;
         struct ntb_blob *blob;
 
-        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
+        ntb_blob_dynamic_init(&buffer);
 
         ntb_list_for_each(message, &keyring->messages, link) {
                 if (message->state !=
@@ -431,8 +425,7 @@ maybe_post_key(struct ntb_keyring *keyring,
 
         last_send_age = now - key->last_pubkey_send_time;
 
-        if (last_send_age <
-            ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_PUBKEY)) {
+        if (last_send_age < NTB_PROTO_PUBKEY_EXPIRY_TIME) {
                 ntb_log("Ignoring getpubkey command for key that was broadcast "
                         "%" PRIi64 " seconds ago because it should still be in "
                         "the network",
@@ -522,65 +515,40 @@ handle_getpubkey_with_tag(struct ntb_keyring *keyring,
 
 static void
 handle_getpubkey(struct ntb_keyring *keyring,
+                 const struct ntb_proto_object_header *header,
+                 ssize_t header_size,
                  struct ntb_blob *blob)
 {
         const uint8_t *ripe_or_tag;
-        uint64_t nonce;
-        int64_t timestamp;
-        uint64_t address_version;
-        ssize_t header_length;
-        uint64_t stream_number;
 
-        header_length = ntb_proto_get_command(blob->data,
-                                              blob->size,
-
-                                              NTB_PROTO_ARGUMENT_64,
-                                              &nonce,
-
-                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &timestamp,
-
-                                              NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &address_version,
-
-                                              NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &stream_number,
-
-                                              NTB_PROTO_ARGUMENT_END);
-
-        if (header_length == -1) {
-                ntb_log("Invalid getpubkey message received");
-                return;
-        }
-
-        if (address_version < 2 || address_version > 4) {
+        if (header->version < 2 || header->version > 4) {
                 ntb_log("getpubkey with unsupported address version "
                         "%" PRIu64 " received",
-                        address_version);
+                        header->version);
                 return;
         }
 
-        ripe_or_tag = blob->data + header_length;
+        ripe_or_tag = blob->data + header_size;
 
-        if (address_version < 4) {
-                if (blob->size - header_length < RIPEMD160_DIGEST_LENGTH) {
+        if (header->version < 4) {
+                if (blob->size - header_size < RIPEMD160_DIGEST_LENGTH) {
                         ntb_log("Invalid getpubkey message received");
                         return;
                 }
 
                 handle_getpubkey_with_ripe(keyring,
-                                           address_version,
-                                           stream_number,
+                                           header->version,
+                                           header->stream,
                                            ripe_or_tag);
         } else {
-                if (blob->size - header_length < NTB_ADDRESS_TAG_SIZE) {
+                if (blob->size - header_size < NTB_ADDRESS_TAG_SIZE) {
                         ntb_log("Invalid getpubkey message received");
                         return;
                 }
 
                 handle_getpubkey_with_tag(keyring,
-                                          address_version,
-                                          stream_number,
+                                          header->version,
+                                          header->stream,
                                           ripe_or_tag);
         }
 }
@@ -607,6 +575,8 @@ check_pubkey_blob_with_messages(struct ntb_keyring *keyring,
 
 static void
 handle_pubkey(struct ntb_keyring *keyring,
+              const struct ntb_proto_object_header *header,
+              ssize_t header_size,
               struct ntb_blob *blob)
 {
         struct ntb_proto_pubkey pubkey;
@@ -624,7 +594,7 @@ handle_pubkey(struct ntb_keyring *keyring,
 
         pubkey_blob->ref_count = 1;
         pubkey_blob->in_list = true;
-        pubkey_blob->timestamp = pubkey.timestamp;
+        pubkey_blob->expires_time = pubkey.header.expires_time;
 
         ntb_proto_double_hash(blob->data, blob->size, pubkey_blob->hash);
 
@@ -637,8 +607,8 @@ handle_pubkey(struct ntb_keyring *keyring,
                        NTB_PROTO_HASH_LENGTH - NTB_ADDRESS_TAG_SIZE);
         } else {
                 ntb_address_from_network_keys(&address,
-                                              pubkey.address_version,
-                                              pubkey.stream,
+                                              pubkey.header.version,
+                                              pubkey.header.stream,
                                               pubkey.public_signing_key,
                                               pubkey.public_encryption_key);
                 memcpy(pubkey_blob->ripe_or_tag,
@@ -667,9 +637,6 @@ send_acknowledgement(struct ntb_keyring *keyring,
                      const uint8_t *ack,
                      size_t ack_length)
 {
-        enum ntb_proto_inv_type type;
-        const char *command_name;
-
         if (ack_length == 0) {
                 ntb_log("The decrypted message contains no "
                         "acknowledgement data");
@@ -683,26 +650,15 @@ send_acknowledgement(struct ntb_keyring *keyring,
                 return;
         }
 
-        command_name = (const char *) ack + 4;
         ack += NTB_PROTO_HEADER_SIZE;
         ack_length -= NTB_PROTO_HEADER_SIZE;
 
-        for (type = 0; type < 4; type++) {
-                if (!strcmp(ntb_proto_get_command_name_for_type(type),
-                            command_name)) {
-                        ntb_network_add_object_from_data(keyring->nw,
-                                                         type,
-                                                         ack,
-                                                         ack_length,
-                                                         NTB_NETWORK_DELAY,
-                                                         "acknowledgement "
-                                                         "data");
-                        return;
-                }
-        }
-
-        ntb_log("The acknowledgement data contains an unknown command “%s”",
-                ack + 4);
+        ntb_network_add_object_from_data(keyring->nw,
+                                         ack,
+                                         ack_length,
+                                         NTB_NETWORK_DELAY,
+                                         "acknowledgement "
+                                         "data");
 }
 
 static void
@@ -806,7 +762,6 @@ decrypt_msg_cb(struct ntb_key *key,
         struct ntb_address sender_address;
         struct ntb_key *sender_key;
         char sender_address_string[NTB_ADDRESS_MAX_LENGTH + 1];
-        int64_t timestamp = task->msg.timestamp;
 
         task->crypto_cookie = NULL;
 
@@ -858,7 +813,7 @@ decrypt_msg_cb(struct ntb_key *key,
         send_acknowledgement(keyring, msg.ack, msg.ack_length);
 
         ntb_store_save_message(NULL, /* default store */
-                               timestamp,
+                               ntb_main_context_get_wall_clock(NULL),
                                sender_key,
                                sender_address_string,
                                key,
@@ -917,36 +872,15 @@ check_msg_acknowledgement(struct ntb_keyring *keyring,
 
 static void
 handle_msg(struct ntb_keyring *keyring,
+           const struct ntb_proto_object_header *header,
+           ssize_t header_size,
            struct ntb_blob *blob)
 {
         struct ntb_keyring_task *task;
-        uint64_t nonce;
-        int64_t timestamp;
-        ssize_t header_length;
-        uint64_t stream_number;
-
-        header_length = ntb_proto_get_command(blob->data,
-                                              blob->size,
-
-                                              NTB_PROTO_ARGUMENT_64,
-                                              &nonce,
-
-                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &timestamp,
-
-                                              NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &stream_number,
-
-                                              NTB_PROTO_ARGUMENT_END);
-
-        if (header_length == -1) {
-                ntb_log("Invalid msg command received");
-                return;
-        }
 
         if (check_msg_acknowledgement(keyring,
-                                      blob->data + header_length,
-                                      blob->size - header_length))
+                                      blob->data + header_size,
+                                      blob->size - header_size))
             return;
 
         task = add_task(keyring);
@@ -958,13 +892,45 @@ handle_msg(struct ntb_keyring *keyring,
                                        ntb_pointer_array_length(&keyring->keys),
                                        decrypt_msg_cb,
                                        task);
-        task->msg.timestamp = timestamp;
 }
 
 static void
 handle_broadcast(struct ntb_keyring *keyring,
+                 const struct ntb_proto_object_header *header,
+                 ssize_t header_size,
                  struct ntb_blob *blob)
 {
+}
+
+static void
+handle_blob(struct ntb_keyring *keyring,
+            struct ntb_blob *blob)
+{
+
+        struct ntb_proto_object_header header;
+        ssize_t header_size;
+
+        header_size = ntb_proto_get_object_header(blob->data,
+                                                  blob->size,
+                                                  &header);
+
+        if (header_size == -1)
+                return;
+
+        switch ((enum ntb_proto_inv_type) header.type) {
+        case NTB_PROTO_INV_TYPE_GETPUBKEY:
+                handle_getpubkey(keyring, &header, header_size, blob);
+                break;
+        case NTB_PROTO_INV_TYPE_PUBKEY:
+                handle_pubkey(keyring, &header, header_size, blob);
+                break;
+        case NTB_PROTO_INV_TYPE_MSG:
+                handle_msg(keyring, &header, header_size, blob);
+                break;
+        case NTB_PROTO_INV_TYPE_BROADCAST:
+                handle_broadcast(keyring, &header, header_size, blob);
+                break;
+        }
 }
 
 static bool
@@ -977,20 +943,7 @@ new_object_cb(struct ntb_listener *listener,
                                  new_object_listener);
         struct ntb_blob *blob = data;
 
-        switch (blob->type) {
-        case NTB_PROTO_INV_TYPE_GETPUBKEY:
-                handle_getpubkey(keyring, blob);
-                break;
-        case NTB_PROTO_INV_TYPE_PUBKEY:
-                handle_pubkey(keyring, blob);
-                break;
-        case NTB_PROTO_INV_TYPE_MSG:
-                handle_msg(keyring, blob);
-                break;
-        case NTB_PROTO_INV_TYPE_BROADCAST:
-                handle_broadcast(keyring, blob);
-                break;
-        }
+        handle_blob(keyring, blob);
 
         return true;
 }
@@ -1041,15 +994,9 @@ gc_timeout_cb(struct ntb_main_context_source *source,
         struct ntb_keyring *keyring = user_data;
         struct ntb_keyring_pubkey_blob *pubkey, *tmp;
         int64_t now = ntb_main_context_get_wall_clock(NULL);
-        int64_t max_age =
-                ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_PUBKEY);
-        int64_t age;
-
 
         ntb_list_for_each_safe(pubkey, tmp, &keyring->pubkey_blob_list, link) {
-                age = now - pubkey->timestamp;
-
-                if (age >= max_age)
+                if (now >= pubkey->expires_time)
                         remove_pubkey_blob(keyring, pubkey);
         }
 }
@@ -1182,7 +1129,7 @@ for_each_pubkey_blob_cb(const uint8_t *hash,
 {
         struct ntb_keyring *keyring = user_data;
 
-        handle_pubkey(keyring, blob);
+        handle_blob(keyring, blob);
 }
 
 static void
@@ -1382,7 +1329,7 @@ add_ackdata_to_message(struct ntb_keyring_message *message,
         ack_offset = buffer->length;
 
         ntb_buffer_append(buffer, ntb_proto_magic, 4);
-        ntb_buffer_append(buffer, "msg\0\0\0\0\0\0\0\0\0", 12);
+        ntb_buffer_append(buffer, "object\0\0\0\0\0\0", 12);
 
         /* Leave space for the message length, checksum and POW */
         ntb_buffer_set_length(buffer,
@@ -1393,7 +1340,10 @@ add_ackdata_to_message(struct ntb_keyring_message *message,
 
         ntb_proto_add_64(buffer,
                          ntb_main_context_get_wall_clock(NULL) +
+                         NTB_PROTO_MSG_EXPIRY_TIME +
                          rand() % 600 - 300);
+        ntb_proto_add_32(buffer, NTB_PROTO_INV_TYPE_MSG);
+        ntb_proto_add_var_int(buffer, 1 /* message version */);
         ntb_proto_add_var_int(buffer, message->from_key->address.stream);
         ntb_buffer_append(buffer, message->ackdata, NTB_PROTO_ACKDATA_SIZE);
 
@@ -1441,13 +1391,12 @@ load_message_content_cb(struct ntb_blob *content_blob,
                 message->blob = NULL;
         }
 
-        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
+        ntb_blob_dynamic_init(&buffer);
 
         message_offset = buffer.length;
 
         /* Build the unencrypted message */
 
-        ntb_proto_add_var_int(&buffer, 1 /* message version */);
         ntb_proto_add_var_int(&buffer, message->from_key->address.version);
         ntb_proto_add_var_int(&buffer, message->from_key->address.stream);
         ntb_proto_add_32(&buffer, NTB_PROTO_PUBKEY_BEHAVIORS);
@@ -1495,8 +1444,7 @@ post_message(struct ntb_keyring_message *message)
         int64_t now = ntb_main_context_get_wall_clock(NULL);
 
         /* Don't do anything if the msg is still in the network */
-        if (now - message->last_msg_send_time <
-            ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_MSG)) {
+        if (now - message->last_msg_send_time < NTB_PROTO_MSG_EXPIRY_TIME) {
                 message->state =
                         NTB_KEYRING_MESSAGE_STATE_AWAITING_ACKNOWLEDGEMENT;
                 return;
@@ -1550,7 +1498,7 @@ send_getpubkey_request(struct ntb_keyring_message *message)
         /* Don't do anything if the getpubkey request is still in the
          * network */
         if (now - message->last_getpubkey_send_time <
-            ntb_proto_get_max_age_for_type(NTB_PROTO_INV_TYPE_GETPUBKEY)) {
+            NTB_PROTO_GETPUBKEY_EXPIRY_TIME) {
                 message->state = NTB_KEYRING_MESSAGE_STATE_AWAITING_PUBKEY;
                 return;
         }
@@ -1558,14 +1506,17 @@ send_getpubkey_request(struct ntb_keyring_message *message)
         if (message->blob)
                 ntb_blob_unref(message->blob);
 
-        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_GETPUBKEY);
+        ntb_blob_dynamic_init(&buffer);
 
         /* Leave space for the nonce */
         ntb_buffer_set_length(&buffer, buffer.length + sizeof (uint64_t));
 
         message->last_getpubkey_send_time = now + rand() % 600 - 300;
 
-        ntb_proto_add_64(&buffer, message->last_getpubkey_send_time);
+        ntb_proto_add_64(&buffer,
+                         message->last_getpubkey_send_time +
+                         NTB_PROTO_GETPUBKEY_EXPIRY_TIME);
+        ntb_proto_add_32(&buffer, NTB_PROTO_INV_TYPE_GETPUBKEY);
         ntb_proto_add_var_int(&buffer, message->to_address.version);
         ntb_proto_add_var_int(&buffer, message->to_address.stream);
 

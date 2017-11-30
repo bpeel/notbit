@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2017  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -359,7 +359,10 @@ append_key_base(struct ntb_key *key,
          * calculate this */
         ntb_buffer_set_length(buffer, buffer->length + sizeof (uint64_t));
 
-        ntb_proto_add_64(buffer, key->last_pubkey_send_time);
+        ntb_proto_add_64(buffer,
+                         key->last_pubkey_send_time +
+                         NTB_PROTO_PUBKEY_EXPIRY_TIME);
+        ntb_proto_add_32(buffer, NTB_PROTO_INV_TYPE_PUBKEY);
         ntb_proto_add_var_int(buffer, key->address.version);
         ntb_proto_add_var_int(buffer, key->address.stream);
 
@@ -372,17 +375,13 @@ append_key_base(struct ntb_key *key,
 }
 
 static void
-append_signature(struct ntb_buffer *buffer,
-                 struct ntb_key *key,
-                 const uint8_t *data,
-                 size_t length)
+append_signature_from_digest(struct ntb_buffer *buffer,
+                             struct ntb_key *key,
+                             const uint8_t *digest)
 {
-        uint8_t digest[SHA_DIGEST_LENGTH];
         unsigned int sig_length = ECDSA_size(key->signing_key);
         uint8_t *sig = alloca(sig_length);
         int int_ret;
-
-        SHA1(data, length, digest);
 
         int_ret = ECDSA_sign(0, /* type (ignored) */
                              digest,
@@ -397,6 +396,19 @@ append_signature(struct ntb_buffer *buffer,
 }
 
 static void
+append_signature(struct ntb_buffer *buffer,
+                 struct ntb_key *key,
+                 const uint8_t *data,
+                 size_t length)
+{
+        uint8_t digest[SHA_DIGEST_LENGTH];
+
+        SHA1(data, length, digest);
+
+        append_signature_from_digest(buffer, key, digest);
+}
+
+static void
 append_v34_key_base(struct ntb_key *key,
                     struct ntb_buffer *buffer,
                     size_t *behaviors_offset)
@@ -405,11 +417,6 @@ append_v34_key_base(struct ntb_key *key,
 
         ntb_proto_add_var_int(buffer, key->pow_per_byte);
         ntb_proto_add_var_int(buffer, key->pow_extra_bytes);
-
-        append_signature(buffer,
-                         key,
-                         buffer->data + sizeof (uint64_t),
-                         buffer->length - sizeof (uint64_t));
 }
 
 static struct ntb_blob *
@@ -421,12 +428,27 @@ create_v4_key(struct ntb_crypto *crypto,
         size_t behaviors_offset;
         EC_POINT *tag_public_key_point;
         struct ntb_buffer encrypted_buffer;
+        SHA_CTX sha_ctx;
+        uint8_t digest[SHA_DIGEST_LENGTH];
 
         ntb_buffer_init(&buffer);
-        ntb_blob_dynamic_init(&encrypted_buffer,
-                              NTB_PROTO_INV_TYPE_PUBKEY);
+        ntb_blob_dynamic_init(&encrypted_buffer);
 
         append_v34_key_base(key, &buffer, &behaviors_offset);
+
+        SHA1_Init(&sha_ctx);
+        SHA1_Update(&sha_ctx,
+                    buffer.data + sizeof (uint64_t),
+                    behaviors_offset - sizeof (uint64_t));
+        SHA1_Update(&sha_ctx,
+                    key->tag,
+                    NTB_ADDRESS_TAG_SIZE);
+        SHA1_Update(&sha_ctx,
+                    buffer.data + behaviors_offset,
+                    buffer.length - behaviors_offset);
+        SHA1_Final(digest, &sha_ctx);
+
+        append_signature_from_digest(&buffer, key, digest);
 
         tag_public_key_point =
                 ntb_ecc_make_pub_key_point(crypto->ecc,
@@ -459,9 +481,14 @@ create_v3_key(struct ntb_key *key)
 {
         struct ntb_buffer buffer;
 
-        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_PUBKEY);
+        ntb_blob_dynamic_init(&buffer);
 
         append_v34_key_base(key, &buffer, NULL);
+
+        append_signature(&buffer,
+                         key,
+                         buffer.data + sizeof (uint64_t),
+                         buffer.length - sizeof (uint64_t));
 
         return ntb_blob_dynamic_end(&buffer);
 }
@@ -471,7 +498,7 @@ create_v2_key(struct ntb_key *key)
 {
         struct ntb_buffer buffer;
 
-        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_PUBKEY);
+        ntb_blob_dynamic_init(&buffer);
 
         append_key_base(key, &buffer, NULL);
 
@@ -498,19 +525,15 @@ handle_create_pubkey_blob(struct ntb_crypto_cookie *cookie)
 }
 
 static bool
-check_signature_for_data(struct ntb_crypto *crypto,
-                         const uint8_t *network_public_key,
-                         const uint8_t *data,
-                         size_t data_length,
-                         const uint8_t *signature,
-                         size_t signature_length)
+check_signature_for_digest(struct ntb_crypto *crypto,
+                           const uint8_t *network_public_key,
+                           const uint8_t *digest,
+                           const uint8_t *signature,
+                           size_t signature_length)
 {
         uint8_t public_key[NTB_ECC_PUBLIC_KEY_SIZE];
         EC_KEY *key;
-        uint8_t digest[SHA_DIGEST_LENGTH];
         int verify_result;
-
-        SHA1(data, data_length, digest);
 
         /* The keys on the network have the 0x04 prefix stripped so we
          * need to add it back on */
@@ -523,7 +546,7 @@ check_signature_for_data(struct ntb_crypto *crypto,
 
         verify_result = ECDSA_verify(0, /* type, ignored */
                                      digest,
-                                     sizeof digest,
+                                     SHA_DIGEST_LENGTH,
                                      signature,
                                      signature_length,
                                      key);
@@ -531,6 +554,25 @@ check_signature_for_data(struct ntb_crypto *crypto,
         EC_KEY_free(key);
 
         return verify_result == 1;
+}
+
+static bool
+check_signature_for_data(struct ntb_crypto *crypto,
+                         const uint8_t *network_public_key,
+                         const uint8_t *data,
+                         size_t data_length,
+                         const uint8_t *signature,
+                         size_t signature_length)
+{
+        uint8_t digest[SHA_DIGEST_LENGTH];
+
+        SHA1(data, data_length, digest);
+
+        return check_signature_for_digest(crypto,
+                                          network_public_key,
+                                          digest,
+                                          signature,
+                                          signature_length);
 }
 
 static void
@@ -555,8 +597,8 @@ handle_check_unencrypted_pubkey(struct ntb_crypto_cookie *cookie,
         }
 
         ntb_address_from_network_keys(&address,
-                                      pubkey->version,
-                                      pubkey->stream,
+                                      pubkey->header.version,
+                                      pubkey->header.stream,
                                       pubkey->public_signing_key,
                                       pubkey->public_encryption_key);
 
@@ -617,7 +659,8 @@ handle_check_encrypted_pubkey(struct ntb_crypto_cookie *cookie,
 
         ntb_buffer_append(&buffer,
                           cookie->check_pubkey.blob->data,
-                          pubkey->tag - cookie->check_pubkey.blob->data);
+                          pubkey->encrypted_data -
+                          cookie->check_pubkey.blob->data);
 
         if (ntb_ecc_decrypt(crypto->ecc,
                             key,
@@ -643,9 +686,6 @@ handle_check_pubkey(struct ntb_crypto_cookie *cookie)
         struct ntb_proto_pubkey pubkey;
         struct ntb_blob *blob = cookie->check_pubkey.blob;
 
-        if (blob->type != NTB_PROTO_INV_TYPE_PUBKEY)
-                return;
-
         if (!ntb_proto_get_pubkey(false, /* not decrypted */
                                   blob->data,
                                   blob->size,
@@ -668,15 +708,33 @@ handle_create_msg_blob(struct ntb_crypto_cookie *cookie)
         const EC_POINT *encryption_key;
         struct ntb_buffer signature;
         struct ntb_buffer buf;
+        size_t signature_data_start;
+        SHA_CTX sha_ctx;
+        uint8_t digest[SHA_DIGEST_LENGTH];
 
-        ntb_blob_dynamic_init(&buf, NTB_PROTO_INV_TYPE_MSG);
+        ntb_blob_dynamic_init(&buf);
 
         /* Leave space for the nonce. The caller will have to
          * calculate this */
         ntb_buffer_set_length(&buf, buf.length + sizeof (uint64_t));
 
-        ntb_proto_add_64(&buf, cookie->create_msg_blob.timestamp);
+        signature_data_start = buf.length;
+
+        ntb_proto_add_64(&buf,
+                         cookie->create_msg_blob.timestamp +
+                         NTB_PROTO_MSG_EXPIRY_TIME);
+        ntb_proto_add_32(&buf, NTB_PROTO_INV_TYPE_MSG);
+        ntb_proto_add_var_int(&buf, 1 /* message version */);
         ntb_proto_add_var_int(&buf, to_key->address.stream);
+
+        SHA1_Init(&sha_ctx);
+        SHA1_Update(&sha_ctx,
+                    buf.data + signature_data_start,
+                    buf.length - signature_data_start);
+        SHA1_Update(&sha_ctx,
+                    content->data,
+                    content->size);
+        SHA1_Final(digest, &sha_ctx);
 
         encryption_key = EC_KEY_get0_public_key(to_key->encryption_key);
 
@@ -690,10 +748,7 @@ handle_create_msg_blob(struct ntb_crypto_cookie *cookie)
 
         ntb_buffer_init(&signature);
 
-        append_signature(&signature,
-                         from_key,
-                         content->data,
-                         content->size);
+        append_signature_from_digest(&signature, from_key, digest);
 
         ntb_ecc_encrypt_update(crypto->ecc,
                                signature.data,
@@ -720,9 +775,13 @@ handle_create_public_key(struct ntb_crypto_cookie *cookie)
 }
 
 static void
-check_signature_in_decrypted_msg(struct ntb_crypto_cookie *cookie)
+check_signature_in_decrypted_msg(const uint8_t *header,
+                                 size_t header_size,
+                                 struct ntb_crypto_cookie *cookie)
 {
         struct ntb_proto_decrypted_msg msg;
+        uint8_t digest[SHA_DIGEST_LENGTH];
+        SHA_CTX sha_ctx;
 
         ntb_log("Successfully decrypted a message using the key “%s”",
                 cookie->decrypt_msg.chosen_key->label);
@@ -734,12 +793,20 @@ check_signature_in_decrypted_msg(struct ntb_crypto_cookie *cookie)
                 goto invalid;
         }
 
-        if (!check_signature_for_data(cookie->crypto,
-                                      msg.sender_signing_key,
-                                      cookie->decrypt_msg.result->data,
-                                      msg.signed_data_length,
-                                      msg.sig,
-                                      msg.sig_length)) {
+        SHA1_Init(&sha_ctx);
+        SHA1_Update(&sha_ctx,
+                    header + sizeof (uint64_t),
+                    header_size - sizeof (uint64_t));
+        SHA1_Update(&sha_ctx,
+                    cookie->decrypt_msg.result->data,
+                    msg.signed_data_length);
+        SHA1_Final(digest, &sha_ctx);
+
+        if (!check_signature_for_digest(cookie->crypto,
+                                        msg.sender_signing_key,
+                                        digest,
+                                        msg.sig,
+                                        msg.sig_length)) {
                 ntb_log("The signature in the decrypted message is invalid");
                 goto invalid;
         }
@@ -761,29 +828,21 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
         struct ntb_buffer buffer;
         struct ntb_key *key;
         ssize_t header_size;
-        uint64_t pow_nonce;
-        int64_t timestamp;
-        uint64_t stream_number;
+        struct ntb_proto_object_header header;
         const uint8_t *data;
         size_t data_length;
         size_t decryption_start;
         uint64_t pow_value;
         uint64_t target;
+        int64_t remaining_time;
         int i;
 
-        header_size = ntb_proto_get_command(blob->data,
-                                            blob->size,
+        header_size = ntb_proto_get_object_header(blob->data,
+                                                  blob->size,
+                                                  &header);
 
-                                            NTB_PROTO_ARGUMENT_64,
-                                            &pow_nonce,
-
-                                            NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                            &timestamp,
-
-                                            NTB_PROTO_ARGUMENT_VAR_INT,
-                                            &stream_number,
-
-                                            NTB_PROTO_ARGUMENT_END);
+        remaining_time = (header.expires_time -
+                          ntb_main_context_get_wall_clock(NULL));
 
         assert(header_size != -1);
 
@@ -792,7 +851,7 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
 
         pow_value = ntb_pow_calculate_value(blob->data, blob->size);
 
-        ntb_blob_dynamic_init(&buffer, NTB_PROTO_INV_TYPE_MSG);
+        ntb_blob_dynamic_init(&buffer);
 
         decryption_start = buffer.length;
 
@@ -807,7 +866,8 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
 
                 target = ntb_pow_calculate_target(data_length,
                                                   key->pow_per_byte,
-                                                  key->pow_extra_bytes);
+                                                  key->pow_extra_bytes,
+                                                  remaining_time);
 
                 if (pow_value > target)
                         continue;
@@ -820,7 +880,9 @@ handle_decrypt_msg(struct ntb_crypto_cookie *cookie)
                         cookie->decrypt_msg.chosen_key = ntb_key_ref(key);
                         cookie->decrypt_msg.result =
                                 ntb_blob_dynamic_end(&buffer);
-                        check_signature_in_decrypted_msg(cookie);
+                        check_signature_in_decrypted_msg(blob->data,
+                                                         header_size,
+                                                         cookie);
                         return;
                 }
 

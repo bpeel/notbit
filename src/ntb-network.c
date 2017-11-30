@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2017  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -63,10 +63,6 @@ ntb_network_error;
  * from memory. If they are needed again they will have to requested
  * from the disk cache. */
 #define NTB_NETWORK_MEMORY_CACHE_SIZE (64 * 1024 * 1024)
-
-/* If any objects claim to be created this far in the future then
- * we'll ignore them */
-#define NTB_NETWORK_INV_FUTURE_AGE (30 * 60)
 
 /* Time in minutes between each garbage collection run */
 #define NTB_NETWORK_GC_TIMEOUT 10
@@ -228,7 +224,6 @@ enum ntb_network_inv_state {
 
 struct ntb_network_inventory {
         enum ntb_network_inv_state state;
-        enum ntb_proto_inv_type type;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
 
         /* Each inventory will be in a list. Which list that is
@@ -247,9 +242,9 @@ struct ntb_network_inventory {
                 struct {
                         /* All types apart from the stub type
                          * (including the rejected inventories) have a
-                         * timestamp which we'll use to garbage
+                         * expiry time which we'll use to garbage
                          * collect when the item gets too old */
-                        int64_t timestamp;
+                        int64_t expires_time;
 
                         struct ntb_blob *blob;
                 };
@@ -739,12 +734,9 @@ send_inventory_list(int64_t now,
                     struct ntb_network_peer *peer)
 {
         struct ntb_network_inventory *inv;
-        int64_t age;
 
         ntb_list_for_each(inv, list, link) {
-                age = now - inv->timestamp;
-
-                if (age >= ntb_proto_get_max_age_for_type(inv->type))
+                if (inv->expires_time <= now)
                         continue;
 
                 ntb_connection_add_inv_hash(peer->connection, inv->hash);
@@ -930,41 +922,39 @@ handle_inv(struct ntb_network *nw,
 }
 
 static bool
-should_reject(enum ntb_proto_inv_type type,
-              const uint8_t *payload,
+should_reject(const uint8_t *payload,
               size_t payload_length,
-              int64_t age,
+              int64_t expires_time,
               const char *source_note)
 {
-        const char *type_name;
+        int64_t now = ntb_main_context_get_wall_clock(NULL);
+        int64_t remaining_time;
 
-        type_name = ntb_proto_get_command_name_for_type(type);
-
-        if (age <= -NTB_NETWORK_INV_FUTURE_AGE) {
-                ntb_log("Rejecting %s from %s which was created "
-                        "%" PRIi64 " seconds in the future",
-                        type_name,
+        if (expires_time + NTB_PROTO_EXTRA_AGE <= now) {
+                ntb_log("Rejecting object from %s which already expired "
+                        "%" PRIi64 " seconds ago",
                         source_note,
-                        -age);
+                        now - expires_time);
                 return true;
         }
 
-        if (age >= ntb_proto_get_max_age_for_type(type)) {
-                ntb_log("Rejecting %s from %s which was created "
-                        "%" PRIi64 " seconds ago",
-                        type_name,
+        remaining_time = expires_time - now;
+
+        if (remaining_time >= NTB_PROTO_MAX_AGE) {
+                ntb_log("Rejecting object from %s which expires "
+                        "in %" PRIi64 " seconds",
                         source_note,
-                        age);
+                        expires_time - now);
                 return true;
         }
 
         if (!ntb_pow_check(payload,
                            payload_length,
                            NTB_PROTO_MIN_POW_PER_BYTE,
-                           NTB_PROTO_MIN_POW_EXTRA_BYTES)) {
-                ntb_log("Rejecting %s from %s because the proof-of-work is "
+                           NTB_PROTO_MIN_POW_EXTRA_BYTES,
+                           remaining_time)) {
+                ntb_log("Rejecting object from %s because the proof-of-work is "
                         "too low",
-                        type_name,
                         source_note);
                 return true;
         }
@@ -1137,7 +1127,6 @@ add_in_memory_inventory(struct ntb_network *nw,
 
 static void
 add_object(struct ntb_network *nw,
-           enum ntb_proto_inv_type type,
            const uint8_t *object_data,
            size_t object_data_length,
            struct ntb_blob *blob,
@@ -1146,25 +1135,15 @@ add_object(struct ntb_network *nw,
 {
         struct ntb_network_inventory *inv;
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
-        uint64_t nonce;
-        int64_t timestamp;
-        int64_t age;
+        struct ntb_proto_object_header header;
         ssize_t header_size;
 
-        header_size = ntb_proto_get_command(object_data,
-                                            object_data_length,
-
-                                            NTB_PROTO_ARGUMENT_64,
-                                            &nonce,
-
-                                            NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                            &timestamp,
-
-                                            NTB_PROTO_ARGUMENT_END);
+        header_size = ntb_proto_get_object_header(object_data,
+                                                  object_data_length,
+                                                  &header);
 
         if (header_size == -1) {
-                ntb_log("Invalid %s received from %s",
-                        ntb_proto_get_command_name_for_type(type),
+                ntb_log("Invalid object command received from %s",
                         source_note);
                 return;
         }
@@ -1186,30 +1165,25 @@ add_object(struct ntb_network *nw,
                 return;
         }
 
-        age = ntb_main_context_get_wall_clock(NULL) - timestamp;
-
-        inv->timestamp = timestamp;
+        inv->expires_time = header.expires_time;
 
         if (!(flags & NTB_NETWORK_SKIP_VALIDATION) &&
-            should_reject(type,
-                          object_data,
+            should_reject(object_data,
                           object_data_length,
-                          age,
+                          header.expires_time,
                           source_note)) {
                 reject_inventory(nw, inv);
         } else {
                 if (blob) {
                         inv->blob = ntb_blob_ref(blob);
                 } else {
-                        inv->blob = ntb_blob_new(type,
-                                                 object_data,
+                        inv->blob = ntb_blob_new(object_data,
                                                  object_data_length);
                 }
 
                 ntb_store_save_blob(NULL, hash, inv->blob);
 
                 add_in_memory_inventory(nw, inv);
-                inv->type = type;
 
                 if ((flags & NTB_NETWORK_DELAY))
                         broadcast_delayed_inv(nw, hash);
@@ -1226,7 +1200,6 @@ handle_object(struct ntb_network *nw,
               struct ntb_connection_object_event *event)
 {
         add_object(nw,
-                   event->type,
                    event->object_data,
                    event->object_data_length,
                    NULL, /* let add_object create the blob */
@@ -1317,21 +1290,9 @@ gc_inventories(struct ntb_network *nw,
 {
         struct ntb_network_inventory *inv, *tmp;
         int64_t now = ntb_main_context_get_wall_clock(NULL);
-        enum ntb_proto_inv_type type;
-        int64_t age;
 
         ntb_list_for_each_safe(inv, tmp, list, link) {
-                age = now - inv->timestamp;
-                if (inv->state == NTB_NETWORK_INV_STATE_ON_DISK ||
-                    inv->state == NTB_NETWORK_INV_STATE_IN_MEMORY) {
-                        type = inv->type;
-                } else {
-                        type = NTB_PROTO_INV_TYPE_MSG;
-                }
-
-                if (age <= -NTB_NETWORK_INV_FUTURE_AGE ||
-                    age >= (ntb_proto_get_max_age_for_type(type) +
-                            NTB_PROTO_EXTRA_AGE)) {
+                if (inv->expires_time + NTB_PROTO_EXTRA_AGE <= now) {
                         if (inv->state == NTB_NETWORK_INV_STATE_REJECTED)
                                 nw->n_rejected_inventories--;
                         else
@@ -1381,7 +1342,6 @@ ntb_network_add_blob(struct ntb_network *nw,
                      const char *source_note)
 {
         add_object(nw,
-                   blob->type,
                    blob->data,
                    blob->size,
                    blob,
@@ -1391,14 +1351,12 @@ ntb_network_add_blob(struct ntb_network *nw,
 
 void
 ntb_network_add_object_from_data(struct ntb_network *nw,
-                                 enum ntb_proto_inv_type type,
                                  const uint8_t *object_data,
                                  size_t object_data_length,
                                  enum ntb_network_add_object_flags flags,
                                  const char *source_note)
 {
         add_object(nw,
-                   type,
                    object_data,
                    object_data_length,
                    NULL, /* let add_object create the blob */
@@ -1407,9 +1365,8 @@ ntb_network_add_object_from_data(struct ntb_network *nw,
 }
 
 static void
-store_for_each_blob_cb(enum ntb_proto_inv_type type,
-                       const uint8_t *hash,
-                       int64_t timestamp,
+store_for_each_blob_cb(const uint8_t *hash,
+                       int64_t expires_time,
                        void *user_data)
 {
         struct ntb_network *nw = user_data;
@@ -1425,11 +1382,10 @@ store_for_each_blob_cb(enum ntb_proto_inv_type type,
 
         inv = ntb_slice_alloc(&ntb_network_inventory_allocator);
         memcpy(inv->hash, hash, NTB_PROTO_HASH_LENGTH);
-        inv->timestamp = timestamp;
+        inv->expires_time = expires_time;
         inv->blob = NULL;
         ntb_hash_table_set(nw->inventory_hash, inv);
         ntb_list_insert(&nw->on_disk_inventories, &inv->link);
-        inv->type = type;
         inv->state = NTB_NETWORK_INV_STATE_ON_DISK;
 }
 

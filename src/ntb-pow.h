@@ -56,8 +56,9 @@ ntb_pow_free(struct ntb_pow *pow);
 
 uint64_t
 ntb_pow_calculate_target(size_t length,
-                         int payload_extra_bytes,
-                         int average_trials_per_byte);
+                         int pow_per_byte,
+                         int pow_extra_bytes,
+                         int remaining_time);
 
 uint64_t
 ntb_pow_calculate_value(const uint8_t *payload,
@@ -67,6 +68,7 @@ bool
 ntb_pow_check(const uint8_t *payload,
               size_t length,
               int pow_per_byte,
-              int pow_extra_bytes);
+              int pow_extra_bytes,
+              int remaining_time);
 
 #endif /* NTB_POW_H */

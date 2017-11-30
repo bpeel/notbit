@@ -34,6 +34,7 @@
 #include "ntb-list.h"
 #include "ntb-file-error.h"
 #include "ntb-main-context.h"
+#include "ntb-proto.h"
 
 struct ntb_pow {
         int n_threads;
@@ -328,14 +329,17 @@ ntb_pow_new(void)
 uint64_t
 ntb_pow_calculate_target(size_t length,
                          int pow_per_byte,
-                         int pow_extra_bytes)
+                         int pow_extra_bytes,
+                         int remaining_time)
 {
         const uint64_t two_63 = UINT64_C(0x8000000000000000);
         uint64_t divisor;
         uint64_t target;
+        size_t padded_length = length + (uint64_t) pow_extra_bytes;
 
-        divisor = ((length + (uint64_t) pow_extra_bytes) *
-                   pow_per_byte);
+        divisor = (pow_per_byte *
+                   (padded_length +
+                    padded_length * remaining_time / 65536));
 
         /* We need to divide 2⁶⁴ by divisor. We can't represent 2⁶⁴ in
          * a 64-bit variable so instead we divide 2⁶³ by the divisor
@@ -361,12 +365,18 @@ ntb_pow_calculate(struct ntb_pow *pow,
 {
         struct ntb_pow_cookie *cookie;
         uint64_t target;
+        int64_t expires_time;
+        int64_t remaining_time;
 
         cookie = ntb_alloc(sizeof *cookie);
 
+        expires_time = ntb_proto_get_64(payload);
+        remaining_time = expires_time - ntb_main_context_get_wall_clock(NULL);
+
         target = ntb_pow_calculate_target(length + sizeof (uint64_t),
                                           pow_per_byte,
-                                          pow_extra_bytes);
+                                          pow_extra_bytes,
+                                          remaining_time);
 
         pthread_mutex_lock(&pow->mutex);
 
@@ -420,7 +430,8 @@ bool
 ntb_pow_check(const uint8_t *payload,
               size_t length,
               int pow_per_byte,
-              int pow_extra_bytes)
+              int pow_extra_bytes,
+              int remaining_time)
 {
         uint64_t pow_value, target;
 
@@ -428,7 +439,8 @@ ntb_pow_check(const uint8_t *payload,
 
         target = ntb_pow_calculate_target(length,
                                           pow_per_byte,
-                                          pow_extra_bytes);
+                                          pow_extra_bytes,
+                                          remaining_time);
 
         return pow_value <= target;
 }

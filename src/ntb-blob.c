@@ -29,18 +29,12 @@
 #include "ntb-util.h"
 
 void
-ntb_blob_dynamic_init(struct ntb_buffer *buffer,
-                      enum ntb_proto_inv_type type)
+ntb_blob_dynamic_init(struct ntb_buffer *buffer)
 {
-        struct ntb_blob *blob;
-
         ntb_buffer_init(buffer);
 
         ntb_buffer_set_length(buffer,
                               NTB_STRUCT_OFFSET(struct ntb_blob, data));
-
-        blob = (struct ntb_blob *) buffer->data;
-        blob->type = type;
 }
 
 struct ntb_blob *
@@ -55,14 +49,12 @@ ntb_blob_dynamic_end(struct ntb_buffer *buffer)
 }
 
 struct ntb_blob *
-ntb_blob_new(enum ntb_proto_inv_type type,
-             const void *data,
+ntb_blob_new(const void *data,
              size_t size)
 {
         struct ntb_blob *blob =
                 ntb_alloc(NTB_STRUCT_OFFSET(struct ntb_blob, data) + size);
 
-        blob->type = type;
         blob->size = size;
 
         ntb_ref_count_init(&blob->ref_count);

@@ -54,11 +54,18 @@ enum ntb_proto_argument {
         NTB_PROTO_ARGUMENT_64,
         NTB_PROTO_ARGUMENT_BOOL,
         NTB_PROTO_ARGUMENT_VAR_INT,
-        NTB_PROTO_ARGUMENT_TIMESTAMP,
         NTB_PROTO_ARGUMENT_NETADDRESS,
         NTB_PROTO_ARGUMENT_VAR_STR,
         NTB_PROTO_ARGUMENT_VAR_INT_LIST,
         NTB_PROTO_ARGUMENT_END
+};
+
+struct ntb_proto_object_header {
+        uint64_t nonce;
+        int64_t expires_time;
+        uint32_t type;
+        uint64_t version;
+        uint64_t stream;
 };
 
 struct ntb_proto_var_str {
@@ -74,7 +81,6 @@ struct ntb_proto_var_int_list {
 struct ntb_proto_decrypted_msg {
         const uint8_t *sender_signing_key;
         const uint8_t *sender_encryption_key;
-        uint64_t message_version;
         uint64_t sender_address_version;
         uint64_t sender_stream_number;
         uint32_t sender_behaviors;
@@ -88,13 +94,8 @@ struct ntb_proto_decrypted_msg {
 };
 
 struct ntb_proto_pubkey {
-        uint64_t nonce;
-        int64_t timestamp;
+        struct ntb_proto_object_header header;
 
-        uint64_t stream;
-        uint64_t version;
-
-        uint64_t address_version;
         uint32_t behaviours;
 
         const uint8_t *public_signing_key;
@@ -117,7 +118,7 @@ struct ntb_proto_pubkey {
 
 #define NTB_PROTO_HEADER_SIZE (4 + 12 + 4 + 4)
 
-#define NTB_PROTO_VERSION UINT32_C(2)
+#define NTB_PROTO_VERSION UINT32_C(3)
 
 #define NTB_PROTO_NETWORK_NODE UINT64_C(1)
 #define NTB_PROTO_SERVICES (NTB_PROTO_NETWORK_NODE)
@@ -126,8 +127,8 @@ struct ntb_proto_pubkey {
  * bytes are used */
 #define NTB_PROTO_HASH_LENGTH (SHA512_DIGEST_LENGTH / 2)
 
-#define NTB_PROTO_MIN_POW_PER_BYTE 320
-#define NTB_PROTO_MIN_POW_EXTRA_BYTES 14000
+#define NTB_PROTO_MIN_POW_PER_BYTE 1000
+#define NTB_PROTO_MIN_POW_EXTRA_BYTES 1000
 
 /* In addition to the maximum age of an object defined by the
  * protocol, we won't delete objects on disk for this amount of extra
@@ -135,12 +136,24 @@ struct ntb_proto_pubkey {
  * won't request objects from peers */
 #define NTB_PROTO_EXTRA_AGE (6 * 60 * 60 /* 6 hours */)
 
+#define NTB_PROTO_MAX_AGE ((28 * 24 + 3) * 3600 /* 28 days and 3 hours */)
+
 #define NTB_PROTO_DEFAULT_PORT 8444
 
 /* We send acknowledgements */
 #define NTB_PROTO_PUBKEY_BEHAVIORS UINT32_C(0x00000001)
 
 #define NTB_PROTO_ACKDATA_SIZE 32
+
+/* Give pubkey objects an expiry time of 28 days. This is what
+ * PyBitMessage does. */
+#define NTB_PROTO_PUBKEY_EXPIRY_TIME (28 * 24 * 60 * 60)
+/* 7 days for messages. FIXME: PyBitMessage does something more
+ * complicated and doubles the time at each retry. */
+#define NTB_PROTO_MSG_EXPIRY_TIME (7 * 24 * 60 * 60)
+/* 5 days for getpubkey. FIXME: PyBitMessage does something more
+ * complicated and doubles the time at each retry. */
+#define NTB_PROTO_GETPUBKEY_EXPIRY_TIME (5 * 24 * 60 * 60)
 
 extern const uint8_t
 ntb_proto_magic[4];
@@ -157,12 +170,6 @@ ntb_proto_address_hash(const void *data,
 
 bool
 ntb_proto_check_command_string(const uint8_t *command_string);
-
-int64_t
-ntb_proto_get_max_age_for_type(enum ntb_proto_inv_type type);
-
-const char *
-ntb_proto_get_command_name_for_type(enum ntb_proto_inv_type type);
 
 static inline uint8_t
 ntb_proto_get_8(const uint8_t *p)
@@ -183,11 +190,6 @@ bool
 ntb_proto_get_var_int(const uint8_t **p_ptr,
                       uint32_t *length_ptr,
                       uint64_t *result);
-
-bool
-ntb_proto_get_timestamp(const uint8_t **p_ptr,
-                        uint32_t *length_ptr,
-                        int64_t *result);
 
 bool
 ntb_proto_get_var_str(const uint8_t **p_ptr,
@@ -219,6 +221,11 @@ ntb_proto_get_pubkey(bool decrypted,
                      const uint8_t *data,
                      uint32_t length,
                      struct ntb_proto_pubkey *pubkey);
+
+ssize_t
+ntb_proto_get_object_header(const uint8_t *data,
+                            uint32_t length,
+                            struct ntb_proto_object_header *header);
 
 static inline void
 ntb_proto_add_8(struct ntb_buffer *buf,
@@ -261,9 +268,6 @@ ntb_proto_add_bool(struct ntb_buffer *buf,
 void
 ntb_proto_add_var_int(struct ntb_buffer *buf,
                       uint64_t value);
-
-void
-ntb_proto_add_timestamp(struct ntb_buffer *buf);
 
 void
 ntb_proto_add_netaddress(struct ntb_buffer *buf,

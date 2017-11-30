@@ -56,7 +56,6 @@ ntb_network_new(bool add_default_nodes);
 
 void
 ntb_network_add_object_from_data(struct ntb_network *nw,
-                                 enum ntb_proto_inv_type type,
                                  const uint8_t *object_data,
                                  size_t object_data_length,
                                  enum ntb_network_add_object_flags flags,

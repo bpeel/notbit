@@ -38,8 +38,6 @@
  * disk. */
 
 struct ntb_blob {
-        enum ntb_proto_inv_type type;
-
         struct ntb_ref_count ref_count;
 
         size_t size;
@@ -49,15 +47,13 @@ struct ntb_blob {
 };
 
 void
-ntb_blob_dynamic_init(struct ntb_buffer *buffer,
-                      enum ntb_proto_inv_type type);
+ntb_blob_dynamic_init(struct ntb_buffer *buffer);
 
 struct ntb_blob *
 ntb_blob_dynamic_end(struct ntb_buffer *buffer);
 
 struct ntb_blob *
-ntb_blob_new(enum ntb_proto_inv_type type,
-             const void *data,
+ntb_blob_new(const void *data,
              size_t size);
 
 struct ntb_blob *

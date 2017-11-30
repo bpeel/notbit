@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2017  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -162,9 +162,8 @@ struct ntb_store_cookie {
         void *user_data;
 };
 
-typedef void (* for_each_blob_internal_func)(enum ntb_proto_inv_type type,
-                                             const uint8_t *hash,
-                                             int64_t timestamp,
+typedef void (* for_each_blob_internal_func)(const uint8_t *hash,
+                                             int64_t expires_time,
                                              const char *filename,
                                              FILE *file,
                                              void *user_data);
@@ -425,24 +424,14 @@ load_blob_from_file(const char *filename,
 {
         struct stat statbuf;
         struct ntb_blob *blob;
-        uint32_t type;
 
         if (fstat(fileno(file), &statbuf) == -1) {
                 ntb_log("Error getting info for %s", filename);
                 return NULL;
         }
 
-        if (statbuf.st_size < sizeof (uint32_t)) {
-                ntb_log("Object file %s is too short", filename);
-                return NULL;
-        }
-
-        if (!read_all(filename, &type, sizeof type, file))
-                return NULL;
-
-        blob = ntb_blob_new(NTB_UINT32_FROM_BE(type),
-                            NULL /* data */,
-                            statbuf.st_size - sizeof (uint32_t));
+        blob = ntb_blob_new(NULL /* data */,
+                            statbuf.st_size);
 
         if (!read_all(filename, blob->data, blob->size, file)) {
                 ntb_blob_unref(blob);
@@ -535,7 +524,6 @@ handle_save_blob(struct ntb_store *store,
                  struct ntb_store_task *task)
 {
         FILE *file;
-        uint32_t type;
 
         set_hash_filename(store, task->save_blob.hash);
 
@@ -550,10 +538,7 @@ handle_save_blob(struct ntb_store *store,
                 return;
         }
 
-        type = NTB_UINT32_TO_BE(task->save_blob.blob->type);
-
-        if (fwrite(&type, 1, sizeof type, file) != sizeof type ||
-            fwrite(task->save_blob.blob->data, 1,
+        if (fwrite(task->save_blob.blob->data, 1,
                    task->save_blob.blob->size, file) !=
             task->save_blob.blob->size) {
                 ntb_log("Error writing %s: %s",
@@ -1026,8 +1011,7 @@ load_message_content_from_file(const char *filename,
                 return NULL;
         }
 
-        blob = ntb_blob_new(NTB_PROTO_INV_TYPE_MSG,
-                            NULL /* data */,
+        blob = ntb_blob_new(NULL /* data */,
                             statbuf.st_size);
 
         if (!read_all(filename, blob->data, blob->size, file)) {
@@ -1518,13 +1502,10 @@ process_file(struct ntb_store *store,
              void *user_data)
 {
         uint8_t hash[NTB_PROTO_HASH_LENGTH];
-        uint8_t buf[sizeof (uint32_t) + sizeof (uint64_t) * 2];
-        uint32_t type;
-        int64_t timestamp;
+        uint8_t buf[sizeof (uint64_t) * 2];
+        int64_t expires_time;
         FILE *file;
         const char *p;
-        const uint8_t *buf_ptr;
-        uint32_t length;
         int64_t now;
         int i;
 
@@ -1561,10 +1542,9 @@ process_file(struct ntb_store *store,
                 return;
         }
 
-        /* All of the files should start with a 32-bit type, the
-         * 64-bit nonce and then either a 32-bit or 64-bit timestamp.
-         * We only need the type and timestamp so we don't need to
-         * read the rest */
+        /* All of the files should start with the 64-bit nonce and
+         * then 64-bit expiry time. We only need the expiry time
+         * so we don't need to read the rest */
         if (!read_all(filename, buf, sizeof buf, file)) {
                 fclose(file);
                 return;
@@ -1572,19 +1552,15 @@ process_file(struct ntb_store *store,
 
         now = ntb_main_context_get_wall_clock(NULL);
 
-        type = ntb_proto_get_32(buf);
-        buf_ptr = buf + sizeof (uint32_t) + sizeof (uint64_t);
-        length = sizeof (uint64_t);
-        ntb_proto_get_timestamp(&buf_ptr, &length, &timestamp);
+        expires_time = ntb_proto_get_64(buf + sizeof (uint64_t));
 
-        if (now - timestamp >= (ntb_proto_get_max_age_for_type(type) +
-                                NTB_PROTO_EXTRA_AGE)) {
+        if (now >= expires_time + NTB_PROTO_EXTRA_AGE) {
                 if (unlink(filename) == -1)
                         ntb_log("Error deleting %s: %s",
                                 filename,
                                 strerror(errno));
         } else {
-                func(type, hash, timestamp, filename, file, user_data);
+                func(hash, expires_time, filename, file, user_data);
         }
 
         fclose(file);
@@ -1630,16 +1606,15 @@ struct for_each_blob_data {
 };
 
 static void
-for_each_blob_cb(enum ntb_proto_inv_type type,
-                 const uint8_t *hash,
-                 int64_t timestamp,
+for_each_blob_cb(const uint8_t *hash,
+                 int64_t expires_time,
                  const char *filename,
                  FILE *file,
                  void *user_data)
 {
         struct for_each_blob_data *data = user_data;
 
-        data->func(type, hash, timestamp, data->user_data);
+        data->func(hash, expires_time, data->user_data);
 }
 
 void
@@ -1672,9 +1647,8 @@ struct for_each_pubkey_blob_data {
 };
 
 static void
-for_each_pubkey_blob_cb(enum ntb_proto_inv_type type,
-                        const uint8_t *hash,
-                        int64_t timestamp,
+for_each_pubkey_blob_cb(const uint8_t *hash,
+                        int64_t expires_time,
                         const char *filename,
                         FILE *file,
                         void *user_data)
@@ -1682,26 +1656,37 @@ for_each_pubkey_blob_cb(enum ntb_proto_inv_type type,
         struct for_each_pubkey_blob_data *data = user_data;
         struct stat statbuf;
         struct ntb_blob *blob;
+        uint8_t buf[sizeof (uint64_t) * 2 + sizeof (uint32_t)];
+        uint32_t type;
 
-        if (type != NTB_PROTO_INV_TYPE_PUBKEY)
+        /* Reset the file to the beginning */
+        if (fseek(file, 0, SEEK_SET))
                 return;
 
-        /* Reset the file to just after the type */
-        if (fseek(file, sizeof (uint32_t), SEEK_SET))
+        if (!read_all(filename, buf, sizeof buf, file))
+                return;
+
+        type = ntb_proto_get_32(buf + sizeof (uint64_t) * 2);
+
+        if (type != NTB_PROTO_INV_TYPE_PUBKEY)
                 return;
 
         if (fstat(fileno(file), &statbuf) == -1)
                 return;
 
-        blob = ntb_blob_new(NTB_PROTO_INV_TYPE_PUBKEY,
-                            NULL, /* data */
-                            statbuf.st_size - sizeof (uint32_t));
+        if (statbuf.st_size < sizeof buf)
+                return;
+
+        blob = ntb_blob_new(NULL, /* data */
+                            statbuf.st_size);
+
+        memcpy(blob->data, buf, sizeof buf);
 
         if (read_all(filename,
-                     blob->data,
-                     statbuf.st_size - sizeof (uint32_t),
+                     blob->data + sizeof buf,
+                     statbuf.st_size - sizeof buf,
                      file))
-                data->func(hash, timestamp, blob, data->user_data);
+                data->func(hash, expires_time, blob, data->user_data);
 
         ntb_blob_unref(blob);
 }

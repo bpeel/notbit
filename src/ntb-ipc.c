@@ -505,8 +505,7 @@ handle_email_command(struct ntb_ipc_connection *conn,
 
         ntb_list_insert(&conn->emails, &email->link);
 
-        ntb_blob_dynamic_init(&email->content,
-                              NTB_PROTO_INV_TYPE_MSG);
+        ntb_blob_dynamic_init(&email->content);
 
         email->content_encoding = 1;
 

@@ -65,14 +65,13 @@ struct ntb_store_outgoing {
 };
 
 typedef void
-(* ntb_store_for_each_blob_func)(enum ntb_proto_inv_type type,
-                                 const uint8_t *hash,
-                                 int64_t timestamp,
+(* ntb_store_for_each_blob_func)(const uint8_t *hash,
+                                 int64_t expires_time,
                                  void *user_data);
 
 typedef void
 (* ntb_store_for_each_pubkey_blob_func)(const uint8_t *hash,
-                                        int64_t timestamp,
+                                        int64_t expires_time,
                                         struct ntb_blob *blob,
                                         void *user_data);
 

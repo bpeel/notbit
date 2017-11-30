@@ -1,6 +1,6 @@
 /*
  * Notbit - A Bitmessage client
- * Copyright (C) 2013  Neil Roberts
+ * Copyright (C) 2013, 2017  Neil Roberts
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -83,42 +83,6 @@ ntb_proto_check_command_string(const uint8_t *command_string)
         return true;
 }
 
-int64_t
-ntb_proto_get_max_age_for_type(enum ntb_proto_inv_type type)
-{
-        switch (type) {
-        case NTB_PROTO_INV_TYPE_PUBKEY:
-                /* The official client keeps pubkeys around for 4
-                 * weeks rather than 2.5 days so we should do the same
-                 * or we'll keep getting keys from peers that we'll
-                 * just reject later */
-                return 4 * 7 * 24 * 60 * 60;
-        case NTB_PROTO_INV_TYPE_MSG:
-        case NTB_PROTO_INV_TYPE_GETPUBKEY:
-        case NTB_PROTO_INV_TYPE_BROADCAST:
-                return 24 * 60 * 60 * 5 / 2;
-        }
-
-        assert(false);
-}
-
-const char *
-ntb_proto_get_command_name_for_type(enum ntb_proto_inv_type type)
-{
-        switch (type) {
-        case NTB_PROTO_INV_TYPE_GETPUBKEY:
-                return "getpubkey";
-        case NTB_PROTO_INV_TYPE_MSG:
-                return "msg";
-        case NTB_PROTO_INV_TYPE_BROADCAST:
-                return "broadcast";
-        case NTB_PROTO_INV_TYPE_PUBKEY:
-                return "pubkey";
-        }
-
-        assert(false);
-}
-
 uint16_t
 ntb_proto_get_16(const uint8_t *p)
 {
@@ -188,37 +152,6 @@ ntb_proto_get_var_int(const uint8_t **p_ptr,
                 *p_ptr += 9;
                 return true;
         }
-}
-
-bool
-ntb_proto_get_timestamp(const uint8_t **p_ptr,
-                        uint32_t *length_ptr,
-                        int64_t *result)
-{
-        /* The timestamp field is transitioning to a 64-bit type.
-         * Currently if the first 32-bits are zero it should be
-         * treated as a 64-bit value (which will obviously still be
-         * less than 32-bits) */
-
-        if (*length_ptr < sizeof (uint32_t))
-                return false;
-
-        *result = ntb_proto_get_32(*p_ptr);
-
-        *length_ptr -= sizeof (uint32_t);
-        *p_ptr += sizeof (uint32_t);
-
-        if (*result == 0) {
-                if (*length_ptr < sizeof (uint32_t))
-                        return false;
-
-                *result = ntb_proto_get_32(*p_ptr);
-
-                *length_ptr -= sizeof (uint32_t);
-                *p_ptr += sizeof (uint32_t);
-        }
-
-        return true;
 }
 
 bool
@@ -315,12 +248,6 @@ ntb_proto_get_command_va_list(const uint8_t *data_start,
                                                    va_arg(ap, uint64_t *)))
                                 return -1;
                         break;
-                case NTB_PROTO_ARGUMENT_TIMESTAMP:
-                        if (!ntb_proto_get_timestamp(&data,
-                                                     &length,
-                                                     va_arg(ap, int64_t *)))
-                                return -1;
-                        break;
                 case NTB_PROTO_ARGUMENT_NETADDRESS:
                         if (length < 16 + sizeof (uint16_t))
                                 return -1;
@@ -376,9 +303,6 @@ ntb_proto_get_decrypted_msg(const uint8_t *data,
 
         header_size = ntb_proto_get_command(data,
                                             data_length,
-
-                                            NTB_PROTO_ARGUMENT_VAR_INT,
-                                            &msg->message_version,
 
                                             NTB_PROTO_ARGUMENT_VAR_INT,
                                             &msg->sender_address_version,
@@ -579,36 +503,28 @@ ntb_proto_get_pubkey(bool decrypted,
 
         memset(pubkey, 0, sizeof *pubkey);
 
-        header_length = ntb_proto_get_command(data,
-                                              message_length,
+        header_length = ntb_proto_get_object_header(data,
+                                                    message_length,
+                                                    &pubkey->header);
 
-                                              NTB_PROTO_ARGUMENT_64,
-                                              &pubkey->nonce,
-
-                                              NTB_PROTO_ARGUMENT_TIMESTAMP,
-                                              &pubkey->timestamp,
-
-                                              NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &pubkey->version,
-
-                                              NTB_PROTO_ARGUMENT_VAR_INT,
-                                              &pubkey->stream,
-
-                                              NTB_PROTO_ARGUMENT_END);
-
-        if (header_length == -1)
+        if (header_length == -1 ||
+            pubkey->header.type != NTB_PROTO_INV_TYPE_PUBKEY)
                 return false;
 
         data += header_length;
         message_length -= header_length;
 
-        switch (pubkey->version) {
+        switch (pubkey->header.version) {
         case 2:
                 return process_v2_pubkey_parts(data,
                                                message_length,
                                                pubkey);
         case 4:
-                if (!decrypted) {
+                if (decrypted) {
+                        pubkey->tag = data;
+                        data += 32;
+                        message_length -= 32;
+                } else {
                         return process_v4_pubkey_parts(data,
                                                        message_length,
                                                        pubkey);
@@ -624,6 +540,32 @@ ntb_proto_get_pubkey(bool decrypted,
         default:
                 return false;
         }
+}
+
+ssize_t
+ntb_proto_get_object_header(const uint8_t *data,
+                            uint32_t length,
+                            struct ntb_proto_object_header *header)
+{
+        return ntb_proto_get_command(data,
+                                     length,
+
+                                     NTB_PROTO_ARGUMENT_64,
+                                     &header->nonce,
+
+                                     NTB_PROTO_ARGUMENT_64,
+                                     &header->expires_time,
+
+                                     NTB_PROTO_ARGUMENT_32,
+                                     &header->type,
+
+                                     NTB_PROTO_ARGUMENT_VAR_INT,
+                                     &header->version,
+
+                                     NTB_PROTO_ARGUMENT_VAR_INT,
+                                     &header->stream,
+
+                                     NTB_PROTO_ARGUMENT_END);
 }
 
 void
@@ -642,15 +584,6 @@ ntb_proto_add_var_int(struct ntb_buffer *buf,
                 ntb_proto_add_8(buf, 0xff);
                 ntb_proto_add_64(buf, value);
         }
-}
-
-void
-ntb_proto_add_timestamp(struct ntb_buffer *buf)
-{
-        time_t now;
-
-        time(&now);
-        ntb_proto_add_64(buf, (uint64_t) now);
 }
 
 void
@@ -766,9 +699,6 @@ ntb_proto_add_command_va_list(struct ntb_buffer *buf,
                         break;
                 case NTB_PROTO_ARGUMENT_VAR_INT:
                         ntb_proto_add_var_int(buf, va_arg(ap, uint64_t));
-                        break;
-                case NTB_PROTO_ARGUMENT_TIMESTAMP:
-                        ntb_proto_add_timestamp(buf);
                         break;
                 case NTB_PROTO_ARGUMENT_NETADDRESS:
                         netaddress = va_arg(ap, const struct ntb_netaddress *);

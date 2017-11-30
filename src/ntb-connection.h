@@ -71,12 +71,6 @@ struct ntb_connection_version_event {
 struct ntb_connection_object_event {
         struct ntb_connection_event base;
 
-        enum ntb_proto_inv_type type;
-
-        uint64_t nonce;
-        int64_t timestamp;
-        uint64_t stream_number;
-
         const uint8_t *object_data;
         size_t object_data_length;
 };
