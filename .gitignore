@@ -17,6 +17,7 @@
 
 /build/Makefile
 /build/Makefile.in
+/build/compile
 
 /doc/Makefile
 /doc/Makefile.in
