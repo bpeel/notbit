@@ -46,7 +46,7 @@ struct ntb_ecc {
         EC_POINT *pub_key_point;
 
         /* Used only between encrypt_begin/end */
-        size_t ciphertext_offset;
+        size_t hmac_data_start;
         uint8_t ecdh_keybuffer[SHA512_DIGEST_LENGTH];
         EVP_CIPHER_CTX cipher_ctx;
 };
@@ -307,6 +307,8 @@ ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
                                        kdf_sha512);
         assert(ecdh_keylen == sizeof ecc->ecdh_keybuffer);
 
+        ecc->hmac_data_start = data_out->length;
+
         /* Add the initialisation vector to data_out */
         iv_offset = data_out->length;
         iv_length = EVP_CIPHER_iv_length(cipher);
@@ -320,7 +322,6 @@ ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
         EC_KEY_free(ephemeral_key);
 
         /* Add the ciphertext to data_out */
-        ecc->ciphertext_offset = data_out->length;
         EVP_CIPHER_CTX_init(&ecc->cipher_ctx);
 
         /* The first half of the ecdh key is used for encryption */
@@ -388,8 +389,8 @@ ntb_ecc_encrypt_end(struct ntb_ecc *ecc,
                               ecc->ecdh_keybuffer +
                               sizeof ecc->ecdh_keybuffer / 2,
                               sizeof ecc->ecdh_keybuffer / 2,
-                              data_out->data + ecc->ciphertext_offset,
-                              data_out->length - ecc->ciphertext_offset,
+                              data_out->data + ecc->hmac_data_start,
+                              data_out->length - ecc->hmac_data_start,
                               data_out->data + data_out->length,
                               &hmac_len);
         assert(pointer_result);
@@ -514,8 +515,8 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         pointer_result = HMAC(EVP_sha256(),
                               ecdh_keybuffer + sizeof ecdh_keybuffer / 2,
                               sizeof ecdh_keybuffer / 2,
-                              data_in,
-                              data_in_length,
+                              iv,
+                              data_in + data_in_length - iv,
                               hmac_buf,
                               &hmac_len);
         assert(pointer_result);
