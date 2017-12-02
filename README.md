@@ -196,6 +196,12 @@ below:
  -i                    Don't listen for incoming connections.
 ```
 
+# Source Documentation
+
+A browsable html documentation of this source code: [/doc/html/]
+
+generated with `doxygen`, `doxywizard` and `graphviz`.
+
 # Contact
 
 If you have any comments or suggestions for notbit, please contact me

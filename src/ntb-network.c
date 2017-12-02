@@ -1534,6 +1534,12 @@ add_addr_string(struct ntb_network *nw,
         return addr;
 }
 
+/**
+ * New network. Some more description here
+ * 
+ * @param bool add_default_nodes if true, add a hard-coded list of initial nodes which we can use to discover more addresses
+ * @return network
+ */
 struct ntb_network *
 ntb_network_new(bool add_default_nodes)
 {
