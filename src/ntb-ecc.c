@@ -41,7 +41,7 @@
 
 struct ntb_ecc {
         BN_CTX *bn_ctx;
-        BIGNUM bn, bn2;
+        BIGNUM *bn, *bn2;
         EC_GROUP *group;
         EC_POINT *pub_key_point;
 
@@ -61,12 +61,12 @@ make_pub_key_in_point(struct ntb_ecc *ecc,
 
         bn_result = BN_bin2bn(private_key,
                               NTB_ECC_PRIVATE_KEY_SIZE,
-                              &ecc->bn);
+                              ecc->bn);
         assert(bn_result);
 
         result = EC_POINT_mul(ecc->group,
                               point,
-                              &ecc->bn,
+                              ecc->bn,
                               NULL,
                               NULL,
                               ecc->bn_ctx);
@@ -110,8 +110,8 @@ ntb_ecc_new(void)
 {
         struct ntb_ecc *ecc = ntb_alloc(sizeof *ecc);
 
-        BN_init(&ecc->bn);
-        BN_init(&ecc->bn2);
+        ecc->bn = BN_new();
+        ecc->bn2 = BN_new();
 
         ecc->bn_ctx = BN_CTX_new();
 
@@ -131,8 +131,8 @@ ntb_ecc_new(void)
 void
 ntb_ecc_free(struct ntb_ecc *ecc)
 {
-        BN_free(&ecc->bn2);
-        BN_free(&ecc->bn);
+        BN_free(ecc->bn2);
+        BN_free(ecc->bn);
         BN_CTX_free(ecc->bn_ctx);
         EC_POINT_free(ecc->pub_key_point);
         EC_GROUP_free(ecc->group);
@@ -156,10 +156,10 @@ create_key(struct ntb_ecc *ecc,
         if (private_key) {
                 bn_ret = BN_bin2bn(private_key,
                                    NTB_ECC_PRIVATE_KEY_SIZE,
-                                   &ecc->bn);
+                                   ecc->bn);
                 assert(bn_ret);
 
-                int_ret = EC_KEY_set_private_key(key, &ecc->bn);
+                int_ret = EC_KEY_set_private_key(key, ecc->bn);
                 assert(int_ret);
         }
 
@@ -270,8 +270,8 @@ encode_pubkey(struct ntb_ecc *ecc,
         /* Extract the x and y coordinates from the point */
         int_result = EC_POINT_get_affine_coordinates_GFp(ecc->group,
                                                          public_key,
-                                                         &ecc->bn,
-                                                         &ecc->bn2,
+                                                         ecc->bn,
+                                                         ecc->bn2,
                                                          ecc->bn_ctx);
         assert(int_result);
 
@@ -279,8 +279,8 @@ encode_pubkey(struct ntb_ecc *ecc,
         ntb_proto_add_16(data_out, EC_GROUP_get_curve_name(ecc->group));
 
         /* Add the point coordinates */
-        encode_bignumber(ecc, &ecc->bn, data_out);
-        encode_bignumber(ecc, &ecc->bn2, data_out);
+        encode_bignumber(ecc, ecc->bn, data_out);
+        encode_bignumber(ecc, ecc->bn2, data_out);
 }
 
 void
@@ -451,14 +451,14 @@ decode_pub_key(struct ntb_ecc *ecc,
         *data_in += sizeof (uint16_t);
         *data_in_length -= sizeof (uint16_t);
 
-        if (!decode_big_number(ecc, data_in, data_in_length, &ecc->bn) ||
-            !decode_big_number(ecc, data_in, data_in_length, &ecc->bn2))
+        if (!decode_big_number(ecc, data_in, data_in_length, ecc->bn) ||
+            !decode_big_number(ecc, data_in, data_in_length, ecc->bn2))
                 return false;
 
         int_result = EC_POINT_set_affine_coordinates_GFp(ecc->group,
                                                          public_key,
-                                                         &ecc->bn,
-                                                         &ecc->bn2,
+                                                         ecc->bn,
+                                                         ecc->bn2,
                                                          ecc->bn_ctx);
         assert(int_result);
 
