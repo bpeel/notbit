@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/bpeel/notbit.svg?branch=master)](https://travis-ci.com/bpeel/notbit)
+
 # Intro
 
 Notbit is a minimal client for the [Bitmessage](http://bitmessage.org)

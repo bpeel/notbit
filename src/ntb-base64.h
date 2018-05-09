@@ -26,6 +26,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #include "ntb-error.h"
 

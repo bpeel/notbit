@@ -1,0 +1,82 @@
+language: cpp
+matrix:
+  include:
+    - os: linux
+      dist: trusty
+      sudo: required
+      env: DEPLOY_FILE=notbit_linux64.tgz ARCH="x64"
+    - os: linux
+      dist: trusty
+      sudo: required
+      env: DEPLOY_FILE=notbit_linux32.tgz ARCH="x86"
+    - os: osx
+      osx_image: xcode7.2
+      compiler: clang
+      env: DEPLOY_FILE=notbit_mac.zip ARCH="mac"
+
+install:
+- >
+  if [[ $ARCH == "x86" ]]; then
+    sudo apt-get update                                         &&
+    sudo apt-get install --no-install-recommends -y gcc-multilib g++-multilib &&
+    sudo apt-get install -y libssl-dev:i386                     &&
+    export                                                      ;
+  fi &&
+  if [[ $ARCH == "x64" ]]; then
+    sudo apt-get update                                         &&
+    sudo apt-get install -y libssl-dev                          &&
+    export                                                      ;
+  fi &&
+  if [[ $ARCH == "mac" ]]; then
+    brew install openssl || echo -                              &&
+    brew upgrade openssl || echo -                              &&
+    brew link --force openssl                                   &&
+    export                                                      ;
+  fi &&
+  if [[ $ARCH == "mxe" ]]; then
+    sudo sh -c 'echo "deb http://pkg.mxe.cc/repos/apt/debian wheezy main" > /etc/apt/sources.list.d/mxeapt.list' &&
+    sudo apt-key adv \
+        --keyserver keyserver.ubuntu.com \
+        --recv-keys D43A795B73B16ABE9643FE1AFD8FFF16DB45C6AB        &&
+    sudo apt-get update                                             &&
+    export                                                          &&
+    sudo apt-get install -y mxe-i686-w64-mingw32.static-gcc         &&
+    sudo apt-get install -y mxe-i686-w64-mingw32.static-openssl     &&
+    sudo apt-get install -y mxe-i686-w64-mingw32.static-zlib        &&
+    export MXE_PATH=/usr/lib/mxe                                    &&
+    export CC=$MXE_PATH/usr/bin/i686-w64-mingw32.static-gcc         &&
+    export CXX=$MXE_PATH/usr/bin/i686-w64-mingw32.static-g++        &&
+    export                                                          ;
+  fi
+
+script:
+- cd "$TRAVIS_BUILD_DIR"
+- |
+  if [[ $ARCH == "x86" ]]; then
+    ./autogen.sh --prefix=$TRAVIS_BUILD_DIR/dist    &&
+    make -j2                                        &&
+    make install;
+  fi &&
+  if [[ $ARCH == "x64" ]]; then
+    ./autogen.sh --prefix=$TRAVIS_BUILD_DIR/dist &&
+    make -j2                                        &&
+    make install;
+  fi &&
+  if [[ $ARCH == "mac" ]]; then
+    cd /usr/local/lib/pkgconfig                     &&
+    sudo ln -s ../../Cellar/openssl/1.0.2o_1/lib/pkgconfig/libcrypto.pc &&
+    cd $TRAVIS_BUILD_DIR                            &&
+    pkg-config libcrypto --cflags                   &&
+    pkg-config libcrypto --libs                     &&
+    ./autogen.sh --prefix=$TRAVIS_BUILD_DIR/dist    &&
+    make -j2                                        &&
+    make install;
+  fi &&
+  if [[ $ARCH == "mxe" ]]; then
+    ./autogen.sh --prefix=$TRAVIS_BUILD_DIR/dist    &&
+    make -j2                                        &&
+    make install;
+  fi
+
+- ls -l dist/bin
+- file dist/bin/notbit
