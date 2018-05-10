@@ -1,5 +1,4 @@
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/f843c8ee69a449629ec6e63c758ad8be)](https://www.codacy.com/app/yshurik/notbit?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=yshurik/notbit&amp;utm_campaign=Badge_Grade)
-
 [![Build Status](https://travis-ci.com/bpeel/notbit.svg?branch=master)](https://travis-ci.com/bpeel/notbit)
 
 # Intro
