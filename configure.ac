@@ -90,7 +90,6 @@ AC_ARG_ENABLE(
 MAINTAINER_COMPILER_FLAGS="-Wall -Wcast-align -Wuninitialized
                            -Wno-strict-aliasing -Wempty-body -Wformat
                            -Wformat-security -Winit-self -Wundef
-                           -Wdeclaration-after-statement
                            -Wpointer-arith -Wmissing-declarations"
 
 AS_CASE(
