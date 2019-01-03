@@ -48,21 +48,14 @@ ntb_main_context_error;
 struct ntb_main_context_bucket;
 
 struct ntb_main_context {
-        /* This mutex only guards access to n_sources, the
-         * idle_sources list and the slice allocator so that idle
-         * sources can be added from other threads. Everything else
-         * should only be accessed from the main thread so it doesn't
-         * need to guarded. Removing an idle source can only happen in
-         * the main thread. That is necessary because it is difficult
-         * to cope with random idle sources being removed while we are
-         * iterating the list */
+        /* This mutex the idle_sources list and the slice allocator so
+         * that idle sources can be added from other threads.
+         * Everything else should only be accessed from the main
+         * thread so it doesn't need to guarded. Removing an idle
+         * source can only happen in the main thread. That is
+         * necessary because it is difficult to cope with random idle
+         * sources being removed while we are iterating the list */
         pthread_mutex_t idle_mutex;
-
-        /* Number of sources that are currently attached. This is used
-           so we can size the array passed to poll and to check that
-           there aren't any sources left when the main context is
-           destroyed */
-        unsigned int n_sources;
 
         /* Array for receiving events */
         struct ntb_buffer poll_array;
@@ -190,7 +183,6 @@ ntb_main_context_new(void)
         ntb_slice_allocator_init(&mc->source_allocator,
                                  sizeof(struct ntb_main_context_source),
                                  NTB_ALIGNOF(struct ntb_main_context_source));
-        mc->n_sources = 0;
         mc->monotonic_time_valid = false;
         mc->wall_time_valid = false;
         mc->poll_array_dirty = true;
@@ -234,7 +226,6 @@ ntb_main_context_add_poll(struct ntb_main_context *mc,
 
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
-        mc->n_sources++;
         pthread_mutex_unlock(&mc->idle_mutex);
 
         source->mc = mc;
@@ -275,7 +266,6 @@ ntb_main_context_add_quit(struct ntb_main_context *mc,
 
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
-        mc->n_sources++;
         pthread_mutex_unlock(&mc->idle_mutex);
 
         source->mc = mc;
@@ -320,7 +310,6 @@ ntb_main_context_add_timer(struct ntb_main_context *mc,
 
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
-        mc->n_sources++;
         pthread_mutex_unlock(&mc->idle_mutex);
 
         source->mc = mc;
@@ -356,7 +345,6 @@ ntb_main_context_add_idle(struct ntb_main_context *mc,
         pthread_mutex_lock(&mc->idle_mutex);
         source = ntb_slice_alloc(&mc->source_allocator);
         ntb_list_insert(&mc->idle_sources, &source->link);
-        mc->n_sources++;
         pthread_mutex_unlock(&mc->idle_mutex);
 
         source->mc = mc;
@@ -406,7 +394,6 @@ ntb_main_context_remove_source(struct ntb_main_context_source *source)
 
         pthread_mutex_lock(&mc->idle_mutex);
         ntb_slice_free(&mc->source_allocator, source);
-        mc->n_sources--;
         pthread_mutex_unlock(&mc->idle_mutex);
 }
 
@@ -693,10 +680,6 @@ ntb_main_context_free(struct ntb_main_context *mc)
         ntb_main_context_remove_source(mc->async_pipe_source);
         ntb_close(mc->async_pipe[0]);
         ntb_close(mc->async_pipe[1]);
-
-        if (mc->n_sources > 0)
-                ntb_warning("Sources still remain on a main context "
-                            "that is being freed");
 
         pthread_mutex_destroy(&mc->idle_mutex);
 
