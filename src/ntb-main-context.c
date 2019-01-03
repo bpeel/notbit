@@ -35,6 +35,7 @@
 #include <limits.h>
 #include <time.h>
 #include <pthread.h>
+#include <assert.h>
 
 #include "ntb-main-context.h"
 #include "ntb-list.h"
@@ -361,8 +362,6 @@ void
 ntb_main_context_remove_source(struct ntb_main_context_source *source)
 {
         struct ntb_main_context *mc = source->mc;
-        struct ntb_main_context_bucket *bucket;
-
 
         switch (source->type) {
         case NTB_MAIN_CONTEXT_POLL_SOURCE:
@@ -381,14 +380,7 @@ ntb_main_context_remove_source(struct ntb_main_context_source *source)
                 break;
 
         case NTB_MAIN_CONTEXT_TIMER_SOURCE:
-                bucket = source->bucket;
                 ntb_list_remove(&source->link);
-
-                if (ntb_list_empty(&bucket->sources)) {
-                        ntb_list_remove(&bucket->link);
-                        ntb_slice_free(&ntb_main_context_bucket_allocator,
-                                       bucket);
-                }
                 break;
         }
 
@@ -670,6 +662,17 @@ ntb_main_context_get_wall_clock(struct ntb_main_context *mc)
         return mc->wall_time;
 }
 
+static void
+free_buckets(struct ntb_main_context *mc)
+{
+        struct ntb_main_context_bucket *bucket, *tmp;
+
+        ntb_list_for_each_safe(bucket, tmp, &mc->buckets, link) {
+                assert(ntb_list_empty(&bucket->sources));
+                ntb_slice_free(&ntb_main_context_bucket_allocator, bucket);
+        }
+}
+
 void
 ntb_main_context_free(struct ntb_main_context *mc)
 {
@@ -680,6 +683,12 @@ ntb_main_context_free(struct ntb_main_context *mc)
         ntb_main_context_remove_source(mc->async_pipe_source);
         ntb_close(mc->async_pipe[0]);
         ntb_close(mc->async_pipe[1]);
+
+        assert(ntb_list_empty(&mc->quit_sources));
+        assert(ntb_list_empty(&mc->idle_sources));
+        assert(ntb_list_empty(&mc->poll_sources));
+
+        free_buckets(mc);
 
         pthread_mutex_destroy(&mc->idle_mutex);
 
