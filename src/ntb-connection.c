@@ -211,6 +211,15 @@ update_poll_flags(struct ntb_connection *conn)
         ntb_main_context_modify_poll(conn->socket_source, flags);
 }
 
+static void
+free_queue_entry(struct ntb_connection_queue_entry *entry)
+{
+        if (entry->blob)
+                ntb_blob_unref(entry->blob);
+        ntb_list_remove(&entry->link);
+        ntb_slice_free(&ntb_connection_queue_entry_allocator, entry);
+}
+
 static bool
 addr_command_handler(struct ntb_connection *conn,
                      const uint8_t *data,
@@ -600,10 +609,17 @@ load_cb(struct ntb_blob *blob,
 
         assert(entry->blob == NULL);
 
-        ntb_list_remove(&entry->link);
-        entry->blob = ntb_blob_ref(blob);
+        if (blob == NULL) {
+                /* blob will be NULL if the load failed. In that case
+                 * we can’t do anything so just abandon the object. */
+                free_queue_entry(entry);
+        } else {
+                ntb_list_remove(&entry->link);
 
-        ntb_list_insert(conn->ready_objects.prev, &entry->link);
+                entry->blob = ntb_blob_ref(blob);
+
+                ntb_list_insert(conn->ready_objects.prev, &entry->link);
+        }
 
         conn->load_cookie = NULL;
 
@@ -658,15 +674,6 @@ ntb_connection_send_blob(struct ntb_connection *conn,
                 ntb_list_insert(conn->objects_to_load.prev, &entry->link);
                 maybe_queue_load(conn);
         }
-}
-
-static void
-free_queue_entry(struct ntb_connection_queue_entry *entry)
-{
-        if (entry->blob)
-                ntb_blob_unref(entry->blob);
-        ntb_list_remove(&entry->link);
-        ntb_slice_free(&ntb_connection_queue_entry_allocator, entry);
 }
 
 static void
