@@ -195,8 +195,3 @@ below:
                        running under Tor.
  -i                    Don't listen for incoming connections.
 ```
-
-# Contact
-
-If you have any comments or suggestions for notbit, please contact me
-on [BM-NBPc2YUHUYrfGEUzsQapnTDXvhNDp2eh](mailto:BM-NBPc2YUHUYrfGEUzsQapnTDXvhNDp2eh@bitmessage)
