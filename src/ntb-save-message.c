@@ -76,7 +76,21 @@ write_encoded_words(const uint8_t *subject,
         size_t chunk_size;
 
         while (true) {
-                chunk_size = MIN(max_chunk_length, subject_length);
+                if (subject_length <= max_chunk_length) {
+                        chunk_size = subject_length;
+                } else {
+                        chunk_size = max_chunk_length;
+
+                        /* Try to split the chunk on a UTF-8 character
+                         * boundary. Keep looping while the character
+                         * we have cut off is a UTF-8 continuation
+                         * character or there is only one byte left.
+                         * Keeping at least one byte avoids an
+                         * infinite loop in case of invalid UTF-8. */
+                        while (chunk_size > 2 &&
+                               (subject[chunk_size] & 0xc0) == 0x80)
+                                chunk_size--;
+                }
 
                 encoded_size = ntb_base64_encode(subject, chunk_size, buf);
 
