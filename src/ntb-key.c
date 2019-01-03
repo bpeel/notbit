@@ -137,7 +137,7 @@ ntb_key_new(struct ntb_ecc *ecc,
         }
 
         if (private_encryption_key)
-                ECDH_set_method(key->encryption_key, ECDH_OpenSSL());
+                EC_KEY_set_method(key->encryption_key, EC_KEY_OpenSSL());
 
         if ((params->flags & NTB_KEY_PARAM_RIPE)) {
                 memcpy(key->address.ripe,

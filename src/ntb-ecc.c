@@ -48,7 +48,7 @@ struct ntb_ecc {
         /* Used only between encrypt_begin/end */
         size_t hmac_data_start;
         uint8_t ecdh_keybuffer[SHA512_DIGEST_LENGTH];
-        EVP_CIPHER_CTX cipher_ctx;
+        EVP_CIPHER_CTX *cipher_ctx;
 };
 
 static void
@@ -125,6 +125,10 @@ ntb_ecc_new(void)
 
         ecc->pub_key_point = EC_POINT_new(ecc->group);
 
+        ecc->cipher_ctx = EVP_CIPHER_CTX_new();
+        if (ecc->cipher_ctx == NULL)
+                ntb_fatal("Error creating EVP_CIPHER_CTX");
+
         return ecc;
 }
 
@@ -136,6 +140,7 @@ ntb_ecc_free(struct ntb_ecc *ecc)
         BN_CTX_free(ecc->bn_ctx);
         EC_POINT_free(ecc->pub_key_point);
         EC_GROUP_free(ecc->group);
+        EVP_CIPHER_CTX_free(ecc->cipher_ctx);
 
         ntb_free(ecc);
 }
@@ -299,7 +304,7 @@ ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
 
         ephemeral_key = ntb_ecc_create_random_key(ecc);
 
-        ECDH_set_method(ephemeral_key, ECDH_OpenSSL());
+        EC_KEY_set_method(ephemeral_key, EC_KEY_OpenSSL());
         ecdh_keylen = ECDH_compute_key(ecc->ecdh_keybuffer,
                                        sizeof ecc->ecdh_keybuffer,
                                        public_key,
@@ -322,10 +327,10 @@ ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
         EC_KEY_free(ephemeral_key);
 
         /* Add the ciphertext to data_out */
-        EVP_CIPHER_CTX_init(&ecc->cipher_ctx);
+        EVP_CIPHER_CTX_reset(ecc->cipher_ctx);
 
         /* The first half of the ecdh key is used for encryption */
-        int_result = EVP_EncryptInit_ex(&ecc->cipher_ctx,
+        int_result = EVP_EncryptInit_ex(ecc->cipher_ctx,
                                         cipher,
                                         NULL, /* default implementation */
                                         ecc->ecdh_keybuffer,
@@ -347,7 +352,7 @@ ntb_ecc_encrypt_update(struct ntb_ecc *ecc,
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_EncryptUpdate(&ecc->cipher_ctx,
+        int_result = EVP_EncryptUpdate(ecc->cipher_ctx,
                                        data_out->data + data_out->length,
                                        &out_length,
                                        data_in,
@@ -371,14 +376,12 @@ ntb_ecc_encrypt_end(struct ntb_ecc *ecc,
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_EncryptFinal_ex(&ecc->cipher_ctx,
+        int_result = EVP_EncryptFinal_ex(ecc->cipher_ctx,
                                          data_out->data + data_out->length,
                                          &out_length);
         assert(int_result);
 
         data_out->length += out_length;
-
-        EVP_CIPHER_CTX_cleanup(&ecc->cipher_ctx);
 
         /* Add the HMAC to data_out */
         ntb_buffer_ensure_size(data_out,
@@ -477,7 +480,6 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         int ecdh_keylen;
         const uint8_t *mac, *iv;
         const EVP_CIPHER *cipher = EVP_aes_256_cbc();
-        EVP_CIPHER_CTX cipher_ctx;
         int int_result;
         void *pointer_result;
         int iv_length;
@@ -525,10 +527,12 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         if (memcmp(hmac_buf, mac, sizeof hmac_buf))
                 return false;
 
-        EVP_CIPHER_CTX_init(&cipher_ctx);
+        EVP_CIPHER_CTX *cipher_ctx = EVP_CIPHER_CTX_new();
+        if (cipher_ctx == NULL)
+                ntb_fatal("Error creating EVP_CIPHER_CTX");
 
         /* The first half of the ecdh key is used for encryption */
-        int_result = EVP_DecryptInit_ex(&cipher_ctx,
+        int_result = EVP_DecryptInit_ex(cipher_ctx,
                                         cipher,
                                         NULL, /* default implementation */
                                         ecdh_keybuffer,
@@ -539,7 +543,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_DecryptUpdate(&cipher_ctx,
+        int_result = EVP_DecryptUpdate(cipher_ctx,
                                        data_out->data + data_out->length,
                                        &out_length,
                                        data_in,
@@ -554,7 +558,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
                                        data_out->length + out_length);
 
                 int_result =
-                        EVP_DecryptFinal_ex(&cipher_ctx,
+                        EVP_DecryptFinal_ex(cipher_ctx,
                                             data_out->data + data_out->length,
                                             &out_length);
                 if (!int_result)
@@ -563,7 +567,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
                         data_out->length += out_length;
         }
 
-        EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+        EVP_CIPHER_CTX_free(cipher_ctx);
 
         return result;
 }

@@ -1575,7 +1575,7 @@ ntb_network_new(bool add_default_nodes)
          * it would probably end up with a repeatable value anyway.
          * This value doesn't need to be cryptographically secure. */
         memset(&nw->nonce, 0, sizeof nw->nonce);
-        RAND_pseudo_bytes((unsigned char *) &nw->nonce, sizeof nw->nonce);
+        RAND_bytes((unsigned char *) &nw->nonce, sizeof nw->nonce);
 
         /* Add a hard-coded list of initial nodes which we can use to
          * discover more */
