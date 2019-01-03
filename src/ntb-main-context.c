@@ -106,7 +106,11 @@ struct ntb_main_context_source {
                 };
 
                 /* Timer sources */
-                struct ntb_main_context_bucket *bucket;
+                struct {
+                        struct ntb_main_context_bucket *bucket;
+                        bool busy;
+                        bool removed;
+                };
         };
 
         void *user_data;
@@ -135,6 +139,16 @@ ntb_main_context_get_default(void)
                 ntb_main_context_default = ntb_main_context_new();
 
         return ntb_main_context_default;
+}
+
+static void
+free_source(struct ntb_main_context *mc,
+            struct ntb_main_context_source *source)
+{
+        pthread_mutex_lock(&mc->idle_mutex);
+        ntb_list_remove(&source->link);
+        ntb_slice_free(&mc->source_allocator, source);
+        pthread_mutex_unlock(&mc->idle_mutex);
 }
 
 static void
@@ -318,6 +332,8 @@ ntb_main_context_add_timer(struct ntb_main_context *mc,
         source->callback = callback;
         source->type = NTB_MAIN_CONTEXT_TIMER_SOURCE;
         source->user_data = user_data;
+        source->removed = false;
+        source->busy = false;
 
         ntb_list_insert(&source->bucket->sources, &source->link);
 
@@ -365,28 +381,26 @@ ntb_main_context_remove_source(struct ntb_main_context_source *source)
 
         switch (source->type) {
         case NTB_MAIN_CONTEXT_POLL_SOURCE:
+                free_source(mc, source);
                 mc->poll_array_dirty = true;
-                ntb_list_remove(&source->link);
-                break;
-
-        case NTB_MAIN_CONTEXT_QUIT_SOURCE:
-                ntb_list_remove(&source->link);
                 break;
 
         case NTB_MAIN_CONTEXT_IDLE_SOURCE:
-                pthread_mutex_lock(&mc->idle_mutex);
-                ntb_list_remove(&source->link);
-                pthread_mutex_unlock(&mc->idle_mutex);
+        case NTB_MAIN_CONTEXT_QUIT_SOURCE:
+                free_source(mc, source);
                 break;
 
         case NTB_MAIN_CONTEXT_TIMER_SOURCE:
-                ntb_list_remove(&source->link);
+                /* Timer sources need to be able to be removed while
+                 * iterating the source list to emit, so we need to
+                 * handle them specially during iteration. */
+                assert(!source->removed);
+                if (source->busy)
+                        source->removed = true;
+                else
+                        free_source(mc, source);
                 break;
         }
-
-        pthread_mutex_lock(&mc->idle_mutex);
-        ntb_slice_free(&mc->source_allocator, source);
-        pthread_mutex_unlock(&mc->idle_mutex);
 }
 
 static int
@@ -427,26 +441,9 @@ get_timeout(struct ntb_main_context *mc)
 }
 
 static void
-emit_bucket(struct ntb_main_context_bucket *bucket)
-{
-        struct ntb_main_context_source *source, *tmp_source;
-        ntb_main_context_timer_callback callback;
-
-        ntb_list_for_each_safe(source,
-                               tmp_source,
-                               &bucket->sources,
-                               link) {
-                callback = source->callback;
-                callback(source, source->user_data);
-        }
-
-        bucket->minutes_passed = 0;
-}
-
-static void
 check_timer_sources(struct ntb_main_context *mc)
 {
-        struct ntb_main_context_bucket *bucket, *tmp_bucket;
+        struct ntb_main_context_bucket *bucket;
         int64_t now;
         int64_t elapsed_minutes;
 
@@ -460,11 +457,47 @@ check_timer_sources(struct ntb_main_context *mc)
         if (elapsed_minutes < 1)
                 return;
 
-        ntb_list_for_each_safe(bucket, tmp_bucket, &mc->buckets, link) {
-                if (bucket->minutes_passed + elapsed_minutes >= bucket->minutes)
-                        emit_bucket(bucket);
-                else
+        /* Collect all of the sources to emit into a list and mark
+         * them as busy. That way if they are removed they will just
+         * be marked as removed instead of actually modifying the
+         * bucket’s list. That way any timers can be removed as a
+         * result of invoking any callback.
+         */
+        struct ntb_list to_emit;
+        ntb_list_init(&to_emit);
+
+        ntb_list_for_each(bucket, &mc->buckets, link) {
+                if (bucket->minutes_passed + elapsed_minutes >=
+                    bucket->minutes) {
+                        ntb_list_insert_list(&to_emit, &bucket->sources);
+                        bucket->minutes_passed = 0;
+                        ntb_list_init(&bucket->sources);
+                } else {
                         bucket->minutes_passed += elapsed_minutes;
+                }
+        }
+
+        struct ntb_main_context_source *source, *tmp_source;
+
+        ntb_list_for_each(source, &to_emit, link) {
+                source->busy = true;
+        }
+
+        ntb_list_for_each(source, &to_emit, link) {
+                if (source->removed)
+                        continue;
+                ntb_main_context_timer_callback callback = source->callback;
+                callback(source, source->user_data);
+        }
+
+        ntb_list_for_each_safe(source, tmp_source, &to_emit, link) {
+                if (source->removed) {
+                        free_source(mc, source);
+                } else {
+                        ntb_list_insert(&source->bucket->sources,
+                                        &source->link);
+                        source->busy = false;
+                }
         }
 }
 
