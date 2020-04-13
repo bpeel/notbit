@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include <assert.h>
+#include <sys/types.h>
 
 #include "ntb-mail-parser.h"
 #include "ntb-buffer.h"
