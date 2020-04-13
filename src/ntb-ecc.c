@@ -27,10 +27,9 @@
 #include <string.h>
 #include <openssl/ripemd.h>
 #include <openssl/sha.h>
-#include <openssl/ecdsa.h>
 #include <openssl/obj_mac.h>
 #include <openssl/rand.h>
-#include <openssl/ecdh.h>
+#include <openssl/ec.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <assert.h>
@@ -41,14 +40,14 @@
 
 struct ntb_ecc {
         BN_CTX *bn_ctx;
-        BIGNUM bn, bn2;
+        BIGNUM *bn, *bn2;
         EC_GROUP *group;
         EC_POINT *pub_key_point;
 
         /* Used only between encrypt_begin/end */
         size_t hmac_data_start;
         uint8_t ecdh_keybuffer[SHA512_DIGEST_LENGTH];
-        EVP_CIPHER_CTX cipher_ctx;
+        EVP_CIPHER_CTX *cipher_ctx;
 };
 
 static void
@@ -61,12 +60,12 @@ make_pub_key_in_point(struct ntb_ecc *ecc,
 
         bn_result = BN_bin2bn(private_key,
                               NTB_ECC_PRIVATE_KEY_SIZE,
-                              &ecc->bn);
+                              ecc->bn);
         assert(bn_result);
 
         result = EC_POINT_mul(ecc->group,
                               point,
-                              &ecc->bn,
+                              ecc->bn,
                               NULL,
                               NULL,
                               ecc->bn_ctx);
@@ -110,8 +109,8 @@ ntb_ecc_new(void)
 {
         struct ntb_ecc *ecc = ntb_alloc(sizeof *ecc);
 
-        BN_init(&ecc->bn);
-        BN_init(&ecc->bn2);
+        ecc->bn = BN_new();
+        ecc->bn2= BN_new();
 
         ecc->bn_ctx = BN_CTX_new();
 
@@ -131,9 +130,10 @@ ntb_ecc_new(void)
 void
 ntb_ecc_free(struct ntb_ecc *ecc)
 {
-        BN_free(&ecc->bn2);
-        BN_free(&ecc->bn);
+        BN_free(ecc->bn2);
+        BN_free(ecc->bn);
         BN_CTX_free(ecc->bn_ctx);
+        EVP_CIPHER_CTX_free(ecc->cipher_ctx);
         EC_POINT_free(ecc->pub_key_point);
         EC_GROUP_free(ecc->group);
 
@@ -156,10 +156,10 @@ create_key(struct ntb_ecc *ecc,
         if (private_key) {
                 bn_ret = BN_bin2bn(private_key,
                                    NTB_ECC_PRIVATE_KEY_SIZE,
-                                   &ecc->bn);
+                                   ecc->bn);
                 assert(bn_ret);
 
-                int_ret = EC_KEY_set_private_key(key, &ecc->bn);
+                int_ret = EC_KEY_set_private_key(key, ecc->bn);
                 assert(int_ret);
         }
 
@@ -270,8 +270,8 @@ encode_pubkey(struct ntb_ecc *ecc,
         /* Extract the x and y coordinates from the point */
         int_result = EC_POINT_get_affine_coordinates_GFp(ecc->group,
                                                          public_key,
-                                                         &ecc->bn,
-                                                         &ecc->bn2,
+                                                         ecc->bn,
+                                                         ecc->bn2,
                                                          ecc->bn_ctx);
         assert(int_result);
 
@@ -279,8 +279,8 @@ encode_pubkey(struct ntb_ecc *ecc,
         ntb_proto_add_16(data_out, EC_GROUP_get_curve_name(ecc->group));
 
         /* Add the point coordinates */
-        encode_bignumber(ecc, &ecc->bn, data_out);
-        encode_bignumber(ecc, &ecc->bn2, data_out);
+        encode_bignumber(ecc, ecc->bn, data_out);
+        encode_bignumber(ecc, ecc->bn2, data_out);
 }
 
 void
@@ -299,7 +299,6 @@ ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
 
         ephemeral_key = ntb_ecc_create_random_key(ecc);
 
-        ECDH_set_method(ephemeral_key, ECDH_OpenSSL());
         ecdh_keylen = ECDH_compute_key(ecc->ecdh_keybuffer,
                                        sizeof ecc->ecdh_keybuffer,
                                        public_key,
@@ -322,10 +321,11 @@ ntb_ecc_encrypt_with_point_begin(struct ntb_ecc *ecc,
         EC_KEY_free(ephemeral_key);
 
         /* Add the ciphertext to data_out */
-        EVP_CIPHER_CTX_init(&ecc->cipher_ctx);
+        ecc->cipher_ctx = EVP_CIPHER_CTX_new();
+        EVP_CIPHER_CTX_init(ecc->cipher_ctx);
 
         /* The first half of the ecdh key is used for encryption */
-        int_result = EVP_EncryptInit_ex(&ecc->cipher_ctx,
+        int_result = EVP_EncryptInit_ex(ecc->cipher_ctx,
                                         cipher,
                                         NULL, /* default implementation */
                                         ecc->ecdh_keybuffer,
@@ -347,7 +347,7 @@ ntb_ecc_encrypt_update(struct ntb_ecc *ecc,
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_EncryptUpdate(&ecc->cipher_ctx,
+        int_result = EVP_EncryptUpdate(ecc->cipher_ctx,
                                        data_out->data + data_out->length,
                                        &out_length,
                                        data_in,
@@ -371,14 +371,14 @@ ntb_ecc_encrypt_end(struct ntb_ecc *ecc,
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_EncryptFinal_ex(&ecc->cipher_ctx,
+        int_result = EVP_EncryptFinal_ex(ecc->cipher_ctx,
                                          data_out->data + data_out->length,
                                          &out_length);
         assert(int_result);
 
         data_out->length += out_length;
 
-        EVP_CIPHER_CTX_cleanup(&ecc->cipher_ctx);
+        EVP_CIPHER_CTX_reset(ecc->cipher_ctx);
 
         /* Add the HMAC to data_out */
         ntb_buffer_ensure_size(data_out,
@@ -451,14 +451,14 @@ decode_pub_key(struct ntb_ecc *ecc,
         *data_in += sizeof (uint16_t);
         *data_in_length -= sizeof (uint16_t);
 
-        if (!decode_big_number(ecc, data_in, data_in_length, &ecc->bn) ||
-            !decode_big_number(ecc, data_in, data_in_length, &ecc->bn2))
+        if (!decode_big_number(ecc, data_in, data_in_length, ecc->bn) ||
+            !decode_big_number(ecc, data_in, data_in_length, ecc->bn2))
                 return false;
 
         int_result = EC_POINT_set_affine_coordinates_GFp(ecc->group,
                                                          public_key,
-                                                         &ecc->bn,
-                                                         &ecc->bn2,
+                                                         ecc->bn,
+                                                         ecc->bn2,
                                                          ecc->bn_ctx);
         assert(int_result);
 
@@ -477,7 +477,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         int ecdh_keylen;
         const uint8_t *mac, *iv;
         const EVP_CIPHER *cipher = EVP_aes_256_cbc();
-        EVP_CIPHER_CTX cipher_ctx;
+        EVP_CIPHER_CTX *cipher_ctx;
         int int_result;
         void *pointer_result;
         int iv_length;
@@ -525,10 +525,11 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         if (memcmp(hmac_buf, mac, sizeof hmac_buf))
                 return false;
 
-        EVP_CIPHER_CTX_init(&cipher_ctx);
+        cipher_ctx = EVP_CIPHER_CTX_new();
+        EVP_CIPHER_CTX_init(cipher_ctx);
 
         /* The first half of the ecdh key is used for encryption */
-        int_result = EVP_DecryptInit_ex(&cipher_ctx,
+        int_result = EVP_DecryptInit_ex(cipher_ctx,
                                         cipher,
                                         NULL, /* default implementation */
                                         ecdh_keybuffer,
@@ -539,7 +540,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
         ntb_buffer_ensure_size(data_out,
                                data_out->length + out_length);
 
-        int_result = EVP_DecryptUpdate(&cipher_ctx,
+        int_result = EVP_DecryptUpdate(cipher_ctx,
                                        data_out->data + data_out->length,
                                        &out_length,
                                        data_in,
@@ -554,7 +555,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
                                        data_out->length + out_length);
 
                 int_result =
-                        EVP_DecryptFinal_ex(&cipher_ctx,
+                        EVP_DecryptFinal_ex(cipher_ctx,
                                             data_out->data + data_out->length,
                                             &out_length);
                 if (!int_result)
@@ -563,7 +564,7 @@ ntb_ecc_decrypt(struct ntb_ecc *ecc,
                         data_out->length += out_length;
         }
 
-        EVP_CIPHER_CTX_cleanup(&cipher_ctx);
+        EVP_CIPHER_CTX_reset(cipher_ctx);
 
         return result;
 }

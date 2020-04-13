@@ -50,22 +50,22 @@ ntb_base58_encode(const uint8_t *input,
                   size_t length,
                   char *output)
 {
-        BIGNUM val;
+        BIGNUM* val;
         BN_ULONG part;
         char *p = output;
 
-        BN_init(&val);
+        val = BN_new();
 
-        if (BN_bin2bn(input, length, &val) == NULL)
+        if (BN_bin2bn(input, length, val) == NULL)
                 ntb_fatal("A big number operation failed");
 
-        while (!BN_is_zero(&val)) {
-                part = BN_div_word(&val, 58);
+        while (!BN_is_zero(val)) {
+                part = BN_div_word(val, 58);
                 assert(part >= 0 && part < 58);
                 *(p++) = alphabet[part];
         }
 
-        BN_free(&val);
+        BN_free(val);
 
         /* Make it big-endian */
         reverse_bytes(output, p - output);
@@ -102,34 +102,34 @@ ntb_base58_decode(const char *input,
                   uint8_t *output,
                   size_t output_length)
 {
-        BIGNUM val;
+        BIGNUM* val;
         int bn_result;
         int digit_value;
         int n_bytes;
         size_t i;
 
-        BN_init(&val);
+        val = BN_new();
 
         for (i = 0; i < input_length; i++) {
                 digit_value = get_digit_value(input[i]);
                 if (digit_value == -1)
                         return -1;
 
-                bn_result = BN_mul_word(&val, 58);
+                bn_result = BN_mul_word(val, 58);
                 assert(bn_result);
 
-                bn_result = BN_add_word(&val, digit_value);
+                bn_result = BN_add_word(val, digit_value);
                 assert(bn_result);
         }
 
-        n_bytes = BN_num_bytes(&val);
+        n_bytes = BN_num_bytes(val);
 
         if (n_bytes > output_length)
                 return -1;
 
-        BN_bn2bin(&val, output);
+        BN_bn2bin(val, output);
 
-        BN_free(&val);
+        BN_free(val);
 
         return n_bytes;
 }
