@@ -493,11 +493,12 @@ check_timer_sources(struct ntb_main_context *mc)
         ntb_list_for_each_safe(source, tmp_source, &to_emit, link) {
                 if (source->removed) {
                         free_source(mc, source);
-                } else {
-                        ntb_list_insert(&source->bucket->sources,
-                                        &source->link);
-                        source->busy = false;
                 }
+        }
+        ntb_list_for_each_safe(source, tmp_source, &to_emit, link) {
+                ntb_list_insert(&source->bucket->sources,
+                                &source->link);
+                source->busy = false;
         }
 }
 
