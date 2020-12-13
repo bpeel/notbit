@@ -494,6 +494,13 @@ check_timer_sources(struct ntb_main_context *mc)
                 if (source->removed) {
                         free_source(mc, source);
                 } else {
+                        /* Remove from tmp_source before inserting
+                         * into the bucket. Even though we are just
+                         * going to discard the to_emit list, this is
+                         * still important in order to have the
+                         * correct links in the neighbouring nodes.
+                         */
+                        ntb_list_remove(&source->link);
                         ntb_list_insert(&source->bucket->sources,
                                         &source->link);
                         source->busy = false;
