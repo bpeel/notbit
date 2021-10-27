@@ -781,7 +781,8 @@ check_signature_in_decrypted_msg(const uint8_t *header,
 {
         struct ntb_proto_decrypted_msg msg;
         uint8_t digest[SHA_DIGEST_LENGTH];
-        SHA_CTX sha_ctx;
+        SHA_CTX sha1_ctx;
+        SHA256_CTX sha2_ctx;
 
         ntb_log("Successfully decrypted a message using the key “%s”",
                 cookie->decrypt_msg.chosen_key->label);
@@ -793,22 +794,38 @@ check_signature_in_decrypted_msg(const uint8_t *header,
                 goto invalid;
         }
 
-        SHA1_Init(&sha_ctx);
-        SHA1_Update(&sha_ctx,
+        SHA1_Init(&sha1_ctx);
+        SHA1_Update(&sha1_ctx,
                     header + sizeof (uint64_t),
                     header_size - sizeof (uint64_t));
-        SHA1_Update(&sha_ctx,
+        SHA1_Update(&sha1_ctx,
                     cookie->decrypt_msg.result->data,
                     msg.signed_data_length);
-        SHA1_Final(digest, &sha_ctx);
+        SHA1_Final(digest, &sha1_ctx);
 
         if (!check_signature_for_digest(cookie->crypto,
                                         msg.sender_signing_key,
                                         digest,
                                         msg.sig,
                                         msg.sig_length)) {
-                ntb_log("The signature in the decrypted message is invalid");
-                goto invalid;
+                // fallback to check sha256
+                SHA256_Init(&sha2_ctx);
+                SHA256_Update(&sha2_ctx,
+                              header + sizeof (uint64_t),
+                              header_size - sizeof (uint64_t));
+                SHA256_Update(&sha2_ctx,
+                              cookie->decrypt_msg.result->data,
+                              msg.signed_data_length);
+                SHA256_Final(digest, &sha2_ctx);
+
+                if (!check_signature_for_digest(cookie->crypto,
+                                                msg.sender_signing_key,
+                                                digest,
+                                                msg.sig,
+                                                msg.sig_length)) {
+                        ntb_log("The signature in the decrypted message is invalid");
+                        goto invalid;
+                }
         }
 
         return;
