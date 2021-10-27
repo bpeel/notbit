@@ -528,6 +528,7 @@ static bool
 check_signature_for_digest(struct ntb_crypto *crypto,
                            const uint8_t *network_public_key,
                            const uint8_t *digest,
+                           size_t digest_length,
                            const uint8_t *signature,
                            size_t signature_length)
 {
@@ -546,7 +547,7 @@ check_signature_for_digest(struct ntb_crypto *crypto,
 
         verify_result = ECDSA_verify(0, /* type, ignored */
                                      digest,
-                                     SHA_DIGEST_LENGTH,
+                                     digest_length,
                                      signature,
                                      signature_length,
                                      key);
@@ -571,6 +572,7 @@ check_signature_for_data(struct ntb_crypto *crypto,
         return check_signature_for_digest(crypto,
                                           network_public_key,
                                           digest,
+                                          SHA_DIGEST_LENGTH,
                                           signature,
                                           signature_length);
 }
@@ -780,7 +782,8 @@ check_signature_in_decrypted_msg(const uint8_t *header,
                                  struct ntb_crypto_cookie *cookie)
 {
         struct ntb_proto_decrypted_msg msg;
-        uint8_t digest[SHA_DIGEST_LENGTH];
+        uint8_t digest1[SHA_DIGEST_LENGTH];
+        uint8_t digest2[SHA256_DIGEST_LENGTH];
         SHA_CTX sha1_ctx;
         SHA256_CTX sha2_ctx;
 
@@ -801,11 +804,12 @@ check_signature_in_decrypted_msg(const uint8_t *header,
         SHA1_Update(&sha1_ctx,
                     cookie->decrypt_msg.result->data,
                     msg.signed_data_length);
-        SHA1_Final(digest, &sha1_ctx);
+        SHA1_Final(digest1, &sha1_ctx);
 
         if (!check_signature_for_digest(cookie->crypto,
                                         msg.sender_signing_key,
-                                        digest,
+                                        digest1,
+                                        SHA_DIGEST_LENGTH,
                                         msg.sig,
                                         msg.sig_length)) {
                 // fallback to check sha256
@@ -816,11 +820,12 @@ check_signature_in_decrypted_msg(const uint8_t *header,
                 SHA256_Update(&sha2_ctx,
                               cookie->decrypt_msg.result->data,
                               msg.signed_data_length);
-                SHA256_Final(digest, &sha2_ctx);
+                SHA256_Final(digest2, &sha2_ctx);
 
                 if (!check_signature_for_digest(cookie->crypto,
                                                 msg.sender_signing_key,
-                                                digest,
+                                                digest2,
+                                                SHA256_DIGEST_LENGTH,
                                                 msg.sig,
                                                 msg.sig_length)) {
                         ntb_log("The signature in the decrypted message is invalid");
