@@ -27,6 +27,7 @@
 #include <string.h>
 #include <openssl/ripemd.h>
 #include <openssl/sha.h>
+#include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/ecdsa.h>
 #include <openssl/obj_mac.h>
@@ -776,16 +777,36 @@ handle_create_public_key(struct ntb_crypto_cookie *cookie)
         cookie->create_public_key.key = key;
 }
 
+static void 
+compute_msg_digest(const uint8_t *header,
+                   size_t header_size,
+                   const struct ntb_crypto_cookie *cookie,
+                   const struct ntb_proto_decrypted_msg *msg,
+                   const EVP_MD *type,
+                   uint8_t *digest,
+                   unsigned int *digest_length)
+{
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    
+    EVP_DigestInit_ex(ctx, type, NULL);
+    EVP_DigestUpdate(ctx,
+                     header + sizeof (uint64_t),
+                     header_size - sizeof (uint64_t));
+    EVP_DigestUpdate(ctx,
+                     cookie->decrypt_msg.result->data,
+                     msg->signed_data_length);
+    EVP_DigestFinal_ex(ctx, digest, digest_length);
+    EVP_MD_CTX_free(ctx);
+}
+
 static void
 check_signature_in_decrypted_msg(const uint8_t *header,
                                  size_t header_size,
                                  struct ntb_crypto_cookie *cookie)
 {
         struct ntb_proto_decrypted_msg msg;
-        uint8_t digest1[SHA_DIGEST_LENGTH];
-        uint8_t digest2[SHA256_DIGEST_LENGTH];
-        SHA_CTX sha1_ctx;
-        SHA256_CTX sha2_ctx;
+        uint8_t digest[EVP_MAX_MD_SIZE];
+        unsigned int digest_length;
 
         ntb_log("Successfully decrypted a message using the key “%s”",
                 cookie->decrypt_msg.chosen_key->label);
@@ -797,35 +818,32 @@ check_signature_in_decrypted_msg(const uint8_t *header,
                 goto invalid;
         }
 
-        SHA1_Init(&sha1_ctx);
-        SHA1_Update(&sha1_ctx,
-                    header + sizeof (uint64_t),
-                    header_size - sizeof (uint64_t));
-        SHA1_Update(&sha1_ctx,
-                    cookie->decrypt_msg.result->data,
-                    msg.signed_data_length);
-        SHA1_Final(digest1, &sha1_ctx);
+        compute_msg_digest(header, 
+                           header_size, 
+                           cookie, &msg, 
+                           EVP_sha1(), 
+                           digest, 
+                           &digest_length);
 
         if (!check_signature_for_digest(cookie->crypto,
                                         msg.sender_signing_key,
-                                        digest1,
-                                        SHA_DIGEST_LENGTH,
+                                        digest,
+                                        digest_length,
                                         msg.sig,
                                         msg.sig_length)) {
-                // fallback to check sha256
-                SHA256_Init(&sha2_ctx);
-                SHA256_Update(&sha2_ctx,
-                              header + sizeof (uint64_t),
-                              header_size - sizeof (uint64_t));
-                SHA256_Update(&sha2_ctx,
-                              cookie->decrypt_msg.result->data,
-                              msg.signed_data_length);
-                SHA256_Final(digest2, &sha2_ctx);
+                                        
+                /* fallback to check sha256 */
+                compute_msg_digest(header, 
+                                   header_size, 
+                                   cookie, &msg, 
+                                   EVP_sha256(), 
+                                   digest, 
+                                   &digest_length);
 
                 if (!check_signature_for_digest(cookie->crypto,
                                                 msg.sender_signing_key,
-                                                digest2,
-                                                SHA256_DIGEST_LENGTH,
+                                                digest,
+                                                digest_length,
                                                 msg.sig,
                                                 msg.sig_length)) {
                         ntb_log("The signature in the decrypted message is invalid");
