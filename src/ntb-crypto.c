@@ -807,6 +807,10 @@ check_signature_in_decrypted_msg(const uint8_t *header,
         struct ntb_proto_decrypted_msg msg;
         uint8_t digest[EVP_MAX_MD_SIZE];
         unsigned int digest_length;
+        static const EVP_MD *(* const digest_algos[])(void) = {
+                EVP_sha1,
+                EVP_sha256,
+        };
 
         ntb_log("Successfully decrypted a message using the key “%s”",
                 cookie->decrypt_msg.chosen_key->label);
@@ -818,40 +822,24 @@ check_signature_in_decrypted_msg(const uint8_t *header,
                 goto invalid;
         }
 
-        compute_msg_digest(header,
-                           header_size,
-                           cookie, &msg,
-                           EVP_sha1(),
-                           digest,
-                           &digest_length);
-
-        if (!check_signature_for_digest(cookie->crypto,
-                                        msg.sender_signing_key,
-                                        digest,
-                                        digest_length,
-                                        msg.sig,
-                                        msg.sig_length)) {
-
-                /* fallback to check sha256 */
+        for (unsigned i = 0; i < NTB_N_ELEMENTS(digest_algos); i++) {
                 compute_msg_digest(header,
                                    header_size,
                                    cookie, &msg,
-                                   EVP_sha256(),
+                                   digest_algos[i](),
                                    digest,
                                    &digest_length);
 
-                if (!check_signature_for_digest(cookie->crypto,
-                                                msg.sender_signing_key,
-                                                digest,
-                                                digest_length,
-                                                msg.sig,
-                                                msg.sig_length)) {
-                        ntb_log("The signature in the decrypted message is invalid");
-                        goto invalid;
-                }
+                if (check_signature_for_digest(cookie->crypto,
+                                               msg.sender_signing_key,
+                                               digest,
+                                               digest_length,
+                                               msg.sig,
+                                               msg.sig_length))
+                        return;
         }
 
-        return;
+        ntb_log("The signature in the decrypted message is invalid");
 
 invalid:
         ntb_key_unref(cookie->decrypt_msg.chosen_key);
