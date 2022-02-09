@@ -566,16 +566,34 @@ check_signature_for_data(struct ntb_crypto *crypto,
                          const uint8_t *signature,
                          size_t signature_length)
 {
-        uint8_t digest[SHA_DIGEST_LENGTH];
+        uint8_t digest[EVP_MAX_MD_SIZE];
+        unsigned int digest_length;
+        static const EVP_MD *(* const digest_algos[])(void) = {
+                EVP_sha1,
+                EVP_sha256,
+        };
 
-        SHA1(data, data_length, digest);
+        for (unsigned i = 0; i < NTB_N_ELEMENTS(digest_algos); i++) {
 
-        return check_signature_for_digest(crypto,
-                                          network_public_key,
-                                          digest,
-                                          SHA_DIGEST_LENGTH,
-                                          signature,
-                                          signature_length);
+                EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+
+                EVP_DigestInit_ex(ctx, digest_algos[i](), NULL);
+                EVP_DigestUpdate(ctx,
+                                 data,
+                                 data_length);
+                EVP_DigestFinal_ex(ctx, digest, &digest_length);
+                EVP_MD_CTX_free(ctx);
+
+                if (check_signature_for_digest(crypto,
+                                               network_public_key,
+                                               digest,
+                                               digest_length,
+                                               signature,
+                                               signature_length))
+                    return true;
+        }
+
+        return false;
 }
 
 static void
