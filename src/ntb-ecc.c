@@ -458,12 +458,12 @@ decode_pub_key(struct ntb_ecc *ecc,
             !decode_big_number(ecc, data_in, data_in_length, ecc->bn2))
                 return false;
 
-        int_result = EC_POINT_set_affine_coordinates_GFp(ecc->group,
-                                                         public_key,
-                                                         ecc->bn,
-                                                         ecc->bn2,
-                                                         ecc->bn_ctx);
-        assert(int_result);
+        if (!EC_POINT_set_affine_coordinates_GFp(ecc->group,
+                                                 public_key,
+                                                 ecc->bn,
+                                                 ecc->bn2,
+                                                 ecc->bn_ctx))
+                return false;
 
         return true;
 }
